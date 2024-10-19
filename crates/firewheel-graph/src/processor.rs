@@ -105,7 +105,7 @@ impl FirewheelProcessor {
                     num_in_channels,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         firewheel_core::util::deinterleave(
-                            channels.iter_mut().map(|ch| &mut ch[..block_frames]),
+                            channels,
                             &input[frames_processed * num_in_channels
                                 ..(frames_processed + block_frames) * num_in_channels],
                             num_in_channels,
@@ -125,25 +125,13 @@ impl FirewheelProcessor {
                     block_frames,
                     num_out_channels,
                     |channels: &[&[f32]], silence_mask| {
-                        if channels.len() == 2 && num_out_channels == 2 {
-                            // Use optimized stereo interleaving since it is the most
-                            // common case.
-                            firewheel_core::util::interleave_stereo(
-                                &channels[0][..block_frames],
-                                &channels[1][..block_frames],
-                                &mut output[frames_processed * num_out_channels
-                                    ..(frames_processed + block_frames) * num_out_channels],
-                                Some(silence_mask),
-                            );
-                        } else {
-                            firewheel_core::util::interleave(
-                                channels.iter().map(|ch| &ch[..block_frames]),
-                                &mut output[frames_processed * num_out_channels
-                                    ..(frames_processed + block_frames) * num_out_channels],
-                                num_out_channels,
-                                Some(silence_mask),
-                            );
-                        }
+                        firewheel_core::util::interleave(
+                            channels,
+                            &mut output[frames_processed * num_out_channels
+                                ..(frames_processed + block_frames) * num_out_channels],
+                            num_out_channels,
+                            Some(silence_mask),
+                        );
                     },
                 );
 
