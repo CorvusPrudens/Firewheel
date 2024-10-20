@@ -1,12 +1,25 @@
-use std::{any::Any, fmt::Debug, time::Duration};
+use std::{
+    any::Any,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+    time::Duration,
+    u32,
+};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::node::StreamStatus;
+use firewheel_core::{
+    clock::{Clock, ClockID},
+    node::StreamStatus,
+    StreamInfo,
+};
 use firewheel_graph::{
     backend::DeviceInfo,
-    graph::{AudioGraph, AudioGraphConfig},
+    graph::AudioGraph,
     processor::{FirewheelProcessor, FirewheelProcessorStatus},
-    FirewheelGraphCtx, UpdateStatus,
+    FirewheelConfig, FirewheelGraphCtx, UpdateStatus,
 };
 
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
@@ -17,7 +30,7 @@ struct ActiveState {
     _to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
     from_err_rx: rtrb::Consumer<cpal::StreamError>,
     out_device_name: String,
-    config: cpal::StreamConfig,
+    cpal_config: cpal::StreamConfig,
 }
 
 pub struct FirewheelCpalCtx {
@@ -26,9 +39,9 @@ pub struct FirewheelCpalCtx {
 }
 
 impl FirewheelCpalCtx {
-    pub fn new(graph_config: AudioGraphConfig) -> Self {
+    pub fn new(config: FirewheelConfig) -> Self {
         Self {
-            cx: FirewheelGraphCtx::new(graph_config),
+            cx: FirewheelGraphCtx::new(config),
             active_state: None,
         }
     }
@@ -101,8 +114,7 @@ impl FirewheelCpalCtx {
     /// Returns an error if the context is already active.
     pub fn activate(
         &mut self,
-        output_device: Option<&String>,
-        fallback: bool,
+        config: AudioStreamConfig,
         user_cx: Option<Box<dyn Any + Send>>,
     ) -> Result<(), (ActivateError, Option<Box<dyn Any + Send>>)> {
         if self.cx.is_activated() {
@@ -111,8 +123,10 @@ impl FirewheelCpalCtx {
 
         let host = cpal::default_host();
 
+        // What a mess cpal's API is.
+
         let mut device = None;
-        if let Some(output_device_name) = output_device {
+        if let Some(output_device_name) = &config.output_device_name {
             match host.output_devices() {
                 Ok(mut output_devices) => {
                     if let Some(d) = output_devices.find(|d| {
@@ -123,7 +137,7 @@ impl FirewheelCpalCtx {
                         }
                     }) {
                         device = Some(d);
-                    } else if fallback {
+                    } else if config.fallback {
                         log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &output_device_name);
                     } else {
                         return Err((
@@ -133,7 +147,7 @@ impl FirewheelCpalCtx {
                     }
                 }
                 Err(e) => {
-                    if fallback {
+                    if config.fallback {
                         log::error!("Failed to get output audio devices: {}. Falling back to default device...", e);
                     } else {
                         return Err((e.into(), user_cx));
@@ -144,7 +158,7 @@ impl FirewheelCpalCtx {
 
         if device.is_none() {
             let Some(default_device) = host.default_output_device() else {
-                if fallback {
+                if config.fallback {
                     log::error!("No default audio output device found. Falling back to dummy output device...");
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
@@ -156,10 +170,10 @@ impl FirewheelCpalCtx {
         }
         let device = device.unwrap();
 
-        let config = match device.default_output_config() {
+        let default_cpal_config = match device.default_output_config() {
             Ok(c) => c,
             Err(e) => {
-                if fallback {
+                if config.fallback {
                     log::error!(
                         "Failed to get default config for output audio device: {}. Falling back to dummy output device...",
                         e
@@ -172,22 +186,70 @@ impl FirewheelCpalCtx {
             }
         };
 
-        let config = config.config();
+        let mut desired_sample_rate = config
+            .desired_sample_rate
+            .unwrap_or(default_cpal_config.sample_rate().0);
+        let desired_latency_frames = if let Some(mut frames) = config.desired_latency_frames {
+            if let &cpal::SupportedBufferSize::Range { min, max } =
+                default_cpal_config.buffer_size()
+            {
+                frames = frames.clamp(min, max);
+            }
+
+            Some(frames)
+        } else {
+            None
+        };
+
+        let supported_cpal_configs = match device.supported_output_configs() {
+            Ok(c) => c,
+            Err(e) => {
+                if config.fallback {
+                    log::error!(
+                        "Failed to get configs for output audio device: {}. Falling back to dummy output device...",
+                        e
+                    );
+                    // TODO: Use dummy audio backend as fallback.
+                    todo!()
+                } else {
+                    return Err((e.into(), user_cx));
+                }
+            }
+        };
+
+        let mut min_sample_rate = u32::MAX;
+        let mut max_sample_rate = 0;
+        for config in supported_cpal_configs.into_iter() {
+            min_sample_rate = min_sample_rate.min(config.min_sample_rate().0);
+            max_sample_rate = max_sample_rate.max(config.max_sample_rate().0);
+        }
+        desired_sample_rate = desired_sample_rate.clamp(min_sample_rate, max_sample_rate);
 
         let num_in_channels = 0;
-        let num_out_channels = config.channels as usize;
-
+        let num_out_channels = default_cpal_config.channels() as usize;
         assert_ne!(num_out_channels, 0);
+
+        let desired_buffer_size = if let Some(frames) = desired_latency_frames {
+            cpal::BufferSize::Fixed(frames)
+        } else {
+            cpal::BufferSize::Default
+        };
+
+        let cpal_config = cpal::StreamConfig {
+            channels: num_out_channels as u16,
+            sample_rate: cpal::SampleRate(desired_sample_rate),
+            buffer_size: desired_buffer_size,
+        };
 
         let out_device_name = device.name().unwrap_or_else(|_| "unkown".into());
 
         log::info!(
             "Starting output audio stream with device \"{}\" with configuration {:?}",
             &out_device_name,
-            &config
+            &cpal_config
         );
 
-        let max_block_frames = match config.buffer_size {
+        let max_block_frames = match cpal_config.buffer_size {
             cpal::BufferSize::Default => 1024,
             cpal::BufferSize::Fixed(f) => f as usize,
         };
@@ -201,22 +263,47 @@ impl FirewheelCpalCtx {
             num_in_channels,
             num_out_channels,
             from_ctx_rx,
-            config.sample_rate.0,
+            cpal_config.sample_rate.0,
         );
 
+        // There doesn't seem to be a way to get the stream latency from cpal before
+        // the stream starts when using the `Default` buffer size, so do this as a
+        // workaround.
+        let (mut sl, mut sl1, sl2) = if let cpal::BufferSize::Default = cpal_config.buffer_size {
+            let sl = Arc::new(AtomicU32::new(u32::MAX));
+            (Some(Arc::clone(&sl)), Some(Arc::clone(&sl)), Some(sl))
+        } else {
+            (None, None, None)
+        };
+
         let stream = match device.build_output_stream(
-            &config,
+            &cpal_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                if let Some(sl1) = sl1.take() {
+                    sl1.store((output.len() / num_out_channels) as u32, Ordering::Relaxed);
+                }
+
                 data_callback.callback(output, info);
             },
             move |err| {
+                // Make sure we don't deadlock if there happens to be an error right away.
+                if let Some(sl2) = &sl2 {
+                    sl2.store(0, Ordering::Relaxed);
+                }
+
                 let _ = err_to_cx_tx.push(err);
             },
             Some(BUILD_STREAM_TIMEOUT),
         ) {
             Ok(s) => s,
             Err(e) => {
-                if fallback {
+                // Make sure we don't deadlock if there happens to be an error.
+                #[allow(unused_assignments)]
+                {
+                    sl = None;
+                }
+
+                if config.fallback {
                     log::error!("Failed to start output audio stream: {}. Falling back to dummy output device...", e);
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
@@ -230,15 +317,30 @@ impl FirewheelCpalCtx {
             return Err((e.into(), user_cx));
         }
 
+        let stream_latency_frames = if let Some(sl) = sl.take() {
+            while sl.load(Ordering::Relaxed) == u32::MAX {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+
+            sl.load(Ordering::Relaxed)
+        } else if let cpal::BufferSize::Fixed(frames) = cpal_config.buffer_size {
+            frames
+        } else {
+            unreachable!()
+        };
+
         let user_cx = user_cx.unwrap_or(Box::new(()));
 
         let processor = self
             .cx
             .activate(
-                config.sample_rate.0,
-                num_in_channels,
-                num_out_channels,
-                max_block_frames,
+                StreamInfo {
+                    sample_rate: cpal_config.sample_rate.0,
+                    max_block_frames: max_block_frames as u32,
+                    stream_latency_frames,
+                    num_stream_in_channels: num_in_channels as u32,
+                    num_stream_out_channels: num_out_channels as u32,
+                },
                 user_cx,
             )
             .unwrap();
@@ -252,7 +354,7 @@ impl FirewheelCpalCtx {
             _to_stream_tx: to_stream_tx,
             from_err_rx,
             out_device_name,
-            config,
+            cpal_config,
         });
 
         Ok(())
@@ -261,6 +363,33 @@ impl FirewheelCpalCtx {
     /// Returns whether or not this context is currently activated.
     pub fn is_activated(&self) -> bool {
         self.cx.is_activated()
+    }
+
+    /// Add a new clock to the system.
+    ///
+    /// Returns an error if the context is not activated.
+    pub fn add_clock(&mut self) -> Result<ClockID, ()> {
+        self.cx.add_clock()
+    }
+
+    /// Remove a clock from the system.
+    ///
+    /// Returns `false` if the clock was already removed.
+    pub fn remove_clock(&mut self, id: ClockID) -> Result<bool, ()> {
+        self.cx.remove_clock(id)
+    }
+
+    /// Retrieve a clock
+    ///
+    /// Returns `None` if the clock no longer exists or the context is not
+    /// activated.
+    pub fn clock(&self, id: ClockID) -> Option<&Clock> {
+        self.cx.clock(id)
+    }
+
+    /// Return an iterator over all of the existing clocks in the system.
+    pub fn clocks_iter<'a>(&'a self) -> impl Iterator<Item = (ClockID, &'a Clock)> {
+        self.cx.clocks_iter()
     }
 
     /// Get the name of the audio output device.
@@ -272,11 +401,18 @@ impl FirewheelCpalCtx {
             .map(|s| s.out_device_name.as_str())
     }
 
+    /// Get information about the current audio stream.
+    ///
+    /// Returns `None` if the context is not currently activated.
+    pub fn stream_info(&self) -> Option<&StreamInfo> {
+        self.cx.stream_info()
+    }
+
     /// Get the current configuration of the audio stream.
     ///
     /// Returns `None` if the context is not currently activated.
     pub fn stream_config(&self) -> Option<&cpal::StreamConfig> {
-        self.active_state.as_ref().map(|s| &s.config)
+        self.active_state.as_ref().map(|s| &s.cpal_config)
     }
 
     /// Update the firewheel context.
@@ -342,6 +478,25 @@ impl FirewheelCpalCtx {
 impl Debug for FirewheelCpalCtx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FirewheelCpalCtx")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioStreamConfig {
+    pub output_device_name: Option<String>,
+    pub desired_sample_rate: Option<u32>,
+    pub desired_latency_frames: Option<u32>,
+    pub fallback: bool,
+}
+
+impl Default for AudioStreamConfig {
+    fn default() -> Self {
+        Self {
+            output_device_name: None,
+            desired_sample_rate: None,
+            desired_latency_frames: None,
+            fallback: true,
+        }
     }
 }
 
@@ -471,6 +626,8 @@ pub enum ActivateError {
     FailedToGetDevices(#[from] cpal::DevicesError),
     #[error("Failed to get default audio output device")]
     DefaultDeviceNotFound,
+    #[error("Failed to get audio device configs: {0}")]
+    FailedToGetConfigs(#[from] cpal::SupportedStreamConfigsError),
     #[error("Failed to get audio device config: {0}")]
     FailedToGetConfig(#[from] cpal::DefaultStreamConfigError),
     #[error("Failed to build audio stream: {0}")]

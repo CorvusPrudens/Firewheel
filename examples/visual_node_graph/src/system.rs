@@ -30,7 +30,7 @@ pub struct AudioSystem {
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelCtx::new(Default::default());
-        cx.activate(None, true, None).unwrap();
+        cx.activate(Default::default(), None).unwrap();
 
         Self { cx }
     }

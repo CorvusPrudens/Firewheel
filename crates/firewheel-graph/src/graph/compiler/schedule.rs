@@ -2,7 +2,10 @@ use arrayvec::ArrayVec;
 use smallvec::SmallVec;
 use std::fmt::Debug;
 
-use firewheel_core::{node::AudioNodeProcessor, SilenceMask};
+use firewheel_core::{
+    node::{AudioNodeProcessor, ProcessStatus},
+    SilenceMask,
+};
 
 use super::NodeID;
 
@@ -289,7 +292,13 @@ impl CompiledSchedule {
     pub fn process(
         &mut self,
         frames: usize,
-        mut process: impl FnMut(NodeID, SilenceMask, &[&[f32]], &mut [&mut [f32]]) -> SilenceMask,
+        mut process: impl FnMut(
+            NodeID,
+            SilenceMask,
+            SilenceMask,
+            &[&[f32]],
+            &mut [&mut [f32]],
+        ) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
 
@@ -298,6 +307,7 @@ impl CompiledSchedule {
 
         for scheduled_node in self.schedule.iter() {
             let mut in_silence_mask = SilenceMask::NONE_SILENT;
+            let mut out_silence_mask = SilenceMask::NONE_SILENT;
 
             inputs.clear();
             outputs.clear();
@@ -319,25 +329,50 @@ impl CompiledSchedule {
                 inputs.push(buf);
             }
 
-            for b in scheduled_node.output_buffers.iter() {
-                outputs.push(buffer_slice_mut(
-                    &self.buffers,
-                    b.buffer_index,
-                    self.max_block_frames,
-                    frames,
-                ));
+            for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
+                let buf =
+                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+
+                if *s {
+                    out_silence_mask.set_channel(i, true);
+                }
+
+                outputs.push(buf);
             }
 
-            let out_silence_mask = (process)(
+            let status = (process)(
                 scheduled_node.id,
                 in_silence_mask,
+                out_silence_mask,
                 inputs.as_slice(),
                 outputs.as_mut_slice(),
             );
 
-            for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) =
-                    out_silence_mask.is_channel_silent(i);
+            match status {
+                ProcessStatus::NoOutputsModified => {
+                    // Clear output buffers which need cleared.
+                    for b in scheduled_node.output_buffers.iter() {
+                        let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+
+                        if !*s {
+                            buffer_slice_mut(
+                                &self.buffers,
+                                b.buffer_index,
+                                self.max_block_frames,
+                                frames,
+                            )
+                            .fill(0.0);
+                            *s = true;
+                        }
+                    }
+                }
+                ProcessStatus::OutputsModified { out_silence_mask } => {
+                    for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
+                        *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) =
+                            out_silence_mask.is_channel_silent(i);
+                    }
+                }
             }
         }
     }
@@ -393,7 +428,8 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 mod tests {
     use crate::{
         basic_nodes::DummyAudioNode,
-        graph::{AddEdgeError, AudioGraph, AudioGraphConfig, EdgeID, InPortIdx, OutPortIdx},
+        graph::{AddEdgeError, AudioGraph, EdgeID, InPortIdx, OutPortIdx},
+        FirewheelConfig,
     };
 
     use super::*;
@@ -406,7 +442,7 @@ mod tests {
     //  └───┘  └───┘
     #[test]
     fn simplest_graph_compile_test() {
-        let mut graph = AudioGraph::new(&AudioGraphConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: 1,
             num_graph_outputs: 1,
             ..Default::default()
@@ -450,7 +486,7 @@ mod tests {
     //       └───┘         └───┘
     #[test]
     fn graph_compile_test_1() {
-        let mut graph = AudioGraph::new(&AudioGraphConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: 2,
             num_graph_outputs: 2,
             ..Default::default()
@@ -538,7 +574,7 @@ mod tests {
     //   └───┘         └───┘
     #[test]
     fn graph_compile_test_2() {
-        let mut graph = AudioGraph::new(&AudioGraphConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: 2,
             num_graph_outputs: 2,
             ..Default::default()
@@ -661,7 +697,7 @@ mod tests {
 
     #[test]
     fn many_to_one_detection() {
-        let mut graph = AudioGraph::new(&AudioGraphConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: 2,
             num_graph_outputs: 1,
             ..Default::default()
@@ -684,7 +720,7 @@ mod tests {
 
     #[test]
     fn cycle_detection() {
-        let mut graph = AudioGraph::new(&AudioGraphConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: 0,
             num_graph_outputs: 2,
             ..Default::default()

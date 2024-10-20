@@ -1,7 +1,7 @@
 use downcast_rs::Downcast;
 use std::{any::Any, error::Error};
 
-use crate::SilenceMask;
+use crate::{SilenceMask, StreamInfo};
 
 pub trait AudioNode: 'static + Downcast {
     fn debug_name(&self) -> &'static str;
@@ -11,8 +11,7 @@ pub trait AudioNode: 'static + Downcast {
     /// Activate the audio node for processing.
     fn activate(
         &mut self,
-        sample_rate: u32,
-        max_block_frames: usize,
+        stream_info: StreamInfo,
         num_inputs: usize,
         num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>>;
@@ -34,12 +33,38 @@ pub trait AudioNode: 'static + Downcast {
 
 downcast_rs::impl_downcast!(AudioNode);
 
+/// The status of processing buffers in an audio node.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessStatus {
+    /// No output buffers were modified. If this is returned, then
+    /// the engine will automatically clear all output buffers
+    /// efficiently.
+    #[default]
+    NoOutputsModified,
+    /// Output buffers were modified
+    OutputsModified { out_silence_mask: SilenceMask },
+}
+
+impl ProcessStatus {
+    /// All output buffers were filled with non-silence
+    pub const fn all_outputs_filled() -> Self {
+        Self::OutputsModified {
+            out_silence_mask: SilenceMask::NONE_SILENT,
+        }
+    }
+
+    /// Output buffers were modified
+    pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
+        Self::OutputsModified { out_silence_mask }
+    }
+}
+
 pub trait AudioNodeProcessor: 'static + Send {
     /// Process the given block of audio. Only process data in the
     /// buffers up to `frames`.
     ///
-    /// Note, all output buffers *MUST* be filled with data up to
-    /// `frames`.
+    /// The node *MUST* either return `ProcessStatus::NoOutputsModified`
+    /// or fill all output buffers with data.
     ///
     /// If any output buffers contain all zeros up to `frames` (silent),
     /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
@@ -49,7 +74,7 @@ pub trait AudioNodeProcessor: 'static + Send {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo,
-    );
+    ) -> ProcessStatus;
 }
 
 /// Additional information about an [`AudioNode`]
@@ -97,13 +122,10 @@ pub struct ProcInfo<'a> {
     /// the second bit is the second channel, and so on.
     pub in_silence_mask: SilenceMask,
 
-    /// An optional optimization hint to notify the host which output
-    /// channels contain all zeros (silence). The first bit (`0b1`) is
-    /// the first channel, the second bit is the second channel, and so
-    /// on.
-    ///
-    /// By default no channels are flagged as silent.
-    pub out_silence_mask: &'a mut SilenceMask,
+    /// An optional optimization hint on which output channels contain
+    /// all zeros (silence). The first bit (`0b1`) is the first channel,
+    /// the second bit is the second channel, and so on.
+    pub out_silence_mask: SilenceMask,
 
     /// The number of seconds that have elapsed from when the stream was
     /// started to the fist sample in this process cycle. This uses the

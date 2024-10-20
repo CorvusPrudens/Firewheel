@@ -4,4 +4,4 @@ mod context;
 pub mod graph;
 pub mod processor;
 
-pub use context::{FirewheelGraphCtx, UpdateStatus};
+pub use context::{FirewheelConfig, FirewheelGraphCtx, UpdateStatus};

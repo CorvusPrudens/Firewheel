@@ -27,7 +27,7 @@ fn main() {
         .connect(beep_test_node, 1, graph.graph_out_node(), 1, false)
         .unwrap();
 
-    cx.activate(None, true, None).unwrap();
+    cx.activate(Default::default(), None).unwrap();
 
     let start = Instant::now();
     while start.elapsed() < BEEP_DURATION {

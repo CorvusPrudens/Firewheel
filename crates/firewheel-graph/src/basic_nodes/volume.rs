@@ -1,7 +1,8 @@
 use atomic_float::AtomicF32;
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
     param::{range::percent_volume_to_raw_gain, smoother::ParamSmoother},
+    StreamInfo,
 };
 use std::sync::{atomic::Ordering, Arc};
 
@@ -55,8 +56,7 @@ impl AudioNode for VolumeNode {
 
     fn activate(
         &mut self,
-        sample_rate: u32,
-        max_block_frames: usize,
+        stream_info: StreamInfo,
         num_inputs: usize,
         num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
@@ -68,8 +68,8 @@ impl AudioNode for VolumeNode {
             raw_gain: Arc::clone(&self.raw_gain),
             gain_smoother: ParamSmoother::new(
                 self.raw_gain(),
-                sample_rate,
-                max_block_frames,
+                stream_info.sample_rate,
+                stream_info.max_block_frames as usize,
                 Default::default(),
             ),
         }))
@@ -88,26 +88,23 @@ impl AudioNodeProcessor for VolumeProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo,
-    ) {
+    ) -> ProcessStatus {
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain_smoother.reset(raw_gain);
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+
+            return ProcessStatus::NoOutputsModified;
         }
 
         let gain = self.gain_smoother.set_and_process(raw_gain, frames);
 
         if !gain.is_smoothing() && gain.values[0] < 0.00001 {
             // Muted, so there is no need to process.
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         }
-
-        *proc_info.out_silence_mask = proc_info.in_silence_mask;
 
         // Hint to the compiler to optimize loop.
         assert!(frames <= gain.values.len());
@@ -125,12 +122,14 @@ impl AudioNodeProcessor for VolumeProcessor {
                 outputs[1][i] = inputs[1][i] * gain[i];
             }
 
-            return;
+            return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
         }
 
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
             if proc_info.in_silence_mask.is_channel_silent(i) {
-                output[..frames].fill(0.0);
+                if !proc_info.out_silence_mask.is_channel_silent(i) {
+                    output[..frames].fill(0.0);
+                }
                 continue;
             }
 
@@ -141,6 +140,8 @@ impl AudioNodeProcessor for VolumeProcessor {
                 output[i] = input[i] * gain[i];
             }
         }
+
+        ProcessStatus::outputs_modified(proc_info.in_silence_mask)
     }
 }
 

@@ -1,6 +1,9 @@
 use std::error::Error;
 
-use firewheel_core::node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo};
+use firewheel_core::{
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
+};
 
 pub struct DummyAudioNode;
 
@@ -19,8 +22,7 @@ impl AudioNode for DummyAudioNode {
 
     fn activate(
         &mut self,
-        _sample_rate: u32,
-        _max_block_frames: usize,
+        _stream_info: StreamInfo,
         _num_inputs: usize,
         _num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>> {
@@ -37,7 +39,8 @@ impl AudioNodeProcessor for DummyAudioNodeProcessor {
         _inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
         _proc_info: ProcInfo,
-    ) {
+    ) -> ProcessStatus {
+        ProcessStatus::NoOutputsModified
     }
 }
 

@@ -43,6 +43,8 @@ arrayvec = "0.7.6"
 atomic_float = "1.1.0"
 bitflags = "2.6.0"
 downcast-rs = "1.2.1"
+triple_buffer = "8"
+thunderdome = "0.6.1"
 
 # Optimize all dependencies even in debug builds:
 [profile.dev.package."*"]

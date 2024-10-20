@@ -1,4 +1,7 @@
-use firewheel_core::node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo};
+use firewheel_core::{
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
+};
 
 pub struct HardClipNode {
     threshold_gain: f32,
@@ -29,8 +32,7 @@ impl AudioNode for HardClipNode {
 
     fn activate(
         &mut self,
-        _sample_rate: u32,
-        _max_block_frames: usize,
+        _stream_info: StreamInfo,
         num_inputs: usize,
         num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
@@ -55,7 +57,7 @@ impl AudioNodeProcessor for HardClipProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo,
-    ) {
+    ) -> ProcessStatus {
         // Provide an optimized loop for stereo.
         if inputs.len() == 2
             && outputs.len() == 2
@@ -76,12 +78,14 @@ impl AudioNodeProcessor for HardClipProcessor {
                     .max(-self.threshold_gain);
             }
 
-            return;
+            return ProcessStatus::all_outputs_filled();
         }
 
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
             if proc_info.in_silence_mask.is_channel_silent(i) {
-                output[..frames].fill(0.0);
+                if !proc_info.out_silence_mask.is_channel_silent(i) {
+                    output[..frames].fill(0.0);
+                }
                 continue;
             }
 
@@ -90,7 +94,7 @@ impl AudioNodeProcessor for HardClipProcessor {
             }
         }
 
-        *proc_info.out_silence_mask = proc_info.in_silence_mask;
+        ProcessStatus::outputs_modified(proc_info.in_silence_mask)
     }
 }
 

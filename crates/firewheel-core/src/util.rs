@@ -217,16 +217,3 @@ pub fn interleave<V: AsRef<[f32]>>(
         }
     }
 }
-
-/// A convenience method to clear all output channels to `0.0` (silence)
-pub fn clear_all_outputs(
-    frames: usize,
-    outputs: &mut [&mut [f32]],
-    out_silence_mask: &mut SilenceMask,
-) {
-    for out in outputs.iter_mut() {
-        out[..frames].fill(0.0);
-    }
-
-    *out_silence_mask = SilenceMask::new_all_silent(outputs.len());
-}

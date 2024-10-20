@@ -2,10 +2,14 @@ use std::any::Any;
 
 use thunderdome::Arena;
 
-use crate::graph::{NodeID, ScheduleHeapData};
+use crate::{
+    graph::{NodeID, ScheduleHeapData},
+    FirewheelConfig,
+};
 use firewheel_core::{
-    node::{AudioNodeProcessor, ProcInfo, StreamStatus},
-    SilenceMask,
+    clock::{ClockID, ClockProcessor},
+    node::{AudioNodeProcessor, ProcInfo, ProcessStatus, StreamStatus},
+    SilenceMask, StreamInfo,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +21,7 @@ pub enum FirewheelProcessorStatus {
 
 pub struct FirewheelProcessor {
     nodes: Arena<Box<dyn AudioNodeProcessor>>,
+    clocks: Arena<ClockProcessor>,
     schedule_data: Option<Box<ScheduleHeapData>>,
     user_cx: Option<Box<dyn Any + Send>>,
 
@@ -27,30 +32,27 @@ pub struct FirewheelProcessor {
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
 
     running: bool,
-    max_block_frames: usize,
+    stream_info: StreamInfo,
 }
 
 impl FirewheelProcessor {
     pub(crate) fn new(
+        config: &FirewheelConfig,
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
         node_capacity: usize,
-        num_stream_in_channels: usize,
-        num_stream_out_channels: usize,
-        max_block_frames: usize,
+        stream_info: StreamInfo,
         user_cx: Box<dyn Any + Send>,
     ) -> Self {
-        assert!(num_stream_in_channels <= 64);
-        assert!(num_stream_out_channels <= 64);
-
         Self {
             nodes: Arena::with_capacity(node_capacity * 2),
+            clocks: Arena::with_capacity(config.initial_clock_capacity),
             schedule_data: None,
             user_cx: Some(user_cx),
             from_graph_rx,
             to_graph_tx,
             running: true,
-            max_block_frames,
+            stream_info,
         }
     }
 
@@ -68,19 +70,16 @@ impl FirewheelProcessor {
         stream_time_secs: f64,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
+        self.poll_messages();
+
         if !self.running {
             output.fill(0.0);
             return FirewheelProcessorStatus::DropProcessor;
         }
 
-        if self.schedule_data.is_none() {
-            // See if we got a new schedule.
-            self.poll_messages();
-
-            if !self.running {
-                output.fill(0.0);
-                return FirewheelProcessorStatus::DropProcessor;
-            }
+        // Process clocks
+        for (_, clock_processor) in self.clocks.iter_mut() {
+            clock_processor.tick_samples(frames as u64);
         }
 
         if self.schedule_data.is_none() || frames == 0 {
@@ -93,7 +92,8 @@ impl FirewheelProcessor {
 
         let mut frames_processed = 0;
         while frames_processed < frames {
-            let block_frames = (frames - frames_processed).min(self.max_block_frames);
+            let block_frames =
+                (frames - frames_processed).min(self.stream_info.max_block_frames as usize);
 
             // Prepare graph input buffers.
             self.schedule_data
@@ -158,7 +158,7 @@ impl FirewheelProcessor {
                 ContextToProcessorMsg::NewSchedule(mut new_schedule_data) => {
                     assert_eq!(
                         new_schedule_data.schedule.max_block_frames(),
-                        self.max_block_frames
+                        self.stream_info.max_block_frames as usize
                     );
 
                     if let Some(mut old_schedule_data) = self.schedule_data.take() {
@@ -185,6 +185,12 @@ impl FirewheelProcessor {
                     }
 
                     self.schedule_data = Some(new_schedule_data);
+                }
+                ContextToProcessorMsg::NewClock { id, processor } => {
+                    let _ = self.clocks.insert_at(id.0, processor);
+                }
+                ContextToProcessorMsg::RemoveClock(id) => {
+                    let _ = self.clocks.remove(id.0);
                 }
                 ContextToProcessorMsg::Stop => {
                     self.running = false;
@@ -215,22 +221,19 @@ impl FirewheelProcessor {
             block_frames,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
+             out_silence_mask: SilenceMask,
              inputs: &[&[f32]],
              outputs: &mut [&mut [f32]]|
-             -> SilenceMask {
-                let mut out_silence_mask = SilenceMask::NONE_SILENT;
-
+             -> ProcessStatus {
                 let proc_info = ProcInfo {
                     in_silence_mask,
-                    out_silence_mask: &mut out_silence_mask,
+                    out_silence_mask,
                     stream_time_secs,
                     stream_status,
                     cx: user_cx,
                 };
 
-                self.nodes[node_id.idx].process(block_frames, inputs, outputs, proc_info);
-
-                out_silence_mask
+                self.nodes[node_id.idx].process(block_frames, inputs, outputs, proc_info)
             },
         );
     }
@@ -252,6 +255,11 @@ impl Drop for FirewheelProcessor {
 
 pub(crate) enum ContextToProcessorMsg {
     NewSchedule(Box<ScheduleHeapData>),
+    NewClock {
+        id: ClockID,
+        processor: ClockProcessor,
+    },
+    RemoveClock(ClockID),
     Stop,
 }
 

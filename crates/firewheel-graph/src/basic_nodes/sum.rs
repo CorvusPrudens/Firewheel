@@ -1,4 +1,7 @@
-use firewheel_core::node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo};
+use firewheel_core::{
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
+};
 
 pub struct SumNode;
 
@@ -19,8 +22,7 @@ impl AudioNode for SumNode {
 
     fn activate(
         &mut self,
-        _sample_rate: u32,
-        _max_block_frames: usize,
+        _stream_info: StreamInfo,
         num_inputs: usize,
         num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
@@ -45,14 +47,13 @@ impl AudioNodeProcessor for SumNodeProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo,
-    ) {
+    ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
-            // All inputs are silent. Just clear outputs and return.
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            // All inputs are silent.
+            return ProcessStatus::NoOutputsModified;
         }
 
         if num_inputs == num_outputs {
@@ -60,8 +61,8 @@ impl AudioNodeProcessor for SumNodeProcessor {
             for (out, input) in outputs.iter_mut().zip(inputs.iter()) {
                 out[..frames].copy_from_slice(&input[..frames]);
             }
-            *proc_info.out_silence_mask = proc_info.in_silence_mask;
-            return;
+
+            return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
         }
 
         match self.num_in_ports {
@@ -132,6 +133,8 @@ impl AudioNodeProcessor for SumNodeProcessor {
                 }
             }
         }
+
+        ProcessStatus::all_outputs_filled()
     }
 }
 

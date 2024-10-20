@@ -1,4 +1,7 @@
-use firewheel_core::node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo};
+use firewheel_core::{
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
+};
 
 pub struct MonoToStereoNode;
 
@@ -19,8 +22,7 @@ impl AudioNode for MonoToStereoNode {
 
     fn activate(
         &mut self,
-        _sample_rate: u32,
-        _max_block_frames: usize,
+        _stream_info: StreamInfo,
         _num_inputs: usize,
         _num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
@@ -37,15 +39,16 @@ impl AudioNodeProcessor for MonoToStereoProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo,
-    ) {
+    ) -> ProcessStatus {
         if proc_info.in_silence_mask.is_channel_silent(0) {
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         }
 
         let input = inputs[0];
         outputs[0][..frames].copy_from_slice(&input[..frames]);
         outputs[1][..frames].copy_from_slice(&input[..frames]);
+
+        ProcessStatus::all_outputs_filled()
     }
 }
 

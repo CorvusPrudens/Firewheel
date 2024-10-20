@@ -1,30 +1,112 @@
 use std::{
-    fmt::Debug,
-    ops::Range,
-    sync::{atomic::Ordering, Arc},
+    fmt::Debug, ops::Range, sync::{atomic::Ordering, Arc}
 };
+use arraydeque::ArrayDeque;
 
 use atomic_float::AtomicF32;
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo},
+    clock::{ClockTime, Timestamp},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
     param::{range::percent_volume_to_raw_gain, smoother::ParamSmoother},
     sample_resource::SampleResource,
+    SilenceMask, StreamInfo,
 };
 
 const CHANNEL_CAPACITY: usize = 128;
+const QUEUE_CAPACITY: usize = 256;
 
+/// A command for a [`SamplerNode`].
+pub struct SamplerCommand<S: SampleResource> {
+    /// When the command should occur.
+    pub timestamp: Timestamp,
+    pub command: SamplerCommandType<S>,
+}
+
+/// The type of command for a [`SamplerNode`].
+pub enum SamplerCommandType<S: SampleResource> {
+    /// Play a new sample to completion.
+    ///
+    /// If the number of samples being played exceeds the <todo> sample limit,
+    /// the the oldest sample will be stopped and replaced with this one.
+    PlayNewSample {
+        /// The sample to play.
+        sample: S,
+        /// Where to begin playing in the sample in units of seconds.
+        ///
+        /// If this is less than 0.0, then the start of the samples will be
+        /// used instead.
+        ///
+        /// If this is greater than the length of the sample, then this the
+        /// sample will not be played.
+        start_from_secs: f64
+    },
+    /// Replay the current sample to completion.
+    ///
+    /// If the number of samples being played exceeds the <todo> sample limit,
+    /// the the oldest sample will be stopped and replaced with this one.
+    ReplayCurrentSample {
+        /// Where to begin playing in the sample in units of seconds.
+        ///
+        /// If this is less than 0.0, then the start of the samples will be
+        /// used instead.
+        ///
+        /// If this is greater than the length of the sample, then this the
+        /// sample will not be played.
+        start_from_secs: f64
+    },
+    /// Play a new sample, seamlessly looping back to the start of the
+    /// range.
+    LoopNewSample {
+        /// The sample to play.
+        sample: S,
+        /// The range in the sample to loop in.
+        range: LoopRange,
+        /// How many times to repeat the loop.
+        mode: LoopMode,
+        /// Where to begin playing in the sample relative to the start of the
+        /// loop range in units of seconds. If the given time it outside the
+        /// loop range, then the beginning of the loop range will be used
+        /// instead.
+        start_from_secs: f64,
+        /// An additional 
+        repeat_delay_secs: f64,
+    },
+    /// Pause sample playback.
+    Pause,
+    /// Resume sample playback.
+    Resume,
+    /// Stop sample playback and discard all queued future commands.
+    Stop,
+}
+
+/// The range to loop in a [`SampleResource`]
 pub enum LoopRange {
-    Full,
+    /// Loop over the whole sample.
+    FullSample,
+    /// Loop over only a section of the sample (units are in seconds).
+    ///
+    /// The start of the range must be greater than or equal to 0.0.
+    ///
+    /// The end of the range may extend past the length of the sample,
+    /// in which case silence will be played to fill in the gaps.
     RangeSecs(Range<f64>),
 }
 
+/// The number of times to loop an audio sample.
+pub enum LoopMode {
+    /// Loop the given number of times.
+    Count(u32),
+    Endless,
+}
+
+struct SamplerCommandInner<S: SampleResource> {
+    time: ClockTime,
+    command: SamplerCommandType<S>,
+}
+
 enum NodeToProcessorMsg<S: SampleResource> {
-    SetSample { sample: S, stop_playback: bool },
-    Play,
-    Pause,
-    Stop,
-    SetPlayheadSecs(f64),
-    SetLoopRange(Option<LoopRange>),
+    Command(SamplerCommand<S>),
+    CommandGroup(Vec<SamplerCommand<S>>),
 }
 
 impl<S: SampleResource> Debug for NodeToProcessorMsg<S> {
@@ -197,8 +279,7 @@ impl<S: SampleResource> AudioNode for SamplerNode<S> {
 
     fn activate(
         &mut self,
-        sample_rate: u32,
-        max_block_frames: usize,
+        stream_info: StreamInfo,
         _num_inputs: usize,
         _num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
@@ -214,8 +295,9 @@ impl<S: SampleResource> AudioNode for SamplerNode<S> {
 
         Ok(Box::new(SamplerProcessor::new(
             Arc::clone(&self.raw_gain),
-            sample_rate,
-            max_block_frames,
+            stream_info.sample_rate,
+            stream_info.stream_latency_frames as usize,
+            stream_info.max_block_frames as usize,
             from_node_rx,
             to_node_tx,
         )))
@@ -282,10 +364,13 @@ struct SamplerProcessor<S: SampleResource> {
     gain_smoother: ParamSmoother,
     playing: bool,
     sample_rate: u32,
+    stream_latency_frames: usize,
     playhead: u64,
     loop_range: Option<ProcLoopRange>,
 
     sample: Option<S>,
+
+    command_queue: ArrayDeque<>
 
     from_node_rx: rtrb::Consumer<NodeToProcessorMsg<S>>,
     to_node_tx: rtrb::Producer<ProcessorToNodeMsg<S>>,
@@ -295,6 +380,7 @@ impl<S: SampleResource> SamplerProcessor<S> {
     fn new(
         raw_gain: Arc<AtomicF32>,
         sample_rate: u32,
+        stream_latency_frames: usize,
         max_block_frames: usize,
         from_node_rx: rtrb::Consumer<NodeToProcessorMsg<S>>,
         to_node_tx: rtrb::Producer<ProcessorToNodeMsg<S>>,
@@ -311,6 +397,7 @@ impl<S: SampleResource> SamplerProcessor<S> {
             ),
             playing: false,
             sample_rate,
+            stream_latency_frames,
             playhead: 0,
             loop_range: None,
             sample: None,
@@ -326,8 +413,8 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
         frames: usize,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
-    ) {
+        _proc_info: ProcInfo,
+    ) -> ProcessStatus {
         while let Ok(msg) = self.from_node_rx.pop() {
             match msg {
                 NodeToProcessorMsg::SetSample {
@@ -417,16 +504,14 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             // TODO: Declick
 
             // No sample data, output silence.
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         };
 
         if !self.playing {
             // TODO: Declick
 
             // Not playing, output silence.
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         }
 
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
@@ -438,8 +523,7 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             // TODO: Reset declick.
 
             // Muted, so there is no need to process.
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         }
 
         if let Some(loop_range) = &self.loop_range {
@@ -485,13 +569,7 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
         } else {
             if self.playhead >= sample.len_frames() {
                 // Playhead is out of range. Output silence.
-                self.playing = false;
-                firewheel_core::util::clear_all_outputs(
-                    frames,
-                    outputs,
-                    proc_info.out_silence_mask,
-                );
-                return;
+                return ProcessStatus::NoOutputsModified;
 
                 // TODO: Notify node that sample has finished.
             }
@@ -542,6 +620,8 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             }
         }
 
+        let mut out_silence_mask = SilenceMask::NONE_SILENT;
+
         if outputs.len() > sample_channels {
             if outputs.len() == 2 && sample_channels == 1 {
                 // If the output of this node is stereo and the sample is mono,
@@ -553,10 +633,12 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
                 // Fill the rest of the channels with zeros.
                 for (i, out_ch) in outputs.iter_mut().enumerate().skip(sample_channels) {
                     out_ch.fill(0.0);
-                    proc_info.out_silence_mask.set_channel(i, true);
+                    out_silence_mask.set_channel(i, true);
                 }
             }
         }
+
+        ProcessStatus::outputs_modified(out_silence_mask)
     }
 }
 

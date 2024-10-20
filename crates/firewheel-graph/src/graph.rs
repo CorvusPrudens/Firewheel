@@ -5,9 +5,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use ahash::{AHashMap, AHashSet};
+use firewheel_core::StreamInfo;
 use thunderdome::Arena;
 
 use crate::basic_nodes::DummyAudioNode;
+use crate::context::FirewheelConfig;
 use firewheel_core::node::{AudioNode, AudioNodeProcessor};
 
 pub(crate) use self::compiler::{CompiledSchedule, ScheduleHeapData};
@@ -87,25 +89,6 @@ struct EdgeHash {
     pub dst_port: InPortIdx,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct AudioGraphConfig {
-    pub num_graph_inputs: usize,
-    pub num_graph_outputs: usize,
-    pub initial_node_capacity: usize,
-    pub initial_edge_capacity: usize,
-}
-
-impl Default for AudioGraphConfig {
-    fn default() -> Self {
-        Self {
-            num_graph_inputs: 0,
-            num_graph_outputs: 2,
-            initial_node_capacity: 64,
-            initial_edge_capacity: 256,
-        }
-    }
-}
-
 pub struct AudioGraph {
     nodes: Arena<NodeEntry<NodeWeight>>,
     edges: Arena<Edge>,
@@ -122,7 +105,7 @@ pub struct AudioGraph {
 }
 
 impl AudioGraph {
-    pub(crate) fn new(config: &AudioGraphConfig) -> Self {
+    pub(crate) fn new(config: &FirewheelConfig) -> Self {
         let mut nodes = Arena::with_capacity(config.initial_node_capacity);
 
         let graph_in_id = NodeID {
@@ -585,17 +568,15 @@ impl AudioGraph {
 
     pub(crate) fn compile(
         &mut self,
-        sample_rate: u32,
-        max_block_frames: usize,
+        stream_info: StreamInfo,
     ) -> Result<ScheduleHeapData, CompileGraphError> {
-        let schedule = self.compile_internal(max_block_frames)?;
+        let schedule = self.compile_internal(stream_info.max_block_frames as usize)?;
 
         let mut new_node_processors = Vec::with_capacity(self.nodes_to_activate.len());
         for node_id in self.nodes_to_activate.iter() {
             if let Some(node_entry) = self.nodes.get_mut(node_id.idx) {
                 match node_entry.weight.node.activate(
-                    sample_rate,
-                    max_block_frames,
+                    stream_info,
                     node_entry.num_inputs as usize,
                     node_entry.num_outputs as usize,
                 ) {

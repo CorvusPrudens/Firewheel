@@ -3,7 +3,10 @@ use std::sync::{
     Arc,
 };
 
-use firewheel_core::node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo};
+use firewheel_core::{
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
+};
 
 pub struct BeepTestNode {
     enabled: Arc<AtomicBool>,
@@ -47,15 +50,14 @@ impl AudioNode for BeepTestNode {
 
     fn activate(
         &mut self,
-        sample_rate: u32,
-        _max_block_frames: usize,
+        stream_info: StreamInfo,
         _num_inputs: usize,
         _num_outputs: usize,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         Ok(Box::new(BeepTestProcessor {
             enabled: Arc::clone(&self.enabled),
             phasor: 0.0,
-            phasor_inc: self.freq_hz / sample_rate as f32,
+            phasor_inc: self.freq_hz / stream_info.sample_rate as f32,
             gain: self.gain,
         }))
     }
@@ -74,15 +76,14 @@ impl AudioNodeProcessor for BeepTestProcessor {
         frames: usize,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
-    ) {
+        _proc_info: ProcInfo,
+    ) -> ProcessStatus {
         let Some((out1, outputs)) = outputs.split_first_mut() else {
-            return;
+            return ProcessStatus::NoOutputsModified;
         };
 
         if !self.enabled.load(Ordering::Relaxed) {
-            firewheel_core::util::clear_all_outputs(frames, outputs, proc_info.out_silence_mask);
-            return;
+            return ProcessStatus::NoOutputsModified;
         }
 
         for s in out1[..frames].iter_mut() {
@@ -93,6 +94,8 @@ impl AudioNodeProcessor for BeepTestProcessor {
         for out2 in outputs.iter_mut() {
             out2[..frames].copy_from_slice(&out1[..frames]);
         }
+
+        ProcessStatus::all_outputs_filled()
     }
 }
 
