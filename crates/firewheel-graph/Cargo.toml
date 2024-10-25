@@ -13,7 +13,6 @@ categories.workspace = true
 firewheel-core = { path = "../firewheel-core", version = "0.1" }
 log.workspace = true
 rtrb.workspace = true
-thiserror.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
 atomic_float.workspace = true

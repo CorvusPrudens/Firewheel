@@ -2,7 +2,7 @@ use atomic_float::AtomicF32;
 use firewheel_core::{
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
     param::{range::percent_volume_to_raw_gain, smoother::ParamSmoother},
-    StreamInfo,
+    ChannelConfig, ChannelCount, StreamInfo,
 };
 use std::sync::{atomic::Ordering, Arc};
 
@@ -39,31 +39,31 @@ impl VolumeNode {
     }
 }
 
-impl AudioNode for VolumeNode {
+impl<C> AudioNode<C> for VolumeNode {
     fn debug_name(&self) -> &'static str {
         "volume"
     }
 
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: 1,
-            num_max_supported_inputs: 64,
-            num_min_supported_outputs: 1,
-            num_max_supported_outputs: 64,
+            num_min_supported_inputs: ChannelCount::MONO,
+            num_max_supported_inputs: ChannelCount::MAX,
+            num_min_supported_outputs: ChannelCount::MONO,
+            num_max_supported_outputs: ChannelCount::MAX,
+            default_channel_config: ChannelConfig {
+                num_inputs: ChannelCount::STEREO,
+                num_outputs: ChannelCount::STEREO,
+            },
+            equal_num_ins_and_outs: true,
             updates: false,
         }
     }
 
     fn activate(
         &mut self,
-        stream_info: StreamInfo,
-        num_inputs: usize,
-        num_outputs: usize,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        if num_inputs != num_outputs {
-            return Err(format!("The number of inputs on a VolumeNode node must equal the number of outputs. Got num_inputs: {}, num_outputs: {}", num_inputs, num_outputs).into());
-        }
-
+        stream_info: &StreamInfo,
+        _channel_config: ChannelConfig,
+    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
         Ok(Box::new(VolumeProcessor {
             raw_gain: Arc::clone(&self.raw_gain),
             gain_smoother: ParamSmoother::new(
@@ -81,14 +81,15 @@ struct VolumeProcessor {
     gain_smoother: ParamSmoother,
 }
 
-impl AudioNodeProcessor for VolumeProcessor {
+impl<C> AudioNodeProcessor<C> for VolumeProcessor {
     fn process(
         &mut self,
-        frames: usize,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
+        proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
+        let frames = proc_info.frames;
+
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
@@ -145,8 +146,8 @@ impl AudioNodeProcessor for VolumeProcessor {
     }
 }
 
-impl Into<Box<dyn AudioNode>> for VolumeNode {
-    fn into(self) -> Box<dyn AudioNode> {
+impl<C> Into<Box<dyn AudioNode<C>>> for VolumeNode {
+    fn into(self) -> Box<dyn AudioNode<C>> {
         Box::new(self)
     }
 }

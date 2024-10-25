@@ -1,8 +1,11 @@
+use firewheel_core::ChannelConfig;
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
 
-use super::{error::CompileGraphError, NodeID};
+use crate::error::CompileGraphError;
+
+use super::NodeID;
 
 mod schedule;
 
@@ -11,10 +14,8 @@ use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
 pub struct NodeEntry<N> {
     pub id: NodeID,
-    /// The number of input ports used by the node
-    pub num_inputs: u32,
-    /// The number of output ports used by the node
-    pub num_outputs: u32,
+    /// The number of input and output ports used by the node
+    pub channel_config: ChannelConfig,
     pub weight: N,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
@@ -23,14 +24,13 @@ pub struct NodeEntry<N> {
 }
 
 impl<N> NodeEntry<N> {
-    pub fn new(num_inputs: usize, num_outputs: usize, weight: N) -> Self {
+    pub fn new(channel_config: ChannelConfig, weight: N) -> Self {
         Self {
             id: NodeID {
                 idx: thunderdome::Index::DANGLING,
                 debug_name: "",
             },
-            num_inputs: num_inputs as u32,
-            num_outputs: num_outputs as u32,
+            channel_config,
             weight,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
@@ -199,9 +199,6 @@ impl<'a, N> GraphIR<'a, N> {
         assert!(nodes.contains(graph_out_id.idx));
 
         for (_, node) in nodes.iter_mut() {
-            assert!(node.num_inputs <= 64);
-            assert!(node.num_outputs <= 64);
-
             node.incoming.clear();
             node.outgoing.clear();
         }
@@ -310,24 +307,19 @@ impl<'a, N> GraphIR<'a, N> {
 
             let node_entry = &self.nodes[entry.id.idx];
 
+            let num_inputs = node_entry.channel_config.num_inputs.get() as usize;
+            let num_outputs = node_entry.channel_config.num_outputs.get() as usize;
+
             buffers_to_release.clear();
-            if buffers_to_release.capacity()
-                < node_entry.num_inputs as usize + node_entry.num_outputs as usize
-            {
-                buffers_to_release.reserve(
-                    node_entry.num_inputs as usize + node_entry.num_outputs as usize
-                        - buffers_to_release.capacity(),
-                );
+            if buffers_to_release.capacity() < num_inputs + num_outputs {
+                buffers_to_release
+                    .reserve(num_inputs + num_outputs - buffers_to_release.capacity());
             }
 
-            entry
-                .input_buffers
-                .reserve_exact(node_entry.num_inputs as usize);
-            entry
-                .output_buffers
-                .reserve_exact(node_entry.num_outputs as usize);
+            entry.input_buffers.reserve_exact(num_inputs);
+            entry.output_buffers.reserve_exact(num_outputs);
 
-            for port_idx in 0..node_entry.num_inputs as u32 {
+            for port_idx in 0..num_inputs as u32 {
                 let port_idx = InPortIdx(port_idx);
 
                 let edges: SmallVec<[&Edge; 4]> = node_entry
@@ -365,7 +357,7 @@ impl<'a, N> GraphIR<'a, N> {
                 }
             }
 
-            for port_idx in 0..node_entry.num_outputs as u32 {
+            for port_idx in 0..num_outputs as u32 {
                 let port_idx = OutPortIdx(port_idx);
 
                 let edges: SmallVec<[&Edge; 4]> = node_entry
@@ -403,8 +395,8 @@ impl<'a, N> GraphIR<'a, N> {
                 allocator.release(buffer);
             }
 
-            self.max_in_buffers = self.max_in_buffers.max(node_entry.num_inputs as usize);
-            self.max_out_buffers = self.max_out_buffers.max(node_entry.num_outputs as usize);
+            self.max_in_buffers = self.max_in_buffers.max(num_inputs);
+            self.max_out_buffers = self.max_out_buffers.max(num_outputs);
         }
 
         self.max_num_buffers = allocator.num_buffers() as usize;

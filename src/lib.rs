@@ -5,4 +5,4 @@ pub use firewheel_graph::*;
 pub use firewheel_cpal::*;
 
 #[cfg(feature = "cpal")]
-pub type FirewheelCtx = firewheel_cpal::FirewheelCpalCtx;
+pub type DefaultFirewheelCtx = firewheel_cpal::FirewheelCpalCtx<()>;

@@ -3,9 +3,10 @@ use firewheel::{
         beep_test::BeepTestNode, HardClipNode, MonoToStereoNode, StereoToMonoNode, SumNode,
         VolumeNode,
     },
-    graph::{AddEdgeError, AudioGraph, NodeID},
+    error::AddEdgeError,
+    graph::{AudioGraph, NodeID},
     node::AudioNode,
-    FirewheelCtx, UpdateStatus,
+    ChannelConfig, DefaultFirewheelCtx, UpdateStatus,
 };
 
 use crate::ui::GuiAudioNode;
@@ -24,45 +25,49 @@ pub enum NodeType {
 }
 
 pub struct AudioSystem {
-    cx: FirewheelCtx,
+    cx: DefaultFirewheelCtx,
 }
 
 impl AudioSystem {
     pub fn new() -> Self {
-        let mut cx = FirewheelCtx::new(Default::default());
-        cx.activate(Default::default(), None).unwrap();
+        let mut cx = DefaultFirewheelCtx::new(Default::default());
+        cx.activate(Default::default(), ()).unwrap();
 
         Self { cx }
     }
 
-    fn graph(&self) -> &AudioGraph {
+    fn graph(&self) -> &AudioGraph<()> {
         self.cx.graph()
     }
 
-    fn graph_mut(&mut self) -> &mut AudioGraph {
-        self.cx.graph_mut()
+    fn graph_mut(&mut self) -> &mut AudioGraph<()> {
+        self.cx.graph_mut().unwrap()
     }
 
     pub fn remove_node(&mut self, node_id: NodeID) {
-        if let Err(_) = self.cx.graph_mut().remove_node(node_id) {
+        if let Err(_) = self.graph_mut().remove_node(node_id) {
             log::error!("Node already removed!");
         }
     }
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
-        let (node, num_inputs, num_outputs): (Box<dyn AudioNode>, usize, usize) = match node_type {
-            NodeType::BeepTest => (Box::new(BeepTestNode::new(440.0, -12.0, true)), 0, 1),
-            NodeType::HardClip => (Box::new(HardClipNode::new(0.0)), 2, 2),
-            NodeType::MonoToStereo => (Box::new(MonoToStereoNode), 1, 2),
-            NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
-            NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
-            NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
-            NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
-            NodeType::VolumeMono => (Box::new(VolumeNode::new(100.0)), 1, 1),
-            NodeType::VolumeStereo => (Box::new(VolumeNode::new(100.0)), 2, 2),
-        };
+        let (node, num_inputs, num_outputs): (Box<dyn AudioNode<()>>, usize, usize) =
+            match node_type {
+                NodeType::BeepTest => (Box::new(BeepTestNode::new(440.0, -12.0, true)), 0, 1),
+                NodeType::HardClip => (Box::new(HardClipNode::new(0.0)), 2, 2),
+                NodeType::MonoToStereo => (Box::new(MonoToStereoNode), 1, 2),
+                NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
+                NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
+                NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
+                NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
+                NodeType::VolumeMono => (Box::new(VolumeNode::new(100.0)), 1, 1),
+                NodeType::VolumeStereo => (Box::new(VolumeNode::new(100.0)), 2, 2),
+            };
 
-        let id = self.graph_mut().add_node(num_inputs, num_outputs, node);
+        let id = self
+            .graph_mut()
+            .add_node(node, Some(ChannelConfig::new(num_inputs, num_outputs)))
+            .unwrap();
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest { id },

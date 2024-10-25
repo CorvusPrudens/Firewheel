@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     fmt::Debug,
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -10,35 +9,39 @@ use std::{
 };
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::{
-    clock::{Clock, ClockID},
-    node::StreamStatus,
-    StreamInfo,
-};
+use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::DeviceInfo,
+    error::ActivateCtxError,
     graph::AudioGraph,
     processor::{FirewheelProcessor, FirewheelProcessorStatus},
     FirewheelConfig, FirewheelGraphCtx, UpdateStatus,
 };
 
+/// 1024 frames is a latency of about 23 milliseconds, which should
+/// be good enough for most games.
+const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const MSG_CHANNEL_CAPACITY: usize = 4;
 
-struct ActiveState {
+struct ActiveState<C: Send + 'static> {
     _stream: cpal::Stream,
-    _to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
+    _to_stream_tx: rtrb::Producer<CtxToStreamMsg<C>>,
     from_err_rx: rtrb::Consumer<cpal::StreamError>,
     out_device_name: String,
     cpal_config: cpal::StreamConfig,
 }
 
-pub struct FirewheelCpalCtx {
-    cx: FirewheelGraphCtx,
-    active_state: Option<ActiveState>,
+/// A firewheel context using CPAL as the audio backend.
+///
+/// The generic is a custom global processing context that is available to
+/// node processors.
+pub struct FirewheelCpalCtx<C: Send + 'static> {
+    cx: FirewheelGraphCtx<C>,
+    active_state: Option<ActiveState<C>>,
 }
 
-impl FirewheelCpalCtx {
+impl<C: Send + 'static> FirewheelCpalCtx<C> {
     pub fn new(config: FirewheelConfig) -> Self {
         Self {
             cx: FirewheelGraphCtx::new(config),
@@ -46,12 +49,21 @@ impl FirewheelCpalCtx {
         }
     }
 
-    pub fn graph(&self) -> &AudioGraph {
-        &self.cx.graph
+    /// Get an immutable reference to the audio graph.
+    pub fn graph(&self) -> &AudioGraph<C> {
+        self.cx.graph()
     }
 
-    pub fn graph_mut(&mut self) -> &mut AudioGraph {
-        &mut self.cx.graph
+    /// Get a mutable reference to the audio graph.
+    ///
+    /// Returns `None` if the context is not currently activated.
+    pub fn graph_mut(&mut self) -> Option<&mut AudioGraph<C>> {
+        self.cx.graph_mut()
+    }
+
+    /// Returns whether or not this context is currently activated.
+    pub fn is_activated(&self) -> bool {
+        self.cx.is_activated()
     }
 
     pub fn available_output_devices(&self) -> Vec<DeviceInfo> {
@@ -112,18 +124,25 @@ impl FirewheelCpalCtx {
     /// Activate the context and start the audio stream.
     ///
     /// Returns an error if the context is already active.
+    ///
+    /// * `config` - The configuration of the audio stream.
+    /// * `user_cx` - A custom global processing context that is available to
+    /// node processors.
     pub fn activate(
         &mut self,
         config: AudioStreamConfig,
-        user_cx: Option<Box<dyn Any + Send>>,
-    ) -> Result<(), (ActivateError, Option<Box<dyn Any + Send>>)> {
+        user_cx: C,
+    ) -> Result<(), (ActivateError, C)> {
         if self.cx.is_activated() {
-            return Err((ActivateError::AlreadyActivated, user_cx));
+            return Err((
+                ActivateError::ContextError(ActivateCtxError::AlreadyActivated),
+                user_cx,
+            ));
         }
 
         let host = cpal::default_host();
 
-        // What a mess cpal's API is.
+        // What a mess cpal's enumeration API is.
 
         let mut device = None;
         if let Some(output_device_name) = &config.output_device_name {
@@ -189,14 +208,10 @@ impl FirewheelCpalCtx {
         let mut desired_sample_rate = config
             .desired_sample_rate
             .unwrap_or(default_cpal_config.sample_rate().0);
-        let desired_latency_frames = if let Some(mut frames) = config.desired_latency_frames {
-            if let &cpal::SupportedBufferSize::Range { min, max } =
-                default_cpal_config.buffer_size()
-            {
-                frames = frames.clamp(min, max);
-            }
-
-            Some(frames)
+        let desired_latency_frames = if let &cpal::SupportedBufferSize::Range { min, max } =
+            default_cpal_config.buffer_size()
+        {
+            Some(config.desired_latency_frames.clamp(min, max))
         } else {
             None
         };
@@ -250,12 +265,12 @@ impl FirewheelCpalCtx {
         );
 
         let max_block_frames = match cpal_config.buffer_size {
-            cpal::BufferSize::Default => 1024,
+            cpal::BufferSize::Default => DEFAULT_MAX_BLOCK_FRAMES as usize,
             cpal::BufferSize::Fixed(f) => f as usize,
         };
 
         let (mut to_stream_tx, from_ctx_rx) =
-            rtrb::RingBuffer::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY);
+            rtrb::RingBuffer::<CtxToStreamMsg<C>>::new(MSG_CHANNEL_CAPACITY);
         let (mut err_to_cx_tx, from_err_rx) =
             rtrb::RingBuffer::<cpal::StreamError>::new(MSG_CHANNEL_CAPACITY);
 
@@ -276,10 +291,15 @@ impl FirewheelCpalCtx {
             (None, None, None)
         };
 
+        let mut is_first_callback = true;
         let stream = match device.build_output_stream(
             &cpal_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                if let Some(sl1) = sl1.take() {
+                if is_first_callback {
+                    // The second audio callback is usually more reliable for getting
+                    // the average latency.
+                    is_first_callback = false;
+                } else if let Some(sl1) = sl1.take() {
                     sl1.store((output.len() / num_out_channels) as u32, Ordering::Relaxed);
                 }
 
@@ -322,28 +342,32 @@ impl FirewheelCpalCtx {
                 std::thread::sleep(Duration::from_millis(1));
             }
 
-            sl.load(Ordering::Relaxed)
+            let l = sl.load(Ordering::Relaxed);
+
+            log::info!("Estimated audio stream latency: {}", l);
+
+            l
         } else if let cpal::BufferSize::Fixed(frames) = cpal_config.buffer_size {
             frames
         } else {
             unreachable!()
         };
 
-        let user_cx = user_cx.unwrap_or(Box::new(()));
-
-        let processor = self
-            .cx
-            .activate(
-                StreamInfo {
-                    sample_rate: cpal_config.sample_rate.0,
-                    max_block_frames: max_block_frames as u32,
-                    stream_latency_frames,
-                    num_stream_in_channels: num_in_channels as u32,
-                    num_stream_out_channels: num_out_channels as u32,
-                },
-                user_cx,
-            )
-            .unwrap();
+        let processor = match self.cx.activate(
+            StreamInfo {
+                sample_rate: cpal_config.sample_rate.0,
+                max_block_frames: max_block_frames as u32,
+                stream_latency_frames,
+                num_stream_in_channels: num_in_channels as u32,
+                num_stream_out_channels: num_out_channels as u32,
+            },
+            user_cx,
+        ) {
+            Ok(p) => p,
+            Err((e, c)) => {
+                return Err((e.into(), c));
+            }
+        };
 
         to_stream_tx
             .push(CtxToStreamMsg::NewProcessor(processor))
@@ -358,38 +382,6 @@ impl FirewheelCpalCtx {
         });
 
         Ok(())
-    }
-
-    /// Returns whether or not this context is currently activated.
-    pub fn is_activated(&self) -> bool {
-        self.cx.is_activated()
-    }
-
-    /// Add a new clock to the system.
-    ///
-    /// Returns an error if the context is not activated.
-    pub fn add_clock(&mut self) -> Result<ClockID, ()> {
-        self.cx.add_clock()
-    }
-
-    /// Remove a clock from the system.
-    ///
-    /// Returns `false` if the clock was already removed.
-    pub fn remove_clock(&mut self, id: ClockID) -> Result<bool, ()> {
-        self.cx.remove_clock(id)
-    }
-
-    /// Retrieve a clock
-    ///
-    /// Returns `None` if the clock no longer exists or the context is not
-    /// activated.
-    pub fn clock(&self, id: ClockID) -> Option<&Clock> {
-        self.cx.clock(id)
-    }
-
-    /// Return an iterator over all of the existing clocks in the system.
-    pub fn clocks_iter<'a>(&'a self) -> impl Iterator<Item = (ClockID, &'a Clock)> {
-        self.cx.clocks_iter()
     }
 
     /// Get the name of the audio output device.
@@ -419,7 +411,7 @@ impl FirewheelCpalCtx {
     ///
     /// This must be called reguarly once the context has been activated
     /// (i.e. once every frame).
-    pub fn update(&mut self) -> UpdateStatus {
+    pub fn update(&mut self) -> UpdateStatus<C> {
         if let Some(state) = &mut self.active_state {
             if let Ok(e) = state.from_err_rx.pop() {
                 let user_cx = self.cx.deactivate(false);
@@ -463,7 +455,7 @@ impl FirewheelCpalCtx {
     ///
     /// If the context is already deactivated, then this will do
     /// nothing and return `None`.
-    pub fn deactivate(&mut self) -> Option<Box<dyn Any + Send>> {
+    pub fn deactivate(&mut self) -> Option<C> {
         if self.cx.is_activated() {
             let user_cx = self.cx.deactivate(self.active_state.is_some());
             self.active_state = None;
@@ -475,17 +467,42 @@ impl FirewheelCpalCtx {
 }
 
 // Implement Debug so `unwrap()` can be used.
-impl Debug for FirewheelCpalCtx {
+impl<C: Send + 'static> Debug for FirewheelCpalCtx<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FirewheelCpalCtx")
     }
 }
 
+/// The configuration of an audio stream
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioStreamConfig {
+    /// The name of the output device to use. Set to `None` to use the
+    /// system's default output device.
+    ///
+    /// By default this is set to `None`.
     pub output_device_name: Option<String>,
+
+    /// The desired sample rate to use. Set to `None` to use the device's
+    /// default sample rate.
+    ///
+    /// By default this is set to `None`.
     pub desired_sample_rate: Option<u32>,
-    pub desired_latency_frames: Option<u32>,
+
+    /// The latency of the audio stream to use.
+    ///
+    /// Smaller values may give better latency, but is not supported on
+    /// all platforms and may lead to performance issues.
+    ///
+    /// By default this is set to `1024`, which is a latency of about 23
+    /// milliseconds. This should be good enough for most games. (Rhythm
+    /// games may want to try a lower latency).
+    pub desired_latency_frames: u32,
+
+    /// Whether or not to fall back to the default device and then a
+    /// dummy output device if a device with the given configuration
+    /// could not be found.
+    ///
+    /// By default this is set to `true`.
     pub fallback: bool,
 }
 
@@ -494,28 +511,28 @@ impl Default for AudioStreamConfig {
         Self {
             output_device_name: None,
             desired_sample_rate: None,
-            desired_latency_frames: None,
+            desired_latency_frames: DEFAULT_MAX_BLOCK_FRAMES,
             fallback: true,
         }
     }
 }
 
-struct DataCallback {
+struct DataCallback<C: Send + 'static> {
     num_in_channels: usize,
     num_out_channels: usize,
-    from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
-    processor: Option<FirewheelProcessor>,
+    from_ctx_rx: rtrb::Consumer<CtxToStreamMsg<C>>,
+    processor: Option<FirewheelProcessor<C>>,
     sample_rate_recip: f64,
     first_stream_instant: Option<cpal::StreamInstant>,
     predicted_stream_secs: f64,
     is_first_callback: bool,
 }
 
-impl DataCallback {
+impl<C: Send + 'static> DataCallback<C> {
     fn new(
         num_in_channels: usize,
         num_out_channels: usize,
-        from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
+        from_ctx_rx: rtrb::Consumer<CtxToStreamMsg<C>>,
         sample_rate: u32,
     ) -> Self {
         Self {
@@ -604,22 +621,22 @@ impl DataCallback {
     }
 }
 
-impl Drop for FirewheelCpalCtx {
+impl<C: Send + 'static> Drop for FirewheelCpalCtx<C> {
     fn drop(&mut self) {
         if self.cx.is_activated() {
             self.cx.deactivate(self.active_state.is_some());
         }
     }
 }
-enum CtxToStreamMsg {
-    NewProcessor(FirewheelProcessor),
+enum CtxToStreamMsg<C: Send + 'static> {
+    NewProcessor(FirewheelProcessor<C>),
 }
 
 /// An error occured while trying to activate an [`InactiveFwCpalCtx`]
 #[derive(Debug, thiserror::Error)]
 pub enum ActivateError {
-    #[error("The firewheel context is already activated")]
-    AlreadyActivated,
+    #[error("Firewheel context failed to activate: {0}")]
+    ContextError(#[from] ActivateCtxError),
     #[error("The requested audio device was not found: {0}")]
     DeviceNotFound(String),
     #[error("Could not get audio devices: {0}")]

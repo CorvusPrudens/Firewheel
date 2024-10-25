@@ -1,37 +1,51 @@
 use firewheel_core::{
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
-    StreamInfo,
+    ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct SumNode;
 
-impl AudioNode for SumNode {
+impl<C> AudioNode<C> for SumNode {
     fn debug_name(&self) -> &'static str {
         "sum"
     }
 
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: 1,
-            num_max_supported_inputs: 64,
-            num_min_supported_outputs: 1,
-            num_max_supported_outputs: 64,
+            num_min_supported_inputs: ChannelCount::MONO,
+            num_max_supported_inputs: ChannelCount::MAX,
+            num_min_supported_outputs: ChannelCount::MONO,
+            num_max_supported_outputs: ChannelCount::MAX,
+            default_channel_config: ChannelConfig {
+                num_inputs: ChannelCount::new(4).unwrap(),
+                num_outputs: ChannelCount::STEREO,
+            },
+            equal_num_ins_and_outs: false,
             updates: false,
+        }
+    }
+
+    fn channel_config_supported(
+        &self,
+        channel_config: ChannelConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if channel_config.num_inputs.get() % channel_config.num_outputs.get() != 0 {
+            Err(format!("The number of inputs on a SumNode must be a multiple of the number of outputs. Got config: {:?}", channel_config).into())
+        } else {
+            Ok(())
         }
     }
 
     fn activate(
         &mut self,
-        _stream_info: StreamInfo,
-        num_inputs: usize,
-        num_outputs: usize,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        if num_inputs % num_outputs != 0 {
-            return Err(format!("The number of inputs on a SumNode must be a multiple of the number of outputs. Got num_inputs: {}, num_outputs: {}", num_inputs, num_outputs).into());
-        }
+        _stream_info: &StreamInfo,
+        channel_config: ChannelConfig,
+    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
+        assert!(channel_config.num_inputs.get() % channel_config.num_outputs.get() == 0);
 
         Ok(Box::new(SumNodeProcessor {
-            num_in_ports: num_inputs / num_outputs,
+            num_in_ports: (channel_config.num_inputs.get() / channel_config.num_outputs.get())
+                as usize,
         }))
     }
 }
@@ -40,16 +54,16 @@ struct SumNodeProcessor {
     num_in_ports: usize,
 }
 
-impl AudioNodeProcessor for SumNodeProcessor {
+impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
     fn process(
         &mut self,
-        frames: usize,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
+        proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();
+        let frames = proc_info.frames;
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All inputs are silent.
@@ -138,8 +152,8 @@ impl AudioNodeProcessor for SumNodeProcessor {
     }
 }
 
-impl Into<Box<dyn AudioNode>> for SumNode {
-    fn into(self) -> Box<dyn AudioNode> {
+impl<C> Into<Box<dyn AudioNode<C>>> for SumNode {
+    fn into(self) -> Box<dyn AudioNode<C>> {
         Box::new(self)
     }
 }

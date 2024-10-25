@@ -6,25 +6,18 @@ use std::{
     },
 };
 
-/// The unique identifier for a [`Clock`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClockID(pub thunderdome::Index);
-
-impl Default for ClockID {
-    fn default() -> Self {
-        Self(thunderdome::Index::DANGLING)
-    }
-}
-
 /// When a particular audio event should occur.
-pub enum Timestamp {
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventDelay {
     /// The event should happen immediately when it is recieved.
-    Immediately,
-    /// The event should happen at the given time in samples.
-    Delayed { time: ClockTime, clock_id: ClockID },
+    #[default]
+    Immediate,
+    /// The event should happen at the given time.
+    Delayed { time: ClockTime },
 }
 
 /// Time in units of samples
+#[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClockTime {
     pub samples: u64,

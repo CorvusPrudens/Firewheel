@@ -5,7 +5,7 @@ use std::sync::{
 
 use firewheel_core::{
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
-    StreamInfo,
+    ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct BeepTestNode {
@@ -35,25 +35,28 @@ impl BeepTestNode {
     }
 }
 
-impl AudioNode for BeepTestNode {
+impl<C> AudioNode<C> for BeepTestNode {
     fn debug_name(&self) -> &'static str {
         "beep_test"
     }
 
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_outputs: 1,
-            num_max_supported_outputs: 64,
+            num_min_supported_outputs: ChannelCount::MONO,
+            num_max_supported_outputs: ChannelCount::MAX,
+            default_channel_config: ChannelConfig {
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: ChannelCount::STEREO,
+            },
             ..Default::default()
         }
     }
 
     fn activate(
         &mut self,
-        stream_info: StreamInfo,
-        _num_inputs: usize,
-        _num_outputs: usize,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
+        stream_info: &StreamInfo,
+        _channel_config: ChannelConfig,
+    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
         Ok(Box::new(BeepTestProcessor {
             enabled: Arc::clone(&self.enabled),
             phasor: 0.0,
@@ -70,13 +73,12 @@ struct BeepTestProcessor {
     gain: f32,
 }
 
-impl AudioNodeProcessor for BeepTestProcessor {
+impl<C> AudioNodeProcessor<C> for BeepTestProcessor {
     fn process(
         &mut self,
-        frames: usize,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        _proc_info: ProcInfo,
+        proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
         let Some((out1, outputs)) = outputs.split_first_mut() else {
             return ProcessStatus::NoOutputsModified;
@@ -86,21 +88,21 @@ impl AudioNodeProcessor for BeepTestProcessor {
             return ProcessStatus::NoOutputsModified;
         }
 
-        for s in out1[..frames].iter_mut() {
+        for s in out1[..proc_info.frames].iter_mut() {
             *s = (self.phasor * std::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }
 
         for out2 in outputs.iter_mut() {
-            out2[..frames].copy_from_slice(&out1[..frames]);
+            out2[..proc_info.frames].copy_from_slice(&out1[..proc_info.frames]);
         }
 
         ProcessStatus::all_outputs_filled()
     }
 }
 
-impl Into<Box<dyn AudioNode>> for BeepTestNode {
-    fn into(self) -> Box<dyn AudioNode> {
+impl<C> Into<Box<dyn AudioNode<C>>> for BeepTestNode {
+    fn into(self) -> Box<dyn AudioNode<C>> {
         Box::new(self)
     }
 }

@@ -1,6 +1,6 @@
 use firewheel_core::{
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
-    StreamInfo,
+    ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct HardClipNode {
@@ -15,31 +15,31 @@ impl HardClipNode {
     }
 }
 
-impl AudioNode for HardClipNode {
+impl<C> AudioNode<C> for HardClipNode {
     fn debug_name(&self) -> &'static str {
         "hard_clip"
     }
 
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: 1,
-            num_max_supported_inputs: 64,
-            num_min_supported_outputs: 1,
-            num_max_supported_outputs: 64,
+            num_min_supported_inputs: ChannelCount::MONO,
+            num_max_supported_inputs: ChannelCount::MAX,
+            num_min_supported_outputs: ChannelCount::MONO,
+            num_max_supported_outputs: ChannelCount::MAX,
+            default_channel_config: ChannelConfig {
+                num_inputs: ChannelCount::STEREO,
+                num_outputs: ChannelCount::STEREO,
+            },
+            equal_num_ins_and_outs: true,
             updates: false,
         }
     }
 
     fn activate(
         &mut self,
-        _stream_info: StreamInfo,
-        num_inputs: usize,
-        num_outputs: usize,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        if num_inputs != num_outputs {
-            return Err(format!("The number of inputs on a HardClip node must equal the number of outputs. Got num_inputs: {}, num_outputs: {}", num_inputs, num_outputs).into());
-        }
-
+        _stream_info: &StreamInfo,
+        _channel_config: ChannelConfig,
+    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
         Ok(Box::new(HardClipProcessor {
             threshold_gain: self.threshold_gain,
         }))
@@ -50,14 +50,15 @@ struct HardClipProcessor {
     threshold_gain: f32,
 }
 
-impl AudioNodeProcessor for HardClipProcessor {
+impl<C> AudioNodeProcessor<C> for HardClipProcessor {
     fn process(
         &mut self,
-        frames: usize,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
+        proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
+        let frames = proc_info.frames;
+
         // Provide an optimized loop for stereo.
         if inputs.len() == 2
             && outputs.len() == 2
@@ -98,8 +99,8 @@ impl AudioNodeProcessor for HardClipProcessor {
     }
 }
 
-impl Into<Box<dyn AudioNode>> for HardClipNode {
-    fn into(self) -> Box<dyn AudioNode> {
+impl<C> Into<Box<dyn AudioNode<C>>> for HardClipNode {
+    fn into(self) -> Box<dyn AudioNode<C>> {
         Box::new(self)
     }
 }

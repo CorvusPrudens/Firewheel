@@ -4,10 +4,9 @@
 use std::error::Error;
 use std::fmt;
 
-use super::{
-    compiler::{Edge, EdgeID, InPortIdx, OutPortIdx},
-    NodeID,
-};
+use firewheel_core::{node::AudioNodeInfo, ChannelConfig, ChannelCount};
+
+use crate::graph::{Edge, EdgeID, InPortIdx, NodeID, OutPortIdx};
 
 /// An error occurred while attempting to add an edge to the graph.
 #[derive(Debug, Clone)]
@@ -20,13 +19,13 @@ pub enum AddEdgeError {
     InPortOutOfRange {
         node: NodeID,
         port_idx: InPortIdx,
-        num_in_ports: u32,
+        num_in_ports: ChannelCount,
     },
     /// The given output port index is out of range.
     OutPortOutOfRange {
         node: NodeID,
         port_idx: OutPortIdx,
-        num_out_ports: u32,
+        num_out_ports: ChannelCount,
     },
     /// The edge already exists in the graph.
     EdgeAlreadyExists,
@@ -62,7 +61,7 @@ impl fmt::Display for AddEdgeError {
             } => {
                 write!(
                     f,
-                    "Input port idx {:?} is out of range on node {:?} with {} input ports",
+                    "Input port idx {:?} is out of range on node {:?} with {:?} input ports",
                     port_idx, node, num_in_ports,
                 )
             }
@@ -73,7 +72,7 @@ impl fmt::Display for AddEdgeError {
             } => {
                 write!(
                     f,
-                    "Output port idx {:?} is out of range on node {:?} with {} output ports",
+                    "Output port idx {:?} is out of range on node {:?} with {:?} output ports",
                     port_idx, node, num_out_ports,
                 )
             }
@@ -109,8 +108,6 @@ pub enum CompileGraphError {
     EdgeIDNotUnique(EdgeID),
     /// The input port has more than one connection.
     ManyToOneError(NodeID, InPortIdx),
-    /// An audio node failed to activate.
-    NodeActivationFailed(NodeID, Box<dyn Error>),
     /// The message channel is full.
     MessageChannelFull,
 }
@@ -135,15 +132,73 @@ impl fmt::Display for CompileGraphError {
             Self::ManyToOneError(node_id, port_id) => {
                 write!(f, "Failed to compile audio graph: input data contains multiple edges that go to the same input port with ID {:?} on node with id {:?}", port_id, node_id)
             }
-            Self::NodeActivationFailed(node_id, e) => {
-                write!(
-                    f,
-                    "Failed to compile audio graph: Node with ID {:?} failed to activate: {}",
-                    node_id, e
-                )
-            }
             Self::MessageChannelFull => {
                 write!(f, "Failed to compile audio graph: Message channel is full")
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum NodeError {
+    InvalidChannelConfig {
+        channel_config: ChannelConfig,
+        node_info: AudioNodeInfo,
+        msg: Option<Box<dyn Error>>,
+    },
+    ActivationFailed {
+        node_id: Option<NodeID>,
+        error: Box<dyn Error>,
+    },
+}
+
+impl Error for NodeError {}
+
+impl std::fmt::Display for NodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeError::InvalidChannelConfig {
+                channel_config,
+                node_info,
+                msg,
+            } => {
+                write!(
+                    f,
+                    "Invalid channel configuration {:?} on node with info: {:?}: custom message: {:?}",
+                    channel_config, node_info, msg
+                )
+            }
+            NodeError::ActivationFailed { node_id, error } => {
+                if let Some(node_id) = node_id {
+                    write!(
+                        f,
+                        "Node with ID {:?} failed to activate: {}",
+                        node_id, error
+                    )
+                } else {
+                    write!(f, "Node failed to activate: {}", error)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ActivateCtxError {
+    AlreadyActivated,
+    NodeFailedToActived(NodeError),
+}
+
+impl Error for ActivateCtxError {}
+
+impl std::fmt::Display for ActivateCtxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ActivateCtxError::AlreadyActivated => {
+                write!(f, "Firewheel context is already activated")
+            }
+            ActivateCtxError::NodeFailedToActived(e) => {
+                write!(f, "Audio node failed to activate: {}", e)
             }
         }
     }

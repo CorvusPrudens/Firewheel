@@ -1,44 +1,47 @@
 use firewheel_core::{
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
-    StreamInfo,
+    ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct StereoToMonoNode;
 
-impl AudioNode for StereoToMonoNode {
+impl<C> AudioNode<C> for StereoToMonoNode {
     fn debug_name(&self) -> &'static str {
         "stereo_to_mono"
     }
 
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: 2,
-            num_max_supported_inputs: 2,
-            num_min_supported_outputs: 1,
-            num_max_supported_outputs: 1,
+            num_min_supported_inputs: ChannelCount::STEREO,
+            num_max_supported_inputs: ChannelCount::STEREO,
+            num_min_supported_outputs: ChannelCount::MONO,
+            num_max_supported_outputs: ChannelCount::MONO,
+            default_channel_config: ChannelConfig {
+                num_inputs: ChannelCount::STEREO,
+                num_outputs: ChannelCount::MONO,
+            },
+            equal_num_ins_and_outs: false,
             updates: false,
         }
     }
 
     fn activate(
         &mut self,
-        _stream_info: StreamInfo,
-        _num_inputs: usize,
-        _num_outputs: usize,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
+        _stream_info: &StreamInfo,
+        _channel_config: ChannelConfig,
+    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
         Ok(Box::new(StereoToMonoProcessor))
     }
 }
 
 struct StereoToMonoProcessor;
 
-impl AudioNodeProcessor for StereoToMonoProcessor {
+impl<C> AudioNodeProcessor<C> for StereoToMonoProcessor {
     fn process(
         &mut self,
-        _frames: usize,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo,
+        proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)
             || inputs.len() < 2
@@ -58,8 +61,8 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
     }
 }
 
-impl Into<Box<dyn AudioNode>> for StereoToMonoNode {
-    fn into(self) -> Box<dyn AudioNode> {
+impl<C> Into<Box<dyn AudioNode<C>>> for StereoToMonoNode {
+    fn into(self) -> Box<dyn AudioNode<C>> {
         Box::new(self)
     }
 }

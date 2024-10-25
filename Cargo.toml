@@ -11,7 +11,7 @@ categories.workspace = true
 
 [workspace.package]
 edition = "2021"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Billy Messenger <60663878+BillyDM@users.noreply.github.com>"]
 keywords = ["game", "audio"]
 categories = ["game-development", "multimedia::audio"]
@@ -19,8 +19,11 @@ categories = ["game-development", "multimedia::audio"]
 [workspace]
 members = [
     "crates/firewheel-core",
-    "crates/firewheel-graph",
     "crates/firewheel-cpal",
+    "crates/firewheel-graph",
+    "crates/firewheel-sampler",
+    "crates/firewheel-spatial",
+    "crates/firewheel-extra",
     "examples/beep_test",
     "examples/visual_node_graph",
 ]
