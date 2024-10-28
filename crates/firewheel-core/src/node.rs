@@ -166,21 +166,24 @@ pub struct ProcInfo<'a, C> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current time of the event clock in units of samples, adjusted
-    /// for the latency of the stream.
-    ///
-    /// This value is more accurate than [`ProcInfo::event_time_seconds`],
-    /// but it does *NOT* account for any output underflows that may occur.
-    /// If any underflows occur, then this will become out of sync
-    /// with [`ProcInfo::event_time_seconds`].
-    pub event_time_samples: SampleTime,
-
     /// The current time of the event clock in units of seconds, adjusted
     /// for the latency of the stream. This uses the clock from the OS's
     /// audio API so it should be very accurate.
     ///
     /// This value accounts for any output underflows that may occur.
     pub event_time_seconds: f64,
+
+    /// The current time of the event clock in units of samples, adjusted
+    /// for the latency of the stream.
+    ///
+    /// This value is more accurate than [`ProcInfo::event_time_seconds`],
+    /// but it does *NOT* account for any output underflows that may occur.
+    /// If any underflows occur, then this will become out of sync
+    /// with [`ProcInfo::event_time_seconds`]. Prefer to use
+    /// [`ProcInfo::event_time_seconds`] unless you are syncing your game
+    /// to the sample event clock (or you are not concerned about underflows
+    /// happenning.)
+    pub event_time_samples: SampleTime,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,

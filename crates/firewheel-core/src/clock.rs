@@ -6,13 +6,33 @@ use std::{
 use atomic_float::AtomicF64;
 
 /// When a particular audio event should occur.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum EventDelay {
     /// The event should happen immediately when it is recieved.
     #[default]
     Immediate,
-    /// The event should happen at the given time.
-    Delayed { time: SampleTime },
+    /// The event should happen when the event clock reaches the given time
+    /// in seconds.
+    ///
+    /// The value is an absolute time, *NOT* a delta time. Use
+    /// [`AudioGraph::event_time_seconds`] to get the current time of the event
+    /// clock.
+    DelayUntilSeconds(f64),
+    /// The event should happen when the event clock reaches the given time
+    /// in samples.
+    ///
+    /// This is more accurate than [`EventDelay::DelayUntilSeconds`],
+    /// but it does *NOT* account for any output underflows that may occur.
+    /// If any underflows occur, then this will become out of sync
+    /// with [`EventDelay::DelayUntilSeconds`]. Prefer to use
+    /// [`EventDelay::DelayUntilSeconds`] unless you are syncing your game to
+    /// the sample event clock (or you are not concerned about underflows
+    /// happenning.)
+    ///
+    /// This value is an absolute time, *NOT* a delta time. Use
+    /// [`AudioGraph::event_time_samples`] to get the current time of the event
+    /// clock.
+    DelayUntilSample(SampleTime),
 }
 
 /// Time in units of samples
