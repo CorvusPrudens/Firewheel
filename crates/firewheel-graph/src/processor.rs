@@ -27,8 +27,8 @@ pub struct FirewheelProcessor<C: Send + 'static> {
     from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
 
-    stream_time_samples_shared: Arc<SampleTimeShared>,
-    stream_time_secs_shared: Arc<SecondsShared>,
+    event_time_samples_shared: Arc<SampleTimeShared>,
+    event_time_secs_shared: Arc<SecondsShared>,
 
     running: bool,
     stream_info: StreamInfo,
@@ -39,8 +39,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
     pub(crate) fn new(
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
-        stream_time_samples_shared: Arc<SampleTimeShared>,
-        stream_time_secs_shared: Arc<SecondsShared>,
+        event_time_samples_shared: Arc<SampleTimeShared>,
+        event_time_secs_shared: Arc<SecondsShared>,
         node_capacity: usize,
         stream_info: StreamInfo,
         user_cx: C,
@@ -53,8 +53,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             user_cx: Some(user_cx),
             from_graph_rx,
             to_graph_tx,
-            stream_time_samples_shared,
-            stream_time_secs_shared,
+            event_time_samples_shared,
+            event_time_secs_shared,
             running: true,
             stream_info,
             sample_rate_recip,
@@ -72,13 +72,13 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
         num_in_channels: usize,
         num_out_channels: usize,
         samples: usize,
-        mut stream_time_seconds: f64,
+        mut event_time_seconds: f64,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
-        let mut stream_time_samples = self.stream_time_samples_shared.load();
-        self.stream_time_samples_shared
-            .store(stream_time_samples + SampleTime::new(samples as u64));
-        self.stream_time_secs_shared.store(stream_time_seconds);
+        let mut event_time_samples = self.event_time_samples_shared.load();
+        self.event_time_samples_shared
+            .store(event_time_samples + SampleTime::new(samples as u64));
+        self.event_time_secs_shared.store(event_time_seconds);
 
         self.poll_messages();
 
@@ -121,8 +121,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
 
             self.process_block(
                 block_samples,
-                stream_time_samples,
-                stream_time_seconds,
+                event_time_samples,
+                event_time_seconds,
                 stream_status,
             );
 
@@ -153,8 +153,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             }
 
             samples_processed += block_samples;
-            stream_time_samples += SampleTime::new(block_samples as u64);
-            stream_time_seconds += block_samples as f64 * self.sample_rate_recip;
+            event_time_samples += SampleTime::new(block_samples as u64);
+            event_time_seconds += block_samples as f64 * self.sample_rate_recip;
         }
 
         if self.running {
@@ -208,8 +208,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
     fn process_block(
         &mut self,
         block_samples: usize,
-        stream_time_samples: SampleTime,
-        stream_time_seconds: f64,
+        event_time_samples: SampleTime,
+        event_time_seconds: f64,
         stream_status: StreamStatus,
     ) {
         self.poll_messages();
@@ -236,8 +236,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                     samples: block_samples,
                     in_silence_mask,
                     out_silence_mask,
-                    stream_time_samples,
-                    stream_time_seconds,
+                    event_time_samples,
+                    event_time_seconds,
                     stream_status,
                     cx: user_cx,
                 };

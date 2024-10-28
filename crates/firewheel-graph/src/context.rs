@@ -87,13 +87,13 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
             return Err((ActivateCtxError::AlreadyActivated, user_cx));
         }
 
-        let stream_time_samples_shared = Arc::new(SampleTimeShared::new(SampleTime::default()));
-        let stream_time_secs_shared = Arc::new(SecondsShared::new(0.0));
+        let event_time_samples_shared = Arc::new(SampleTimeShared::new(SampleTime::default()));
+        let event_time_secs_shared = Arc::new(SecondsShared::new(0.0));
 
         if let Err(e) = self.graph.activate(
             stream_info,
-            Arc::clone(&stream_time_samples_shared),
-            Arc::clone(&stream_time_secs_shared),
+            Arc::clone(&event_time_samples_shared),
+            Arc::clone(&event_time_secs_shared),
         ) {
             return Err((ActivateCtxError::NodeFailedToActived(e), user_cx));
         }
@@ -112,8 +112,8 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
         Ok(FirewheelProcessor::new(
             from_graph_rx,
             to_graph_tx,
-            stream_time_samples_shared,
-            stream_time_secs_shared,
+            event_time_samples_shared,
+            event_time_secs_shared,
             self.graph.current_node_capacity(),
             stream_info,
             user_cx,

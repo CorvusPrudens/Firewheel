@@ -555,7 +555,7 @@ impl<C: Send + 'static> DataCallback<C> {
 
         let samples = output.len() / self.num_out_channels;
 
-        let (stream_time_secs, underflow) = if self.is_first_callback {
+        let (event_time_secs, underflow) = if self.is_first_callback {
             // Apparently there is a bug in CPAL where the callback instant in
             // the first callback can be greater than in the second callback.
             //
@@ -564,7 +564,7 @@ impl<C: Send + 'static> DataCallback<C> {
             self.predicted_stream_secs = samples as f64 * self.sample_rate_recip;
             (0.0, false)
         } else if let Some(instant) = &self.first_stream_instant {
-            let stream_time_secs = info
+            let event_time_secs = info
                 .timestamp()
                 .callback
                 .duration_since(instant)
@@ -573,21 +573,21 @@ impl<C: Send + 'static> DataCallback<C> {
 
             // If the stream time is significantly greater than the predicted stream
             // time, it means an underflow has occurred.
-            let underrun = stream_time_secs > self.predicted_stream_secs;
+            let underrun = event_time_secs > self.predicted_stream_secs;
 
             // Calculate the next predicted stream time to detect underflows.
             //
             // Add a little bit of wiggle room to account for tiny clock
             // innacuracies and rounding errors.
             self.predicted_stream_secs =
-                stream_time_secs + (samples as f64 * self.sample_rate_recip * 1.2);
+                event_time_secs + (samples as f64 * self.sample_rate_recip * 1.2);
 
-            (stream_time_secs, underrun)
+            (event_time_secs, underrun)
         } else {
             self.first_stream_instant = Some(info.timestamp().callback);
-            let stream_time_secs = self.predicted_stream_secs;
+            let event_time_secs = self.predicted_stream_secs;
             self.predicted_stream_secs += samples as f64 * self.sample_rate_recip * 1.2;
-            (stream_time_secs, false)
+            (event_time_secs, false)
         };
 
         let mut drop_processor = false;
@@ -604,7 +604,7 @@ impl<C: Send + 'static> DataCallback<C> {
                 self.num_in_channels,
                 self.num_out_channels,
                 samples,
-                stream_time_secs,
+                event_time_secs,
                 stream_status,
             ) {
                 FirewheelProcessorStatus::Ok => {}

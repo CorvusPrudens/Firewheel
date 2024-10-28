@@ -93,8 +93,9 @@ struct EdgeHash {
 
 struct ActiveState {
     stream_info: StreamInfo,
-    stream_time_samples_shared: Arc<SampleTimeShared>,
-    stream_time_secs_shared: Arc<SecondsShared>,
+    stream_latency_secs: f64,
+    event_time_samples_shared: Arc<SampleTimeShared>,
+    event_time_secs_shared: Arc<SecondsShared>,
 }
 
 /// An audio graph implementation.
@@ -599,35 +600,32 @@ impl<C: Send + 'static> AudioGraph<C> {
         edges_to_remove
     }
 
-    /// Get the current time of the audio stream in samples.
+    /// The current time of the event clock in units of samples, adjusted for
+    /// the latency of the stream.
     ///
-    /// This value is more accurate than [`AudioGraph::stream_time_seconds`],
+    /// This value is more accurate than [`AudioGraph::event_time_seconds`],
     /// but it does *NOT* account for any output underflows that may occur.
     /// If any underflows occur, then this will become out of sync
-    /// with [`AudioGraph::stream_time_seconds`].
+    /// with [`AudioGraph::event_time_seconds`].
     ///
     /// Also note this uses an atomic load under the hood, so avoid calling
     /// this method excessively.
-    pub fn stream_time_samples(&self) -> SampleTime {
-        self.active_state
-            .as_ref()
-            .unwrap()
-            .stream_time_samples_shared
-            .load()
+    pub fn event_time_samples(&self) -> SampleTime {
+        let s = self.active_state.as_ref().unwrap();
+        s.event_time_samples_shared.load()
+            + SampleTime::new(u64::from(s.stream_info.stream_latency_samples))
     }
 
-    /// Get the current time of the audio stream in seconds.
+    /// The current time of the event clock in units of seconds, adjusted for
+    /// the latency of the stream.
     ///
-    /// This value accounts for any output underflows that occur.
+    /// This value accounts for any output underflows that may occur.
     ///
     /// Also note this uses an atomic load under the hood, so avoid calling
     /// this method excessively.
-    pub fn stream_time_seconds(&self) -> f64 {
-        self.active_state
-            .as_ref()
-            .unwrap()
-            .stream_time_secs_shared
-            .load()
+    pub fn event_time_seconds(&self) -> f64 {
+        let s = self.active_state.as_ref().unwrap();
+        s.event_time_secs_shared.load() + s.stream_latency_secs
     }
 
     pub fn cycle_detected(&mut self) -> bool {
@@ -706,8 +704,8 @@ impl<C: Send + 'static> AudioGraph<C> {
     pub(crate) fn activate(
         &mut self,
         stream_info: StreamInfo,
-        stream_time_samples_shared: Arc<SampleTimeShared>,
-        stream_time_secs_shared: Arc<SecondsShared>,
+        event_time_samples_shared: Arc<SampleTimeShared>,
+        event_time_secs_shared: Arc<SecondsShared>,
     ) -> Result<(), NodeError> {
         let mut error = None;
 
@@ -739,8 +737,10 @@ impl<C: Send + 'static> AudioGraph<C> {
         } else {
             self.active_state = Some(ActiveState {
                 stream_info,
-                stream_time_samples_shared,
-                stream_time_secs_shared,
+                stream_latency_secs: f64::from(stream_info.stream_latency_samples)
+                    / f64::from(stream_info.sample_rate),
+                event_time_samples_shared,
+                event_time_secs_shared,
             });
             self.needs_compile = true;
             Ok(())

@@ -166,21 +166,21 @@ pub struct ProcInfo<'a, C> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The number of samples that have elapsed from when the stream was
-    /// started to the first sample in this process cycle.
+    /// The current time of the event clock in units of samples, adjusted
+    /// for the latency of the stream.
     ///
-    /// This value is more accurate than [`ProcInfo::stream_time_seconds`],
+    /// This value is more accurate than [`ProcInfo::event_time_seconds`],
     /// but it does *NOT* account for any output underflows that may occur.
     /// If any underflows occur, then this will become out of sync
-    /// with [`ProcInfo::stream_time_seconds`].
-    pub stream_time_samples: SampleTime,
+    /// with [`ProcInfo::event_time_seconds`].
+    pub event_time_samples: SampleTime,
 
-    /// The number of seconds that have elapsed from when the stream was
-    /// started to the first sample in this process cycle. This uses the
-    /// clock from the OS's audio API so it should be very accurate.
+    /// The current time of the event clock in units of seconds, adjusted
+    /// for the latency of the stream. This uses the clock from the OS's
+    /// audio API so it should be very accurate.
     ///
-    /// This value accounts for any output underflows that occur.
-    pub stream_time_seconds: f64,
+    /// This value accounts for any output underflows that may occur.
+    pub event_time_seconds: f64,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
