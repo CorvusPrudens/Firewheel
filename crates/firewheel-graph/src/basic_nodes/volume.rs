@@ -69,7 +69,7 @@ impl<C> AudioNode<C> for VolumeNode {
             gain_smoother: ParamSmoother::new(
                 self.raw_gain(),
                 stream_info.sample_rate,
-                stream_info.max_block_frames as usize,
+                stream_info.max_block_samples as usize,
                 Default::default(),
             ),
         }))
@@ -88,7 +88,7 @@ impl<C> AudioNodeProcessor<C> for VolumeProcessor {
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
-        let frames = proc_info.frames;
+        let samples = proc_info.samples;
 
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
 
@@ -100,7 +100,7 @@ impl<C> AudioNodeProcessor<C> for VolumeProcessor {
             return ProcessStatus::NoOutputsModified;
         }
 
-        let gain = self.gain_smoother.set_and_process(raw_gain, frames);
+        let gain = self.gain_smoother.set_and_process(raw_gain, samples);
 
         if !gain.is_smoothing() && gain.values[0] < 0.00001 {
             // Muted, so there is no need to process.
@@ -108,17 +108,17 @@ impl<C> AudioNodeProcessor<C> for VolumeProcessor {
         }
 
         // Hint to the compiler to optimize loop.
-        assert!(frames <= gain.values.len());
+        assert!(samples <= gain.values.len());
 
         // Provide an optimized loop for stereo.
         if inputs.len() == 2 && outputs.len() == 2 {
             // Hint to the compiler to optimize loop.
-            assert!(frames <= outputs[0].len());
-            assert!(frames <= outputs[1].len());
-            assert!(frames <= inputs[0].len());
-            assert!(frames <= inputs[1].len());
+            assert!(samples <= outputs[0].len());
+            assert!(samples <= outputs[1].len());
+            assert!(samples <= inputs[0].len());
+            assert!(samples <= inputs[1].len());
 
-            for i in 0..frames {
+            for i in 0..samples {
                 outputs[0][i] = inputs[0][i] * gain[i];
                 outputs[1][i] = inputs[1][i] * gain[i];
             }
@@ -129,15 +129,15 @@ impl<C> AudioNodeProcessor<C> for VolumeProcessor {
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
             if proc_info.in_silence_mask.is_channel_silent(i) {
                 if !proc_info.out_silence_mask.is_channel_silent(i) {
-                    output[..frames].fill(0.0);
+                    output[..samples].fill(0.0);
                 }
                 continue;
             }
 
             // Hint to the compiler to optimize loop.
-            assert!(frames <= input.len());
+            assert!(samples <= input.len());
 
-            for i in 0..frames {
+            for i in 0..samples {
                 output[i] = input[i] * gain[i];
             }
         }

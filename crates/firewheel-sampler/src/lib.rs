@@ -431,8 +431,8 @@ impl<S: SampleResource> AudioNode for SamplerNode<S> {
 
         Ok(Box::new(SamplerProcessor::new(
             stream_info.sample_rate,
-            stream_info.stream_latency_frames as usize,
-            stream_info.max_block_frames as usize,
+            stream_info.stream_latency_samples as usize,
+            stream_info.max_block_samples as usize,
             from_node_rx,
             to_node_tx,
         )))
@@ -454,7 +454,7 @@ impl<S: SampleResource> AudioNode for SamplerNode<S> {
 struct SamplerProcessor<S: SampleResource> {
     playing: bool,
     sample_rate: u32,
-    stream_latency_frames: usize,
+    stream_latency_samples: usize,
     playhead: u64,
     loop_range: Option<ProcSampleRange>,
 
@@ -467,15 +467,15 @@ struct SamplerProcessor<S: SampleResource> {
 impl<S: SampleResource> SamplerProcessor<S> {
     fn new(
         sample_rate: u32,
-        stream_latency_frames: usize,
-        max_block_frames: usize,
+        stream_latency_samples: usize,
+        max_block_samples: usize,
         from_node_rx: rtrb::Consumer<CommandType<S>>,
         to_node_tx: rtrb::Producer<ProcessorToNodeMsg<S>>,
     ) -> Self {
         Self {
             playing: false,
             sample_rate,
-            stream_latency_frames,
+            stream_latency_samples,
             playhead: 0,
             loop_range: None,
             sample: None,
@@ -488,7 +488,7 @@ impl<S: SampleResource> SamplerProcessor<S> {
 impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
     fn process(
         &mut self,
-        frames: usize,
+        samples: usize,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         _proc_info: ProcInfo,
@@ -593,9 +593,9 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
         }
 
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
-        let gain = self.gain_smoother.set_and_process(raw_gain, frames);
+        let gain = self.gain_smoother.set_and_process(raw_gain, samples);
         // Hint to the compiler to optimize loop.
-        assert_eq!(gain.values.len(), frames);
+        assert_eq!(gain.values.len(), samples);
 
         if !gain.is_smoothing() && gain.values[0] < 0.00001 {
             // TODO: Reset declick.
@@ -616,17 +616,17 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
 
             // Copy first block of samples.
 
-            let frames_left = if loop_range.playhead_range.end - self.playhead <= usize::MAX as u64
+            let samples_left = if loop_range.playhead_range.end - self.playhead <= usize::MAX as u64
             {
                 (loop_range.playhead_range.end - self.playhead) as usize
             } else {
                 usize::MAX
             };
-            let first_copy_frames = frames.min(frames_left);
+            let first_copy_samples = samples.min(samples_left);
 
-            sample.fill_buffers(outputs, 0..first_copy_frames, self.playhead);
+            sample.fill_buffers(outputs, 0..first_copy_samples, self.playhead);
 
-            if first_copy_frames < frames {
+            if first_copy_samples < samples {
                 // Loop back to the start.
                 self.playhead = self
                     .loop_range
@@ -636,39 +636,39 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
 
                 // Copy second block of samples.
 
-                let second_copy_frames = frames - first_copy_frames;
+                let second_copy_samples = samples - first_copy_samples;
 
-                sample.fill_buffers(outputs, first_copy_frames..frames, self.playhead);
+                sample.fill_buffers(outputs, first_copy_samples..samples, self.playhead);
 
-                self.playhead += second_copy_frames as u64;
+                self.playhead += second_copy_samples as u64;
             } else {
-                self.playhead += frames as u64;
+                self.playhead += samples as u64;
             }
         } else {
-            if self.playhead >= sample.len_frames() {
+            if self.playhead >= sample.len_samples() {
                 // Playhead is out of range. Output silence.
                 return ProcessStatus::NoOutputsModified;
 
                 // TODO: Notify node that sample has finished.
             }
 
-            let copy_frames = frames.min((sample.len_frames() - self.playhead) as usize);
+            let copy_samples = samples.min((sample.len_samples() - self.playhead) as usize);
 
-            sample.fill_buffers(outputs, 0..copy_frames, self.playhead);
+            sample.fill_buffers(outputs, 0..copy_samples, self.playhead);
 
-            if copy_frames < frames {
+            if copy_samples < samples {
                 // Finished playing sample.
                 self.playing = false;
                 self.playhead = 0;
 
-                // Fill any remaining frames with zeros
+                // Fill any remaining samples with zeros
                 for out_ch in outputs.iter_mut() {
-                    out_ch[copy_frames..].fill(0.0);
+                    out_ch[copy_samples..].fill(0.0);
                 }
 
                 // TODO: Notify node that sample has finished.
             } else {
-                self.playhead += frames as u64;
+                self.playhead += samples as u64;
             }
         }
 
@@ -680,19 +680,19 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             // Provide an optimized stereo loop.
 
             // Hint to the compiler to optimize loop.
-            assert_eq!(outputs[0].len(), frames);
-            assert_eq!(outputs[1].len(), frames);
+            assert_eq!(outputs[0].len(), samples);
+            assert_eq!(outputs[1].len(), samples);
 
-            for i in 0..frames {
+            for i in 0..samples {
                 outputs[0][i] *= gain.values[i];
                 outputs[1][i] *= gain.values[i];
             }
         } else {
             for (out_ch, _) in outputs.iter_mut().zip(0..sample_channels) {
                 // Hint to the compiler to optimize loop.
-                assert_eq!(out_ch.len(), frames);
+                assert_eq!(out_ch.len(), samples);
 
-                for i in 0..frames {
+                for i in 0..samples {
                     out_ch[i] *= gain.values[i];
                 }
             }
@@ -761,7 +761,7 @@ impl ProcSampleRange {
         let (start_frame, end_frame, full_range) = match &loop_range {
             SampleRange::FullSample => {
                 let end_frame = if let Some(sample) = sample {
-                    sample.len_frames()
+                    sample.len_samples()
                 } else {
                     0
                 };
@@ -790,7 +790,7 @@ impl ProcSampleRange {
             return;
         }
 
-        let end_frame = sample.len_frames();
+        let end_frame = sample.len_samples();
 
         self.playhead_range = 0..end_frame;
     }

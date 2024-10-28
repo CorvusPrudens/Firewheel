@@ -3,8 +3,10 @@ mod compiler;
 use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use ahash::{AHashMap, AHashSet};
+use firewheel_core::clock::{SampleTime, SampleTimeShared, SecondsShared};
 use firewheel_core::{ChannelConfig, ChannelCount, StreamInfo};
 use thunderdome::Arena;
 
@@ -89,6 +91,12 @@ struct EdgeHash {
     pub dst_port: InPortIdx,
 }
 
+struct ActiveState {
+    stream_info: StreamInfo,
+    stream_time_samples_shared: Arc<SampleTimeShared>,
+    stream_time_secs_shared: Arc<SecondsShared>,
+}
+
 /// An audio graph implementation.
 ///
 /// The generic is a custom global processing context that is available to
@@ -103,7 +111,7 @@ pub struct AudioGraph<C: Send + 'static> {
     graph_out_id: NodeID,
     needs_compile: bool,
 
-    stream_info: Option<StreamInfo>,
+    active_state: Option<ActiveState>,
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
     active_nodes_to_remove: AHashMap<NodeID, NodeEntry<NodeWeight<C>>>,
@@ -154,7 +162,7 @@ impl<C: Send + 'static> AudioGraph<C> {
             graph_in_id,
             graph_out_id,
             needs_compile: true,
-            stream_info: None,
+            active_state: None,
             nodes_to_remove_from_schedule: Vec::with_capacity(config.initial_node_capacity),
             active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity),
             new_node_processors: Vec::with_capacity(config.initial_node_capacity),
@@ -200,7 +208,7 @@ impl<C: Send + 'static> AudioGraph<C> {
         mut node: Box<dyn AudioNode<C>>,
         channel_config: Option<ChannelConfig>,
     ) -> Result<NodeID, NodeError> {
-        let stream_info = self.stream_info.as_ref().unwrap();
+        let stream_info = &self.active_state.as_ref().unwrap().stream_info;
 
         let debug_name = node.debug_name();
 
@@ -591,6 +599,37 @@ impl<C: Send + 'static> AudioGraph<C> {
         edges_to_remove
     }
 
+    /// Get the current time of the audio stream in samples.
+    ///
+    /// This value is more accurate than [`AudioGraph::stream_time_seconds`],
+    /// but it does *NOT* account for any output underflows that may occur.
+    /// If any underflows occur, then this will become out of sync
+    /// with [`AudioGraph::stream_time_seconds`].
+    ///
+    /// Also note this uses an atomic load under the hood, so avoid calling
+    /// this method excessively.
+    pub fn stream_time_samples(&self) -> SampleTime {
+        self.active_state
+            .as_ref()
+            .unwrap()
+            .stream_time_samples_shared
+            .load()
+    }
+
+    /// Get the current time of the audio stream in seconds.
+    ///
+    /// This value accounts for any output underflows that occur.
+    ///
+    /// Also note this uses an atomic load under the hood, so avoid calling
+    /// this method excessively.
+    pub fn stream_time_seconds(&self) -> f64 {
+        self.active_state
+            .as_ref()
+            .unwrap()
+            .stream_time_secs_shared
+            .load()
+    }
+
     pub fn cycle_detected(&mut self) -> bool {
         compiler::cycle_detected::<NodeWeight<C>>(
             &mut self.nodes,
@@ -608,7 +647,7 @@ impl<C: Send + 'static> AudioGraph<C> {
         &mut self,
         stream_info: StreamInfo,
     ) -> Result<ScheduleHeapData<C>, CompileGraphError> {
-        let schedule = self.compile_internal(stream_info.max_block_frames as usize)?;
+        let schedule = self.compile_internal(stream_info.max_block_samples as usize)?;
 
         let new_node_processors = self.new_node_processors.drain(..).collect::<Vec<_>>();
 
@@ -628,16 +667,16 @@ impl<C: Send + 'static> AudioGraph<C> {
 
     fn compile_internal(
         &mut self,
-        max_block_frames: usize,
+        max_block_samples: usize,
     ) -> Result<CompiledSchedule, CompileGraphError> {
-        assert!(max_block_frames > 0);
+        assert!(max_block_samples > 0);
 
         compiler::compile(
             &mut self.nodes,
             &mut self.edges,
             self.graph_in_id,
             self.graph_out_id,
-            max_block_frames,
+            max_block_samples,
         )
     }
 
@@ -664,7 +703,12 @@ impl<C: Send + 'static> AudioGraph<C> {
         }
     }
 
-    pub(crate) fn activate(&mut self, stream_info: StreamInfo) -> Result<(), NodeError> {
+    pub(crate) fn activate(
+        &mut self,
+        stream_info: StreamInfo,
+        stream_time_samples_shared: Arc<SampleTimeShared>,
+        stream_time_secs_shared: Arc<SecondsShared>,
+    ) -> Result<(), NodeError> {
         let mut error = None;
 
         for (_, node_entry) in self.nodes.iter_mut() {
@@ -693,7 +737,11 @@ impl<C: Send + 'static> AudioGraph<C> {
             self.deactivate();
             Err(e)
         } else {
-            self.stream_info = Some(stream_info);
+            self.active_state = Some(ActiveState {
+                stream_info,
+                stream_time_samples_shared,
+                stream_time_secs_shared,
+            });
             self.needs_compile = true;
             Ok(())
         }
@@ -717,7 +765,7 @@ impl<C: Send + 'static> AudioGraph<C> {
         self.active_nodes_to_remove.clear();
         self.nodes_to_remove_from_schedule.clear();
         self.new_node_processors.clear();
-        self.stream_info = None;
+        self.active_state = None;
     }
 
     pub(crate) fn update(&mut self) {

@@ -63,7 +63,7 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();
-        let frames = proc_info.frames;
+        let samples = proc_info.samples;
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All inputs are silent.
@@ -73,7 +73,7 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
         if num_inputs == num_outputs {
             // No need to sum, just copy.
             for (out, input) in outputs.iter_mut().zip(inputs.iter()) {
-                out[..frames].copy_from_slice(&input[..frames]);
+                out[..samples].copy_from_slice(&input[..samples]);
             }
 
             return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
@@ -85,11 +85,11 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
                 assert!(num_inputs >= (num_outputs * 2));
 
                 for (ch_i, out) in outputs.iter_mut().enumerate() {
-                    let in1 = &inputs[ch_i][..frames];
-                    let in2 = &inputs[(num_outputs * 1) + ch_i][..frames];
-                    let out = &mut out[0..frames];
+                    let in1 = &inputs[ch_i][..samples];
+                    let in2 = &inputs[(num_outputs * 1) + ch_i][..samples];
+                    let out = &mut out[0..samples];
 
-                    for i in 0..frames {
+                    for i in 0..samples {
                         out[i] = in1[i] + in2[i];
                     }
                 }
@@ -98,12 +98,12 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
                 assert!(num_inputs >= (num_outputs * 3));
 
                 for (ch_i, out) in outputs.iter_mut().enumerate() {
-                    let in1 = &inputs[ch_i][..frames];
-                    let in2 = &inputs[(num_outputs * 1) + ch_i][..frames];
-                    let in3 = &inputs[(num_outputs * 2) + ch_i][..frames];
-                    let out = &mut out[0..frames];
+                    let in1 = &inputs[ch_i][..samples];
+                    let in2 = &inputs[(num_outputs * 1) + ch_i][..samples];
+                    let in3 = &inputs[(num_outputs * 2) + ch_i][..samples];
+                    let out = &mut out[0..samples];
 
-                    for i in 0..frames {
+                    for i in 0..samples {
                         out[i] = in1[i] + in2[i] + in3[i];
                     }
                 }
@@ -112,13 +112,13 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
                 assert!(num_inputs >= (num_outputs * 4));
 
                 for (ch_i, out) in outputs.iter_mut().enumerate() {
-                    let in1 = &inputs[ch_i][..frames];
-                    let in2 = &inputs[(num_outputs * 1) + ch_i][..frames];
-                    let in3 = &inputs[(num_outputs * 2) + ch_i][..frames];
-                    let in4 = &inputs[(num_outputs * 3) + ch_i][..frames];
-                    let out = &mut out[0..frames];
+                    let in1 = &inputs[ch_i][..samples];
+                    let in2 = &inputs[(num_outputs * 1) + ch_i][..samples];
+                    let in3 = &inputs[(num_outputs * 2) + ch_i][..samples];
+                    let in4 = &inputs[(num_outputs * 3) + ch_i][..samples];
+                    let out = &mut out[0..samples];
 
-                    for i in 0..frames {
+                    for i in 0..samples {
                         out[i] = in1[i] + in2[i] + in3[i] + in4[i];
                     }
                 }
@@ -127,9 +127,9 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
                 assert!(num_inputs >= (num_outputs * n));
 
                 for (ch_i, out) in outputs.iter_mut().enumerate() {
-                    let out = &mut out[0..frames];
+                    let out = &mut out[0..samples];
 
-                    out.copy_from_slice(&inputs[ch_i][..frames]);
+                    out.copy_from_slice(&inputs[ch_i][..samples]);
 
                     for in_port_i in 1..n {
                         let in_ch_i = (num_outputs * in_port_i) + ch_i;
@@ -138,9 +138,9 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
                             continue;
                         }
 
-                        let input = &inputs[in_ch_i][..frames];
+                        let input = &inputs[in_ch_i][..samples];
 
-                        for i in 0..frames {
+                        for i in 0..samples {
                             out[i] += input[i];
                         }
                     }

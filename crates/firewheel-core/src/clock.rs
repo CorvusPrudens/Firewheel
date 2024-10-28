@@ -1,10 +1,9 @@
 use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicU64, Ordering},
 };
+
+use atomic_float::AtomicF64;
 
 /// When a particular audio event should occur.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,19 +12,17 @@ pub enum EventDelay {
     #[default]
     Immediate,
     /// The event should happen at the given time.
-    Delayed { time: ClockTime },
+    Delayed { time: SampleTime },
 }
 
 /// Time in units of samples
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClockTime {
-    pub samples: u64,
-}
+pub struct SampleTime(pub u64);
 
-impl ClockTime {
+impl SampleTime {
     pub const fn new(samples: u64) -> Self {
-        Self { samples }
+        Self(samples)
     }
 
     pub fn from_secs_f64(seconds: f64, sample_rate: u32) -> Self {
@@ -34,19 +31,17 @@ impl ClockTime {
         let seconds_u64 = seconds.floor() as u64;
         let fract_samples_u64 = (seconds.fract() * f64::from(sample_rate)).round() as u64;
 
-        Self {
-            samples: (seconds_u64 * u64::from(sample_rate)) + fract_samples_u64,
-        }
+        Self((seconds_u64 * u64::from(sample_rate)) + fract_samples_u64)
     }
 
     #[inline]
     pub fn seconds(&self, sample_rate: u32) -> u32 {
-        (self.samples / u64::from(sample_rate)) as u32
+        (self.0 / u64::from(sample_rate)) as u32
     }
 
     #[inline]
     pub fn fract_samples(&self, sample_rate: u32) -> u32 {
-        (self.samples % u64::from(sample_rate)) as u32
+        (self.0 % u64::from(sample_rate)) as u32
     }
 
     pub fn as_secs_f64(&self, sample_rate: u32, sample_rate_recip: f64) -> f64 {
@@ -62,122 +57,69 @@ impl ClockTime {
         let seconds_u64 = seconds.floor() as u64;
         let fract_samples_u64 = (seconds.fract() * f64::from(sample_rate)).round() as u64;
 
-        Self {
-            samples: self.samples + (seconds_u64 * u64::from(sample_rate)) + fract_samples_u64,
-        }
+        Self(self.0 + (seconds_u64 * u64::from(sample_rate)) + fract_samples_u64)
     }
 }
 
-impl Add for ClockTime {
+impl Add for SampleTime {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            samples: self.samples + rhs.samples,
-        }
+        Self(self.0 + rhs.0)
     }
 }
 
-impl Sub for ClockTime {
+impl Sub for SampleTime {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            samples: self.samples - rhs.samples,
-        }
+        Self(self.0 - rhs.0)
     }
 }
 
-impl AddAssign for ClockTime {
+impl AddAssign for SampleTime {
     fn add_assign(&mut self, rhs: Self) {
-        self.samples += rhs.samples;
+        self.0 += rhs.0;
     }
 }
 
-impl SubAssign for ClockTime {
+impl SubAssign for SampleTime {
     fn sub_assign(&mut self, rhs: Self) {
-        self.samples -= rhs.samples;
+        self.0 -= rhs.0;
     }
 }
 
-#[derive(Debug)]
 #[repr(transparent)]
-pub struct ClockTimeShared(AtomicU64);
-
-impl ClockTimeShared {
-    pub fn new(time: ClockTime) -> Self {
-        Self(AtomicU64::new(time.samples))
-    }
-
-    pub fn load(&self) -> ClockTime {
-        ClockTime {
-            samples: self.0.load(Ordering::SeqCst),
-        }
-    }
-
-    pub fn store(&self, time: ClockTime) {
-        self.0.store(time.samples, Ordering::SeqCst);
-    }
-}
-
-pub fn create_clock(initial_time: ClockTime, sample_rate: u32) -> (Clock, ClockProcessor) {
-    assert!(sample_rate > 0);
-
-    let time_shared = Arc::new(AtomicU64::new(initial_time.samples));
-
-    (
-        Clock {
-            time_shared: Arc::clone(&time_shared),
-            sample_rate,
-        },
-        ClockProcessor {
-            time: initial_time,
-            time_shared,
-            sample_rate,
-        },
-    )
-}
-
 #[derive(Debug)]
-pub struct Clock {
-    pub sample_rate: u32,
-    time_shared: Arc<AtomicU64>,
-}
+pub struct SampleTimeShared(AtomicU64);
 
-impl Clock {
-    pub fn current_time(&self) -> ClockTime {
-        ClockTime {
-            samples: self.time_shared.load(Ordering::SeqCst),
-        }
+impl SampleTimeShared {
+    pub fn new(time: SampleTime) -> Self {
+        Self(AtomicU64::new(time.0))
+    }
+
+    pub fn load(&self) -> SampleTime {
+        SampleTime(self.0.load(Ordering::SeqCst))
+    }
+
+    pub fn store(&self, time: SampleTime) {
+        self.0.store(time.0, Ordering::SeqCst);
     }
 }
 
-impl Clone for Clock {
-    fn clone(&self) -> Self {
-        Self {
-            time_shared: Arc::clone(&self.time_shared),
-            sample_rate: self.sample_rate,
-        }
-    }
-}
-
+#[repr(transparent)]
 #[derive(Debug)]
-pub struct ClockProcessor {
-    time: ClockTime,
-    time_shared: Arc<AtomicU64>,
-    sample_rate: u32,
-}
+pub struct SecondsShared(AtomicF64);
 
-impl ClockProcessor {
-    pub fn current_time(&self) -> ClockTime {
-        self.time
+impl SecondsShared {
+    pub fn new(secs: f64) -> Self {
+        Self(AtomicF64::new(secs))
     }
 
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+    pub fn load(&self) -> f64 {
+        self.0.load(Ordering::SeqCst)
     }
 
-    pub fn tick_samples(&mut self, samples: u64) {
-        self.time += ClockTime { samples };
-        self.time_shared.store(self.time.samples, Ordering::SeqCst);
+    pub fn store(&self, secs: f64) {
+        self.0.store(secs, Ordering::SeqCst);
     }
 }
 
@@ -278,7 +220,7 @@ pub struct TempoPart {
 }
 
 impl TempoMap {
-    pub fn musical_to_clock_time(&self, time: MusicalTime, sample_rate: u32) -> ClockTime {
+    pub fn musical_to_clock_time(&self, time: MusicalTime, sample_rate: u32) -> SampleTime {
         match self {
             &TempoMap::Constant { beats_per_minute } => {
                 let seconds_per_beat = 60.0 / beats_per_minute;
@@ -286,7 +228,7 @@ impl TempoMap {
                 let beats_f64 = time.as_beats_f64();
                 let secs_f64 = beats_f64 * seconds_per_beat;
 
-                ClockTime::from_secs_f64(secs_f64, sample_rate)
+                SampleTime::from_secs_f64(secs_f64, sample_rate)
             }
             TempoMap::PieceWise { parts: _ } => {
                 todo!()
@@ -296,7 +238,7 @@ impl TempoMap {
 
     pub fn clock_time_to_musical(
         &self,
-        time: ClockTime,
+        time: SampleTime,
         sample_rate: u32,
         sample_rate_recip: f64,
     ) -> MusicalTime {

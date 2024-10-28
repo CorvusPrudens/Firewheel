@@ -5,9 +5,9 @@ pub trait SampleResource: Send + 'static {
     /// The number of channels in this resource.
     fn num_channels(&self) -> NonZeroUsize;
 
-    /// The length of this resource in frames (the number of samples
+    /// The length of this resource in samples (the number of samples
     /// in a single channel).
-    fn len_frames(&self) -> u64;
+    fn len_samples(&self) -> u64;
 
     /// Fill the given buffers with audio data starting from the given
     /// starting frame in the resource.
@@ -35,7 +35,7 @@ impl SampleResource for InterleavedResourceI16 {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -61,7 +61,7 @@ impl SampleResource for Arc<InterleavedResourceI16> {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -92,7 +92,7 @@ impl SampleResource for InterleavedResourceU16 {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -118,7 +118,7 @@ impl SampleResource for Arc<InterleavedResourceU16> {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -149,7 +149,7 @@ impl SampleResource for InterleavedResourceF32 {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -175,7 +175,7 @@ impl SampleResource for Arc<InterleavedResourceF32> {
         self.channels
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
 
@@ -201,7 +201,7 @@ impl SampleResource for Vec<Vec<i16>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -226,7 +226,7 @@ impl SampleResource for Vec<Vec<u16>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -251,7 +251,7 @@ impl SampleResource for Vec<Vec<f32>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -270,7 +270,7 @@ impl SampleResource for Arc<Vec<Vec<i16>>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -295,7 +295,7 @@ impl SampleResource for Arc<Vec<Vec<u16>>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -320,7 +320,7 @@ impl SampleResource for Arc<Vec<Vec<f32>>> {
         NonZeroUsize::new(self.len()).unwrap()
     }
 
-    fn len_frames(&self) -> u64 {
+    fn len_samples(&self) -> u64 {
         self[0].len() as u64
     }
 
@@ -357,13 +357,13 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
     let start_frame = start_frame as usize;
     let channels = channels.get();
 
-    let frames = buffer_range.end - buffer_range.start;
+    let samples = buffer_range.end - buffer_range.start;
 
     if channels == 1 {
         // Mono, no need to deinterleave.
         for (buf_s, &src_s) in buffers[0][buffer_range.clone()]
             .iter_mut()
-            .zip(&data[start_frame..start_frame + frames])
+            .zip(&data[start_frame..start_frame + samples])
         {
             *buf_s = convert(src_s);
         }
@@ -376,7 +376,7 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
         let buf0 = &mut buf0[buffer_range.clone()];
         let buf1 = &mut buf1[0][buffer_range.clone()];
 
-        let src_slice = &data[start_frame * 2..(start_frame + frames) * 2];
+        let src_slice = &data[start_frame * 2..(start_frame + samples) * 2];
 
         for (src_chunk, (buf0_s, buf1_s)) in src_slice
             .chunks_exact(2)
@@ -389,7 +389,7 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
         return;
     }
 
-    let src_slice = &data[start_frame * channels..(start_frame + frames) * channels];
+    let src_slice = &data[start_frame * channels..(start_frame + samples) * channels];
     for (ch_i, buf_ch) in (0..channels).zip(buffers.iter_mut()) {
         for (src_chunk, buf_s) in src_slice
             .chunks_exact(channels)
@@ -410,17 +410,17 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
 ) {
     assert!(start_frame < usize::MAX as u64);
     let start_frame = start_frame as usize;
-    let frames = buffer_range.end - buffer_range.start;
+    let samples = buffer_range.end - buffer_range.start;
 
     if data.len() == 2 && buffers.len() >= 2 {
         // Provide an optimized loop for stereo.
         let (buf0, buf1) = buffers.split_first_mut().unwrap();
         let buf0 = &mut buf0[buffer_range.clone()];
         let buf1 = &mut buf1[0][buffer_range.clone()];
-        let s0 = &data[0].as_ref()[start_frame..start_frame + frames];
-        let s1 = &data[1].as_ref()[start_frame..start_frame + frames];
+        let s0 = &data[0].as_ref()[start_frame..start_frame + samples];
+        let s1 = &data[1].as_ref()[start_frame..start_frame + samples];
 
-        for i in 0..frames {
+        for i in 0..samples {
             buf0[i] = convert(s0[i]);
             buf1[i] = convert(s1[i]);
         }
@@ -431,7 +431,7 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
     for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
         for (buf_s, &ch_s) in buf[buffer_range.clone()]
             .iter_mut()
-            .zip(ch.as_ref()[start_frame..start_frame + frames].iter())
+            .zip(ch.as_ref()[start_frame..start_frame + samples].iter())
         {
             *buf_s = convert(ch_s);
         }

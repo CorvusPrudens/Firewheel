@@ -14,3 +14,4 @@ arrayvec.workspace = true
 bitflags.workspace = true
 downcast-rs.workspace = true
 thunderdome.workspace = true
+atomic_float.workspace = true

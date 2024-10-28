@@ -172,7 +172,7 @@ pub struct CompiledSchedule {
     buffers: Vec<f32>,
     buffer_silence_flags: Vec<bool>,
     num_buffers: usize,
-    max_block_frames: usize,
+    max_block_samples: usize,
 }
 
 impl Debug for CompiledSchedule {
@@ -188,7 +188,7 @@ impl Debug for CompiledSchedule {
         writeln!(f, "    }}")?;
 
         writeln!(f, "    num_buffers: {}", self.num_buffers)?;
-        writeln!(f, "    max_block_frames: {}", self.max_block_frames)?;
+        writeln!(f, "    max_block_samples: {}", self.max_block_samples)?;
 
         writeln!(f, "}}")
     }
@@ -198,28 +198,28 @@ impl CompiledSchedule {
     pub(super) fn new(
         schedule: Vec<ScheduledNode>,
         num_buffers: usize,
-        max_block_frames: usize,
+        max_block_samples: usize,
     ) -> Self {
         Self {
             schedule,
-            buffers: vec![0.0; num_buffers * max_block_frames],
+            buffers: vec![0.0; num_buffers * max_block_samples],
             buffer_silence_flags: vec![false; num_buffers],
             num_buffers,
-            max_block_frames,
+            max_block_samples,
         }
     }
 
-    pub fn max_block_frames(&self) -> usize {
-        self.max_block_frames
+    pub fn max_block_samples(&self) -> usize {
+        self.max_block_samples
     }
 
     pub fn prepare_graph_inputs(
         &mut self,
-        frames: usize,
+        samples: usize,
         num_stream_inputs: usize,
         fill_inputs: impl FnOnce(&mut [&mut [f32]]) -> SilenceMask,
     ) {
-        let frames = frames.min(self.max_block_frames);
+        let samples = samples.min(self.max_block_samples);
 
         let graph_in_node = self.schedule.first().unwrap();
 
@@ -231,8 +231,8 @@ impl CompiledSchedule {
             inputs.push(buffer_slice_mut(
                 &self.buffers,
                 graph_in_node.output_buffers[i].buffer_index,
-                self.max_block_frames,
-                frames,
+                self.max_block_samples,
+                samples,
             ));
         }
 
@@ -246,8 +246,12 @@ impl CompiledSchedule {
 
         if fill_input_len < graph_in_node.output_buffers.len() {
             for b in graph_in_node.output_buffers.iter().skip(fill_input_len) {
-                let buf_slice =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                let buf_slice = buffer_slice_mut(
+                    &self.buffers,
+                    b.buffer_index,
+                    self.max_block_samples,
+                    samples,
+                );
                 buf_slice.fill(0.0);
 
                 *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) = true;
@@ -257,11 +261,11 @@ impl CompiledSchedule {
 
     pub fn read_graph_outputs(
         &mut self,
-        frames: usize,
+        samples: usize,
         num_stream_outputs: usize,
         read_outputs: impl FnOnce(&[&[f32]], SilenceMask),
     ) {
-        let frames = frames.min(self.max_block_frames);
+        let samples = samples.min(self.max_block_samples);
 
         let graph_out_node = self.schedule.last().unwrap();
 
@@ -281,8 +285,8 @@ impl CompiledSchedule {
             outputs.push(buffer_slice_mut(
                 &self.buffers,
                 buffer_index,
-                self.max_block_frames,
-                frames,
+                self.max_block_samples,
+                samples,
             ));
         }
 
@@ -291,7 +295,7 @@ impl CompiledSchedule {
 
     pub fn process(
         &mut self,
-        frames: usize,
+        samples: usize,
         mut process: impl FnMut(
             NodeID,
             SilenceMask,
@@ -300,7 +304,7 @@ impl CompiledSchedule {
             &mut [&mut [f32]],
         ) -> ProcessStatus,
     ) {
-        let frames = frames.min(self.max_block_frames);
+        let samples = samples.min(self.max_block_samples);
 
         let mut inputs: ArrayVec<&[f32], 64> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
@@ -313,12 +317,16 @@ impl CompiledSchedule {
             outputs.clear();
 
             for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
-                let buf =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                let buf = buffer_slice_mut(
+                    &self.buffers,
+                    b.buffer_index,
+                    self.max_block_samples,
+                    samples,
+                );
                 let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if b.should_clear {
-                    buf[..frames].fill(0.0);
+                    buf[..samples].fill(0.0);
                     *s = true;
                 }
 
@@ -330,8 +338,12 @@ impl CompiledSchedule {
             }
 
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                let buf =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                let buf = buffer_slice_mut(
+                    &self.buffers,
+                    b.buffer_index,
+                    self.max_block_samples,
+                    samples,
+                );
                 let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if *s {
@@ -359,8 +371,8 @@ impl CompiledSchedule {
                             buffer_slice_mut(
                                 &self.buffers,
                                 b.buffer_index,
-                                self.max_block_frames,
-                                frames,
+                                self.max_block_samples,
+                                samples,
                             )
                             .fill(0.0);
                             *s = true;
@@ -382,8 +394,8 @@ impl CompiledSchedule {
 fn buffer_slice_mut<'a>(
     buffers: &'a Vec<f32>,
     buffer_index: usize,
-    max_block_frames: usize,
-    frames: usize,
+    max_block_samples: usize,
+    samples: usize,
 ) -> &'a mut [f32] {
     // SAFETY
     //
@@ -392,8 +404,8 @@ fn buffer_slice_mut<'a>(
     // `b.buffer_index` is gauranteed to be less than the value of
     // `num_buffers` that was passed into [`CompiledSchedule::new`].
     //
-    // The methods calling this function make sure that `frames <= max_block_frames`,
-    // and `buffers` was initialized with a length of `num_buffers * max_block_frames`
+    // The methods calling this function make sure that `samples <= max_block_samples`,
+    // and `buffers` was initialized with a length of `num_buffers * max_block_samples`
     // in the constructor. And because `buffer_index` is gauranteed to be less than
     // `num_buffers`, this slice will always point to a valid range.
     //
@@ -407,8 +419,8 @@ fn buffer_slice_mut<'a>(
     // still borrowed.
     unsafe {
         std::slice::from_raw_parts_mut(
-            (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_frames),
-            frames,
+            (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_samples),
+            samples,
         )
     }
 }
@@ -426,6 +438,8 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
         basic_nodes::dummy::DummyAudioNode,
         graph::{AddEdgeError, AudioGraph, EdgeID, InPortIdx, OutPortIdx},
@@ -434,7 +448,10 @@ mod tests {
 
     use super::*;
     use ahash::AHashSet;
-    use firewheel_core::{ChannelCount, StreamInfo};
+    use firewheel_core::{
+        clock::{SampleTimeShared, SecondsShared},
+        ChannelCount, StreamInfo,
+    };
 
     // Simplest graph compile test:
     //
@@ -448,6 +465,13 @@ mod tests {
             num_graph_outputs: ChannelCount::MONO,
             ..Default::default()
         });
+        graph
+            .activate(
+                StreamInfo::default(),
+                Arc::new(SampleTimeShared::new(Default::default())),
+                Arc::new(SecondsShared::new(0.0)),
+            )
+            .unwrap();
 
         let node0 = graph.graph_in_node();
         let node1 = graph.graph_out_node();
@@ -492,7 +516,13 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph.activate(StreamInfo::default()).unwrap();
+        graph
+            .activate(
+                StreamInfo::default(),
+                Arc::new(SampleTimeShared::new(Default::default())),
+                Arc::new(SecondsShared::new(0.0)),
+            )
+            .unwrap();
 
         let node0 = graph.graph_in_node();
         let node1 = graph
@@ -591,7 +621,13 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph.activate(StreamInfo::default()).unwrap();
+        graph
+            .activate(
+                StreamInfo::default(),
+                Arc::new(SampleTimeShared::new(Default::default())),
+                Arc::new(SecondsShared::new(0.0)),
+            )
+            .unwrap();
 
         let node0 = graph.graph_in_node();
         let node1 = graph
@@ -725,7 +761,13 @@ mod tests {
             num_graph_outputs: ChannelCount::MONO,
             ..Default::default()
         });
-        graph.activate(StreamInfo::default()).unwrap();
+        graph
+            .activate(
+                StreamInfo::default(),
+                Arc::new(SampleTimeShared::new(Default::default())),
+                Arc::new(SecondsShared::new(0.0)),
+            )
+            .unwrap();
 
         let node1 = graph.graph_in_node();
         let node2 = graph.graph_out_node();
@@ -749,7 +791,13 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph.activate(StreamInfo::default()).unwrap();
+        graph
+            .activate(
+                StreamInfo::default(),
+                Arc::new(SampleTimeShared::new(Default::default())),
+                Arc::new(SecondsShared::new(0.0)),
+            )
+            .unwrap();
 
         let node1 = graph
             .add_node(DummyAudioNode.into(), Some((1, 1).into()))

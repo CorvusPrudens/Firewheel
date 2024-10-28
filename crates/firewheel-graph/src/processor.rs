@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use thunderdome::Arena;
 
 use crate::graph::{NodeID, ScheduleHeapData};
 use firewheel_core::{
+    clock::{SampleTime, SampleTimeShared, SecondsShared},
     node::{AudioNodeProcessor, ProcInfo, ProcessStatus, StreamStatus},
     SilenceMask, StreamInfo,
 };
@@ -24,26 +27,37 @@ pub struct FirewheelProcessor<C: Send + 'static> {
     from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
 
+    stream_time_samples_shared: Arc<SampleTimeShared>,
+    stream_time_secs_shared: Arc<SecondsShared>,
+
     running: bool,
     stream_info: StreamInfo,
+    sample_rate_recip: f64,
 }
 
 impl<C: Send + 'static> FirewheelProcessor<C> {
     pub(crate) fn new(
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
+        stream_time_samples_shared: Arc<SampleTimeShared>,
+        stream_time_secs_shared: Arc<SecondsShared>,
         node_capacity: usize,
         stream_info: StreamInfo,
         user_cx: C,
     ) -> Self {
+        let sample_rate_recip = f64::from(stream_info.sample_rate).recip();
+
         Self {
             nodes: Arena::with_capacity(node_capacity * 2),
             schedule_data: None,
             user_cx: Some(user_cx),
             from_graph_rx,
             to_graph_tx,
+            stream_time_samples_shared,
+            stream_time_secs_shared,
             running: true,
             stream_info,
+            sample_rate_recip,
         }
     }
 
@@ -57,10 +71,15 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
         output: &mut [f32],
         num_in_channels: usize,
         num_out_channels: usize,
-        frames: usize,
-        stream_time_secs: f64,
+        samples: usize,
+        mut stream_time_seconds: f64,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
+        let mut stream_time_samples = self.stream_time_samples_shared.load();
+        self.stream_time_samples_shared
+            .store(stream_time_samples + SampleTime::new(samples as u64));
+        self.stream_time_secs_shared.store(stream_time_seconds);
+
         self.poll_messages();
 
         if !self.running {
@@ -68,18 +87,18 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             return FirewheelProcessorStatus::DropProcessor;
         }
 
-        if self.schedule_data.is_none() || frames == 0 {
+        if self.schedule_data.is_none() || samples == 0 {
             output.fill(0.0);
             return FirewheelProcessorStatus::Ok;
         };
 
-        assert_eq!(input.len(), frames * num_in_channels);
-        assert_eq!(output.len(), frames * num_out_channels);
+        assert_eq!(input.len(), samples * num_in_channels);
+        assert_eq!(output.len(), samples * num_out_channels);
 
-        let mut frames_processed = 0;
-        while frames_processed < frames {
-            let block_frames =
-                (frames - frames_processed).min(self.stream_info.max_block_frames as usize);
+        let mut samples_processed = 0;
+        while samples_processed < samples {
+            let block_samples =
+                (samples - samples_processed).min(self.stream_info.max_block_samples as usize);
 
             // Prepare graph input buffers.
             self.schedule_data
@@ -87,20 +106,25 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                 .unwrap()
                 .schedule
                 .prepare_graph_inputs(
-                    block_frames,
+                    block_samples,
                     num_in_channels,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         firewheel_core::util::deinterleave(
                             channels,
-                            &input[frames_processed * num_in_channels
-                                ..(frames_processed + block_frames) * num_in_channels],
+                            &input[samples_processed * num_in_channels
+                                ..(samples_processed + block_samples) * num_in_channels],
                             num_in_channels,
                             true,
                         )
                     },
                 );
 
-            self.process_block(block_frames, stream_time_secs, stream_status);
+            self.process_block(
+                block_samples,
+                stream_time_samples,
+                stream_time_seconds,
+                stream_status,
+            );
 
             // Copy the output of the graph to the output buffer.
             self.schedule_data
@@ -108,13 +132,13 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                 .unwrap()
                 .schedule
                 .read_graph_outputs(
-                    block_frames,
+                    block_samples,
                     num_out_channels,
                     |channels: &[&[f32]], silence_mask| {
                         firewheel_core::util::interleave(
                             channels,
-                            &mut output[frames_processed * num_out_channels
-                                ..(frames_processed + block_frames) * num_out_channels],
+                            &mut output[samples_processed * num_out_channels
+                                ..(samples_processed + block_samples) * num_out_channels],
                             num_out_channels,
                             Some(silence_mask),
                         );
@@ -122,13 +146,15 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                 );
 
             if !self.running {
-                if frames_processed < frames {
-                    output[frames_processed * num_out_channels..].fill(0.0);
+                if samples_processed < samples {
+                    output[samples_processed * num_out_channels..].fill(0.0);
                 }
                 break;
             }
 
-            frames_processed += block_frames;
+            samples_processed += block_samples;
+            stream_time_samples += SampleTime::new(block_samples as u64);
+            stream_time_seconds += block_samples as f64 * self.sample_rate_recip;
         }
 
         if self.running {
@@ -143,8 +169,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             match msg {
                 ContextToProcessorMsg::NewSchedule(mut new_schedule_data) => {
                     assert_eq!(
-                        new_schedule_data.schedule.max_block_frames(),
-                        self.stream_info.max_block_frames as usize
+                        new_schedule_data.schedule.max_block_samples(),
+                        self.stream_info.max_block_samples as usize
                     );
 
                     if let Some(mut old_schedule_data) = self.schedule_data.take() {
@@ -181,8 +207,9 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
 
     fn process_block(
         &mut self,
-        block_frames: usize,
-        stream_time_secs: f64,
+        block_samples: usize,
+        stream_time_samples: SampleTime,
+        stream_time_seconds: f64,
         stream_status: StreamStatus,
     ) {
         self.poll_messages();
@@ -198,7 +225,7 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
         let user_cx = self.user_cx.as_mut().unwrap();
 
         schedule_data.schedule.process(
-            block_frames,
+            block_samples,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
@@ -206,10 +233,11 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
              outputs: &mut [&mut [f32]]|
              -> ProcessStatus {
                 let proc_info = ProcInfo {
-                    frames: block_frames,
+                    samples: block_samples,
                     in_silence_mask,
                     out_silence_mask,
-                    stream_time_secs,
+                    stream_time_samples,
+                    stream_time_seconds,
                     stream_status,
                     cx: user_cx,
                 };

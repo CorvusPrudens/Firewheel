@@ -88,13 +88,13 @@ impl<C> AudioNodeProcessor<C> for BeepTestProcessor {
             return ProcessStatus::NoOutputsModified;
         }
 
-        for s in out1[..proc_info.frames].iter_mut() {
+        for s in out1[..proc_info.samples].iter_mut() {
             *s = (self.phasor * std::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }
 
         for out2 in outputs.iter_mut() {
-            out2[..proc_info.frames].copy_from_slice(&out1[..proc_info.frames]);
+            out2[..proc_info.samples].copy_from_slice(&out1[..proc_info.samples]);
         }
 
         ProcessStatus::all_outputs_filled()

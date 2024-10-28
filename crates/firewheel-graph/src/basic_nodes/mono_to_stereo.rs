@@ -48,8 +48,8 @@ impl<C> AudioNodeProcessor<C> for MonoToStereoProcessor {
         }
 
         let input = inputs[0];
-        outputs[0][..proc_info.frames].copy_from_slice(&input[..proc_info.frames]);
-        outputs[1][..proc_info.frames].copy_from_slice(&input[..proc_info.frames]);
+        outputs[0][..proc_info.samples].copy_from_slice(&input[..proc_info.samples]);
+        outputs[1][..proc_info.samples].copy_from_slice(&input[..proc_info.samples]);
 
         ProcessStatus::all_outputs_filled()
     }

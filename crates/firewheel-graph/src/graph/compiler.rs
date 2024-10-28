@@ -141,10 +141,10 @@ pub fn compile<'a, N>(
     edges: &mut Arena<Edge>,
     graph_in_id: NodeID,
     graph_out_id: NodeID,
-    max_block_frames: usize,
+    max_block_samples: usize,
 ) -> Result<CompiledSchedule, CompileGraphError> {
     Ok(
-        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, max_block_frames)
+        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, max_block_samples)
             .sort_topologically(true)?
             .solve_buffer_requirements()?
             .merge(),
@@ -182,7 +182,7 @@ struct GraphIR<'a, N> {
     graph_out_id: NodeID,
     max_in_buffers: usize,
     max_out_buffers: usize,
-    max_block_frames: usize,
+    max_block_samples: usize,
 }
 
 impl<'a, N> GraphIR<'a, N> {
@@ -193,7 +193,7 @@ impl<'a, N> GraphIR<'a, N> {
         edges: &'a mut Arena<Edge>,
         graph_in_id: NodeID,
         graph_out_id: NodeID,
-        max_block_frames: usize,
+        max_block_samples: usize,
     ) -> Self {
         assert!(nodes.contains(graph_in_id.idx));
         assert!(nodes.contains(graph_out_id.idx));
@@ -220,7 +220,7 @@ impl<'a, N> GraphIR<'a, N> {
             graph_out_id,
             max_in_buffers: 0,
             max_out_buffers: 0,
-            max_block_frames,
+            max_block_samples,
         }
     }
 
@@ -405,6 +405,6 @@ impl<'a, N> GraphIR<'a, N> {
 
     /// Merge the GraphIR into a [CompiledSchedule].
     fn merge(self) -> CompiledSchedule {
-        CompiledSchedule::new(self.schedule, self.max_num_buffers, self.max_block_frames)
+        CompiledSchedule::new(self.schedule, self.max_num_buffers, self.max_block_samples)
     }
 }

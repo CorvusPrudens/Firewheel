@@ -57,7 +57,7 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
         outputs: &mut [&mut [f32]],
         proc_info: ProcInfo<C>,
     ) -> ProcessStatus {
-        let frames = proc_info.frames;
+        let samples = proc_info.samples;
 
         // Provide an optimized loop for stereo.
         if inputs.len() == 2
@@ -65,12 +65,12 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
             && !proc_info.in_silence_mask.any_channel_silent(2)
         {
             // Hint to the compiler to optimize loop.
-            assert!(frames <= outputs[0].len());
-            assert!(frames <= outputs[1].len());
-            assert!(frames <= inputs[0].len());
-            assert!(frames <= inputs[1].len());
+            assert!(samples <= outputs[0].len());
+            assert!(samples <= outputs[1].len());
+            assert!(samples <= inputs[0].len());
+            assert!(samples <= inputs[1].len());
 
-            for i in 0..frames {
+            for i in 0..samples {
                 outputs[0][i] = inputs[0][i]
                     .min(self.threshold_gain)
                     .max(-self.threshold_gain);
@@ -85,7 +85,7 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
             if proc_info.in_silence_mask.is_channel_silent(i) {
                 if !proc_info.out_silence_mask.is_channel_silent(i) {
-                    output[..frames].fill(0.0);
+                    output[..samples].fill(0.0);
                 }
                 continue;
             }

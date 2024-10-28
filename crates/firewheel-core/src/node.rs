@@ -1,7 +1,7 @@
 use downcast_rs::Downcast;
 use std::error::Error;
 
-use crate::{ChannelConfig, ChannelCount, SilenceMask, StreamInfo};
+use crate::{clock::SampleTime, ChannelConfig, ChannelCount, SilenceMask, StreamInfo};
 
 /// The trait describing an audio node in an audio graph.
 ///
@@ -136,12 +136,12 @@ impl Default for AudioNodeInfo {
 /// is sent to the processor in [`ProcInfo`].
 pub trait AudioNodeProcessor<C>: 'static + Send {
     /// Process the given block of audio. Only process data in the
-    /// buffers up to `frames`.
+    /// buffers up to `samples`.
     ///
     /// The node *MUST* either return `ProcessStatus::NoOutputsModified`
     /// or fill all output buffers with data.
     ///
-    /// If any output buffers contain all zeros up to `frames` (silent),
+    /// If any output buffers contain all zeros up to `samples` (silent),
     /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
     fn process(
         &mut self,
@@ -153,8 +153,8 @@ pub trait AudioNodeProcessor<C>: 'static + Send {
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a, C> {
-    /// The number of frames in this processing block.
-    pub frames: usize,
+    /// The number of samples in this processing block.
+    pub samples: usize,
 
     /// An optional optimization hint on which input channels contain
     /// all zeros (silence). The first bit (`0b1`) is the first channel,
@@ -166,10 +166,21 @@ pub struct ProcInfo<'a, C> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
+    /// The number of samples that have elapsed from when the stream was
+    /// started to the first sample in this process cycle.
+    ///
+    /// This value is more accurate than [`ProcInfo::stream_time_seconds`],
+    /// but it does *NOT* account for any output underflows that may occur.
+    /// If any underflows occur, then this will become out of sync
+    /// with [`ProcInfo::stream_time_seconds`].
+    pub stream_time_samples: SampleTime,
+
     /// The number of seconds that have elapsed from when the stream was
-    /// started to the fist sample in this process cycle. This uses the
+    /// started to the first sample in this process cycle. This uses the
     /// clock from the OS's audio API so it should be very accurate.
-    pub stream_time_secs: f64,
+    ///
+    /// This value accounts for any output underflows that occur.
+    pub stream_time_seconds: f64,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,

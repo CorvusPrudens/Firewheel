@@ -1,9 +1,13 @@
 use std::{
     error::Error,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use firewheel_core::{ChannelCount, StreamInfo};
+use firewheel_core::{
+    clock::{SampleTime, SampleTimeShared, SecondsShared},
+    ChannelCount, StreamInfo,
+};
 use rtrb::PushError;
 
 use crate::{
@@ -75,7 +79,7 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
     ) -> Result<FirewheelProcessor<C>, (ActivateCtxError, C)> {
         // TODO: Return an error instead of panicking.
         assert_ne!(stream_info.sample_rate, 0);
-        assert!(stream_info.max_block_frames > 0);
+        assert!(stream_info.max_block_samples > 0);
         assert!(stream_info.num_stream_in_channels <= 64);
         assert!(stream_info.num_stream_out_channels <= 64);
 
@@ -83,7 +87,14 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
             return Err((ActivateCtxError::AlreadyActivated, user_cx));
         }
 
-        if let Err(e) = self.graph.activate(stream_info) {
+        let stream_time_samples_shared = Arc::new(SampleTimeShared::new(SampleTime::default()));
+        let stream_time_secs_shared = Arc::new(SecondsShared::new(0.0));
+
+        if let Err(e) = self.graph.activate(
+            stream_info,
+            Arc::clone(&stream_time_samples_shared),
+            Arc::clone(&stream_time_secs_shared),
+        ) {
             return Err((ActivateCtxError::NodeFailedToActived(e), user_cx));
         }
 
@@ -101,6 +112,8 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
         Ok(FirewheelProcessor::new(
             from_graph_rx,
             to_graph_tx,
+            stream_time_samples_shared,
+            stream_time_secs_shared,
             self.graph.current_node_capacity(),
             stream_info,
             user_cx,

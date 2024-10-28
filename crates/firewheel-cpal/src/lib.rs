@@ -18,7 +18,7 @@ use firewheel_graph::{
     FirewheelConfig, FirewheelGraphCtx, UpdateStatus,
 };
 
-/// 1024 frames is a latency of about 23 milliseconds, which should
+/// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
@@ -208,10 +208,10 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
         let mut desired_sample_rate = config
             .desired_sample_rate
             .unwrap_or(default_cpal_config.sample_rate().0);
-        let desired_latency_frames = if let &cpal::SupportedBufferSize::Range { min, max } =
+        let desired_latency_samples = if let &cpal::SupportedBufferSize::Range { min, max } =
             default_cpal_config.buffer_size()
         {
-            Some(config.desired_latency_frames.clamp(min, max))
+            Some(config.desired_latency_samples.clamp(min, max))
         } else {
             None
         };
@@ -244,8 +244,8 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
         let num_out_channels = default_cpal_config.channels() as usize;
         assert_ne!(num_out_channels, 0);
 
-        let desired_buffer_size = if let Some(frames) = desired_latency_frames {
-            cpal::BufferSize::Fixed(frames)
+        let desired_buffer_size = if let Some(samples) = desired_latency_samples {
+            cpal::BufferSize::Fixed(samples)
         } else {
             cpal::BufferSize::Default
         };
@@ -264,7 +264,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             &cpal_config
         );
 
-        let max_block_frames = match cpal_config.buffer_size {
+        let max_block_samples = match cpal_config.buffer_size {
             cpal::BufferSize::Default => DEFAULT_MAX_BLOCK_FRAMES as usize,
             cpal::BufferSize::Fixed(f) => f as usize,
         };
@@ -337,7 +337,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             return Err((e.into(), user_cx));
         }
 
-        let stream_latency_frames = if let Some(sl) = sl.take() {
+        let stream_latency_samples = if let Some(sl) = sl.take() {
             while sl.load(Ordering::Relaxed) == u32::MAX {
                 std::thread::sleep(Duration::from_millis(1));
             }
@@ -347,8 +347,8 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             log::info!("Estimated audio stream latency: {}", l);
 
             l
-        } else if let cpal::BufferSize::Fixed(frames) = cpal_config.buffer_size {
-            frames
+        } else if let cpal::BufferSize::Fixed(samples) = cpal_config.buffer_size {
+            samples
         } else {
             unreachable!()
         };
@@ -356,8 +356,8 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
         let processor = match self.cx.activate(
             StreamInfo {
                 sample_rate: cpal_config.sample_rate.0,
-                max_block_frames: max_block_frames as u32,
-                stream_latency_frames,
+                max_block_samples: max_block_samples as u32,
+                stream_latency_samples,
                 num_stream_in_channels: num_in_channels as u32,
                 num_stream_out_channels: num_out_channels as u32,
             },
@@ -496,7 +496,7 @@ pub struct AudioStreamConfig {
     /// By default this is set to `1024`, which is a latency of about 23
     /// milliseconds. This should be good enough for most games. (Rhythm
     /// games may want to try a lower latency).
-    pub desired_latency_frames: u32,
+    pub desired_latency_samples: u32,
 
     /// Whether or not to fall back to the default device and then a
     /// dummy output device if a device with the given configuration
@@ -511,7 +511,7 @@ impl Default for AudioStreamConfig {
         Self {
             output_device_name: None,
             desired_sample_rate: None,
-            desired_latency_frames: DEFAULT_MAX_BLOCK_FRAMES,
+            desired_latency_samples: DEFAULT_MAX_BLOCK_FRAMES,
             fallback: true,
         }
     }
@@ -553,7 +553,7 @@ impl<C: Send + 'static> DataCallback<C> {
             self.processor = Some(p);
         }
 
-        let frames = output.len() / self.num_out_channels;
+        let samples = output.len() / self.num_out_channels;
 
         let (stream_time_secs, underflow) = if self.is_first_callback {
             // Apparently there is a bug in CPAL where the callback instant in
@@ -561,7 +561,7 @@ impl<C: Send + 'static> DataCallback<C> {
             //
             // Work around this by ignoring the first callback instant.
             self.is_first_callback = false;
-            self.predicted_stream_secs = frames as f64 * self.sample_rate_recip;
+            self.predicted_stream_secs = samples as f64 * self.sample_rate_recip;
             (0.0, false)
         } else if let Some(instant) = &self.first_stream_instant {
             let stream_time_secs = info
@@ -580,13 +580,13 @@ impl<C: Send + 'static> DataCallback<C> {
             // Add a little bit of wiggle room to account for tiny clock
             // innacuracies and rounding errors.
             self.predicted_stream_secs =
-                stream_time_secs + (frames as f64 * self.sample_rate_recip * 1.2);
+                stream_time_secs + (samples as f64 * self.sample_rate_recip * 1.2);
 
             (stream_time_secs, underrun)
         } else {
             self.first_stream_instant = Some(info.timestamp().callback);
             let stream_time_secs = self.predicted_stream_secs;
-            self.predicted_stream_secs += frames as f64 * self.sample_rate_recip * 1.2;
+            self.predicted_stream_secs += samples as f64 * self.sample_rate_recip * 1.2;
             (stream_time_secs, false)
         };
 
@@ -603,7 +603,7 @@ impl<C: Send + 'static> DataCallback<C> {
                 output,
                 self.num_in_channels,
                 self.num_out_channels,
-                frames,
+                samples,
                 stream_time_secs,
                 stream_status,
             ) {
