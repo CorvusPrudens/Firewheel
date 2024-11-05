@@ -55,7 +55,8 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo<C>,
+        proc_info: ProcInfo,
+        _cx: &mut C,
     ) -> ProcessStatus {
         let samples = proc_info.samples;
 

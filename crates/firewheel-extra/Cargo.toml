@@ -1,6 +1,8 @@
 [package]
 name = "firewheel-extra"
 version = "0.1.0"
+description = "Extra nodes for the Firewheel audio engine"
+homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-extra"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true

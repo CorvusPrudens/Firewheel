@@ -59,7 +59,8 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo<C>,
+        proc_info: ProcInfo,
+        _cx: &mut C,
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();

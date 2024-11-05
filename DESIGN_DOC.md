@@ -2,7 +2,10 @@
 
 ## Overview
 
-Both the Rust ecosystem and the libre game engine ecosystem as a whole are in need of a powerful, flexible, and libre audio engine for games. Firewheel aims to provide developers with a powerful and modular solution for constructing custom audio experiences.
+Both the Rust ecosystem and the libre game engine ecosystem as a whole are in need of a powerful, flexible, and libre audio engine for games. Firewheel aims to provide developers with a powerful and modular solution for constructing custom interactive audio experiences.
+
+> #### Why the name "Firewheel"?
+> The [firewheel](https://en.wikipedia.org/wiki/Gaillardia_pulchella) (aka "Indian Blanket", scientific name Gaillardia Pulchella) is a wildflower native to the Midwest USA. I just thought it was a cool looking flower with a cool name. :)
 
 ## Goals for First Release
 
@@ -13,16 +16,18 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * Key built-in nodes:
     * [x] volume (minimum value mutes)
     * [ ] stereo panning
-    * [ ] stereo width
     * [x] sum
     * [x] hard clip
     * [x] mono to stereo
     * [x] stereo to mono
     * [ ] decibel (peak) meter
     * [x] beep test (generates a sine wav for testing)
-    * [ ] sampler node (with support for looping audio)
+    * [ ] triple buffer input (put raw audio samples into the graph from another thread)
+    * [ ] triple buffer output (allows the game engine to read the latest samples in the audio stream)
+    * [ ] one-shot sampler node
+    * [ ] looping sampler node
     * [ ] simple spatial positioning (only the simplest implementation for first release)
-* [ ] (api still a wip) Custom audio node API allowing for a plethora of 3rd party generators and effects
+* [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
 * [x] Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
 * [ ] Basic tweening support for volume, pan, and spatial positioning nodes
 * [ ] A general purpose "preset" graph with an easy-to-use interface
@@ -34,16 +39,15 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Later Goals
 
+* Seamlessly blending between multiple audio tracks in the `LoopingSamplerNode`
 * Extra built-in nodes:
-    * [ ] filters (lowpass, highpass, bandpass)
-    * [ ] echo
     * [ ] delay compensation
-    * [ ] convolutional reverb (user can load any own impulse response they want)
-    * [ ] better spatial positioning with sound absorption capabilities
-    * [ ] doppler stretching on sampler node
-    * [ ] disk streaming on sampler node (using [creek](https://github.com/MeadowlarkDAW/creek))
-    * [ ] networking streaming in WebAssembly
-    * [ ] oscilloscope meter
+    * [ ] convolution (user can load any own impulse response they want to create effects like reverbs)
+    * [ ] echo
+    * [ ] filters (lowpass, highpass, bandpass)
+* [ ] Doppler stretching on sampler nodes
+* [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek)) on native and network streaming support on WebAssembly
+* [ ] Better spatial positioning with sound absorption capabilities
 * [ ] Basic [CLAP] plugin hosting (non-WebAssembly only)
 * [ ] Animation curve support
 * [ ] Snapping events to musical beats (useful for rhythm games)
@@ -87,11 +91,18 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Audio Node API
 
-See crates/firewheel-core/node.rs
+See [crates/firewheel-core/src/node.rs](crates/firewheel-core/src/node.rs)
 
 ## Backend API
 
-TODO
+Audio backends should have the following features:
+
+* Retrieve a list of audio output and/or audio input devices so games can let the user choose which audio devices to use in the game's setting GUI.
+* Spawn an audio stream with the chosen input/output devices (or `None` which specifies to use the default device).
+    * If the device is not found, try falling back to the default audio device first before returning an error (if the user specified that they want to fall back).
+    * If no default device is found, try falling back to a "dummy" audio device first before returning an error (if the user specified that they want to fall back). If the backend does not support dummy devices, then emulate an audio stream by spawning a thread manually.
+* While the stream is running, the realtime clock should be updated accordingly before calling `FirewheelProcessor::process()`. (See the `Clocks and Events` section below.)
+* If an error occurs, notify the user of the error when they call the `update()` method. From there the user can decide how to respond to the error (try to reconnect, fallback to a different device, etc.)
 
 ## Engine Lifecycle
 
@@ -101,33 +112,150 @@ TODO
     * 3.1 - Users can add, remove, mutate, and connect nodes in this state.
     * 3.2 - The user periodically calls the `update` method on the context (i.e. once every frame). This method checks for any changes in the graph, and compiles a new schedule if a change is detected. If there was an error compiling the graph, then the update method will return an error and a new schedule will not be created.
 4. The context can become deactivated in one of two ways:
-    * The user requests to deactivate context. This is necessary, for example, when changing the audio io devices in the game's settings. Dropping the context will also automatically deactivate it first.
-    * The audio stream is interrupted (i.e. the user unplugged the audio device). In this case, it is up to the developer/backend to decide how to respond (i.e. automatically try to activate again with a different device, or falling back to a "dummy" audio device).
+    * a. The user requests to deactivate the context. This is necessary, for example, when changing the audio io devices in the game's settings. Dropping the context will also automatically deactivate it first.
+    * b. The audio stream is interrupted (i.e. the user unplugged the audio device). In this case, it is up to the developer/backend to decide how to respond (i.e. automatically try to activate again with a different device, or falling back to a "dummy" audio device).
 
 ## Clocks and Events
 
-TODO
+There are two clocks in the audio stream: the realtime clock and the sample clock.
 
-## Silence Optimization
+### Realtime Clock
 
-TODO
+This clock is recommended for most use cases. It counts the total number of seconds (as an `f64` value) that have elapsed since the start of the audio stream. This value is read from the OS's native audio API where possible, so it is quite accurate and it correctly accounts for any output underflows that may occur.
+
+Usage of the clock works like this:
+
+1. At the top of the game's processing loop, `AudioGraph::realtime_clock_secs()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
+2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(realtime_clock_secs + desired_amount_of_delay)`.
+3. When the audio node processor receives the event, it waits for the event delay value to fall with the range given in `ProcInfo::realtime_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+
+### Sample Clock
+
+This clock provides sample-accurate timing of audio events, which could be useful for some games such as rhythm games. The drawback is that this clock does *NOT* account for any output underflows that may occur, and thus may become desynced with the realtime clock. Only use this clock if you are synchronizing your game to the sample clock (or if you are not concerned about output underflows occurring).
+
+Usage of this clock is the similar to the realtime clock:
+
+1. At the top of the game's processing loop, `AudioGraph::sample_clock_time()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
+2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSamples(sample_clock_time + desired_amount_of_delay_in_samples)`.
+3. When the audio node processor receives the event, it waits for the event delay value to fall with the range given in `ProcInfo::total_samples_processed`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+
+## Silence Optimizations
+
+It is common to have a "pool of audio nodes" at the ready to accept work from a certain maximum number of concurrent audio instances in the game engine. However, this means that the majority of the time, most of these nodes will be unused which would lead to a lot of unnecessary processing.
+
+To get around this, every audio buffer in the graph is marked with a "silence flag". Audio nodes can read `ProcInfo::in_silence_mask` to quickly check which input buffers contain silence. If all input buffers are silent, then the audio node can choose to skip processing, for example.
+
+Audio nodes which output audio also must notify the graph on which output channels should/do contain silence. See `ProcessStatus` in [node.rs](crates/firewheel-core/src/node.rs) for more details.
 
 ## Sampler
 
-TODO
+The sampler nodes are used to play back audio files (sound FX, music, etc.). Samplers can play back any resource which implements the `SampleResource` trait in [sample_resource.rs](crates/firewheel-core/src/sample_resource.rs). Using a trait like this gives the game engine control over how to load and store audio assets, i.e. by using a crate like [Symphonium](https://github.com/MeadowlarkDAW/symphonium).
+
+There are two sampler nodes, the `OneShotSamplerNode` and the `LoopingSamplerNode`.
+
+### OneShotSamplerNode
+
+This node is useful for playing audio FX.
+
+When the user calls `OneShotSamplerNode::play_sample`, the node will play the given sample to completion (or play a given range in the sample if specified).
+
+This node is initialized with a maximum number of "voices" that can play concurrently. If the maximum number of voices is reached, then the oldest voice will be stopped and replaced with the new voice.
+
+Calling `OneShotSamplerNode::pause` will pause all voices, `OneShotSamplerNode::resume` will resume all voices, and `OneShotSamplerNode::stop` will stop all voices.
+
+### LoopingSamplerNode
+
+This node is useful for playing music and ambiances.
+
+Unlike `OneShotSamplerNode`, this node only has a singular "voice". However, it takes anything that implements the `MultiSampleResource` (TODO) which allows it seamlessly blend between multiple audio tracks (useful for creating effects like smoothly changing the music when the player enters a different room). 
+
+When the user calls `LoopingSamplerNode::load_sample`, the old `MultiSampleResource` will be stopped and replaced with the new one, and the playhead will be reset to `0`.
+
+Once loaded, calling `LoopingSamplerNode::resume` will start/resume playback, `LoopingSamplerNode::pause` will pause playback, and `LoopingSamplerNode::stop` will stop playback and reset the playhead to `0`.
 
 ## Spatial Positioning
 
-TODO
+This node makes an audio stream appear as if it is "emanating" from a point in 3d space.
+
+For the first release this node will have three parameters:
+
+* A 3D vector which describes the distance and direction of the sound source from the listener.
+* A "damping factor", which describes how much to dampen the volume of the sound based on the distance of the source.
+* An "attenuation factor", which describes how much to attenuate the high frequencies of a sound based on the distance of the source.
+
+This node can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
+
+In later releases, game engines can use additional "wall absorption" parameters to more realistically make sounds appear as if they are playing on the other side of a wall. (Note raycasting will not be part of this node, the game engine must do the raycasting itself).
+
+We can also possibly look into more sophisticated stereo surround sound techniques if given the resources and talent.
+
+## Other Key Nodes
+
+### VolumeNode
+
+This node simply changes the volume. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
+
+### PanNode
+
+This node pans a stereo stream left/right. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
+
+### SumNode
+
+This node sums streams together into a single stream.
+
+### StereoToMonoNode
+
+This node turns a stereo stream into a mono stream.
+
+### HardClipNode
+
+This node hard clips any signal above 0db, and notifies the main thread (TODO) whenever a clip occurs (useful for monitoring).
+
+This node is usually added as the last node in the graph right before the graph output node to protect the user's speakers/headphones.
+
+### TripleBufferOutNode
+
+This node stores the latest samples in the audio stream into a triple buffer, allowing the game engine to read the raw samples. This can be useful for creating visual effects like oscilloscopes and spectrometers.
+
+### TripleBufferInNode
+
+This node allows the game engine to insert samples into the audio graph from any thread. This can be useful, for example, playing back voice chat from over the network.
+
+### DelayCompNode
+
+This node simply delays the stream by a certain sample amount. Useful for preventing phasing issues between parallel streams.
+
+### DecibelMeterNode
+
+This nodes measures the peak volume of a stream in decibels. This can be used to create meters in the GUI or triggering game events based on peak volume.
+
+### ConvolutionNode
+
+This node accepts anything that implements the `ImpulseResponse` trait (TODO) to create effects like reverbs. Similar to the `LoopingSamplerNode`, the user can blend seamlessly between multiple impulse responses (useful for creating effects like smoothly changing the reverb when the player enters a different room).
+
+### EchoNode
+
+This node produces an "echo" effect on an audio stream.
+
+### FilterNode
+
+Provides basic filtering effects like lowpass, highpass, and bandpass. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
+
+These filters should use the Simper SVF model as described in https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf due to its superior quality when being modulated. (Coefficient equations are given at the bottom of the paper).
 
 ## WebAssembly Considerations
 
-Since WebAssembly is one of the targets, special considerations must be made to make the engine and audio nodes work with it. These include (but are not limited to):
+Since WebAssembly (WASM) is one of the targets, special considerations must be made to make the engine and audio nodes work with it. These include (but are not limited to):
 
-TODO
-
-And obviously hosting [CLAP] plugins is not possible in WebAssembly, so that feature will simply be disabled when compiling to that platform.
-
+* No C or System Library Dependencies
+    * Because of this, hosting [CLAP] plugins is not possible in WASM. So that feature will be disabled when compiling to that platform.
+* No File I/O
+    * Asset loading is out of scope of this project. Game engines themselves should be in charge of loading assets.
+* Don't Spawn Threads
+    * The audio backend (i.e. [CPAL]) should be in charge of spawning the audio thread.
+    * While the [creek](https://github.com/MeadowlarkDAW/creek) crate requires threads, file operations aren't supported in WASM anyway, so this crate can just be disabled when compiling to WASM.
+* Don't Block Threads
+    * The current code as of this writing blocks the thread when opening/closing audio streams, so I need to find a way around that.
 
 [CPAL]: https://github.com/RustAudio/cpal
 [CLAP]: https://github.com/free-audio/clap

@@ -19,9 +19,6 @@ pub enum GuiAudioNode {
     HardClip {
         id: firewheel::graph::NodeID,
     },
-    MonoToStereo {
-        id: firewheel::graph::NodeID,
-    },
     StereoToMono {
         id: firewheel::graph::NodeID,
     },
@@ -51,7 +48,6 @@ impl GuiAudioNode {
             &Self::SystemOut => audio_system.graph_out_node(),
             &Self::BeepTest { id } => id,
             &Self::HardClip { id } => id,
-            &Self::MonoToStereo { id } => id,
             &Self::StereoToMono { id } => id,
             &Self::SumMono4Ins { id } => id,
             &Self::SumStereo2Ins { id } => id,
@@ -67,7 +63,6 @@ impl GuiAudioNode {
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
             &Self::HardClip { .. } => "Hard Clip",
-            &Self::MonoToStereo { .. } => "Mono To Stereo",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::SumMono4Ins { .. } => "Sum (Mono, 4 Ins)",
             &Self::SumStereo2Ins { .. } => "Sum (Stereo, 2 Ins)",
@@ -84,7 +79,6 @@ impl GuiAudioNode {
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
             &Self::HardClip { .. } => 2,
-            &Self::MonoToStereo { .. } => 1,
             &Self::StereoToMono { .. } => 2,
             &Self::SumMono4Ins { .. } => 4,
             &Self::SumStereo2Ins { .. } => 4,
@@ -100,7 +94,6 @@ impl GuiAudioNode {
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
             &Self::HardClip { .. } => 2,
-            &Self::MonoToStereo { .. } => 2,
             &Self::StereoToMono { .. } => 1,
             &Self::SumMono4Ins { .. } => 1,
             &Self::SumStereo2Ins { .. } => 2,
@@ -222,11 +215,6 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         }
         if ui.button("Hard Clip").clicked() {
             let node = self.audio_system.add_node(NodeType::HardClip);
-            snarl.insert_node(pos, node);
-            ui.close_menu();
-        }
-        if ui.button("Mono To Stereo").clicked() {
-            let node = self.audio_system.add_node(NodeType::MonoToStereo);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }

@@ -36,7 +36,8 @@ impl<C> AudioNodeProcessor<C> for DummyAudioNodeProcessor {
         &mut self,
         _inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
-        _proc_info: ProcInfo<C>,
+        _proc_info: ProcInfo,
+        _cx: &mut C,
     ) -> ProcessStatus {
         ProcessStatus::NoOutputsModified
     }

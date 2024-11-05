@@ -1,8 +1,5 @@
 use firewheel::{
-    basic_nodes::{
-        beep_test::BeepTestNode, HardClipNode, MonoToStereoNode, StereoToMonoNode, SumNode,
-        VolumeNode,
-    },
+    basic_nodes::{beep_test::BeepTestNode, HardClipNode, StereoToMonoNode, SumNode, VolumeNode},
     error::AddEdgeError,
     graph::{AudioGraph, NodeID},
     node::AudioNode,
@@ -15,7 +12,6 @@ use crate::ui::GuiAudioNode;
 pub enum NodeType {
     BeepTest,
     HardClip,
-    MonoToStereo,
     StereoToMono,
     SumMono4Ins,
     SumStereo2Ins,
@@ -55,7 +51,6 @@ impl AudioSystem {
             match node_type {
                 NodeType::BeepTest => (Box::new(BeepTestNode::new(440.0, -12.0, true)), 0, 1),
                 NodeType::HardClip => (Box::new(HardClipNode::new(0.0)), 2, 2),
-                NodeType::MonoToStereo => (Box::new(MonoToStereoNode), 1, 2),
                 NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
                 NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
                 NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
@@ -72,7 +67,6 @@ impl AudioSystem {
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest { id },
             NodeType::HardClip => GuiAudioNode::HardClip { id },
-            NodeType::MonoToStereo => GuiAudioNode::MonoToStereo { id },
             NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
             NodeType::SumMono4Ins => GuiAudioNode::SumMono4Ins { id },
             NodeType::SumStereo2Ins => GuiAudioNode::SumStereo2Ins { id },

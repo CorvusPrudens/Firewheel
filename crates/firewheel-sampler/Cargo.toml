@@ -1,6 +1,8 @@
 [package]
 name = "firewheel-sampler"
 version = "0.1.0"
+description = "Sampler nodes for the Firewheel audio engine"
+homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-sampler"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true

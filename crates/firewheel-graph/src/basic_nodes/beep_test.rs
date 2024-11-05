@@ -78,7 +78,8 @@ impl<C> AudioNodeProcessor<C> for BeepTestProcessor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo<C>,
+        proc_info: ProcInfo,
+        _cx: &mut C,
     ) -> ProcessStatus {
         let Some((out1, outputs)) = outputs.split_first_mut() else {
             return ProcessStatus::NoOutputsModified;

@@ -600,32 +600,32 @@ impl<C: Send + 'static> AudioGraph<C> {
         edges_to_remove
     }
 
-    /// The current time of the event clock in units of seconds, adjusted for
+    /// The current real time of the audio stream in seconds, adjusted for
     /// the latency of the stream.
     ///
     /// This value accounts for any output underflows that may occur.
     ///
     /// Also note this uses an atomic load under the hood, so avoid calling
     /// this method excessively.
-    pub fn event_time_seconds(&self) -> f64 {
+    pub fn realtime_clock_secs(&self) -> f64 {
         let s = self.active_state.as_ref().unwrap();
         s.event_time_secs_shared.load() + s.stream_latency_secs
     }
 
-    /// The current time of the event clock in units of samples, adjusted for
-    /// the latency of the stream.
+    /// The current sample time of the audio stream, adjusted for the latency
+    /// of the stream.
     ///
-    /// This value is more accurate than [`AudioGraph::event_time_seconds`],
+    /// This value is more accurate than [`AudioGraph::realtime_clock_secs`],
     /// but it does *NOT* account for any output underflows that may occur.
     /// If any underflows occur, then this will become out of sync
-    /// with [`AudioGraph::event_time_seconds`]. Prefer to use
-    /// [`AudioGraph::event_time_seconds`] unless you are syncing your game to
+    /// with [`AudioGraph::realtime_clock_secs`]. Prefer to use
+    /// [`AudioGraph::realtime_clock_secs`] unless you are syncing your game to
     /// the sample event clock (or you are not concerned about underflows
     /// happenning.)
     ///
     /// Also note this uses an atomic load under the hood, so avoid calling
     /// this method excessively.
-    pub fn event_time_samples(&self) -> SampleTime {
+    pub fn sample_clock_time(&self) -> SampleTime {
         let s = self.active_state.as_ref().unwrap();
         s.event_time_samples_shared.load()
             + SampleTime::new(u64::from(s.stream_info.stream_latency_samples))

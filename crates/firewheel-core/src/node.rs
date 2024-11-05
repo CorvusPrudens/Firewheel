@@ -1,5 +1,5 @@
 use downcast_rs::Downcast;
-use std::error::Error;
+use std::{error::Error, ops::Range};
 
 use crate::{clock::SampleTime, ChannelConfig, ChannelCount, SilenceMask, StreamInfo};
 
@@ -14,8 +14,8 @@ use crate::{clock::SampleTime, ChannelConfig, ChannelCount, SilenceMask, StreamI
 /// defined by the node.
 /// 2. The host calls [`AudioNode::info`] and [`AudioNode::debug_name`] to
 /// get information from the node.
-/// 3. It checks the channel configuration with the info, and then calls
-/// [`AudioNode::channel_config_supported`] for a final check on the
+/// 3. The host checks the channel configuration with the info, and then
+/// calls [`AudioNode::channel_config_supported`] for a final check on the
 /// channel configuration. If the channel configuration is invalid, then
 /// the node will be discarded (dropped).
 /// 4. The host calls [`AudioNode::activate`]. If successful, then the
@@ -147,12 +147,14 @@ pub trait AudioNodeProcessor<C>: 'static + Send {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        proc_info: ProcInfo<C>,
+        proc_info: ProcInfo,
+        cx: &mut C,
     ) -> ProcessStatus;
 }
 
 /// Additional information for processing audio
-pub struct ProcInfo<'a, C> {
+#[derive(Debug, Clone)]
+pub struct ProcInfo {
     /// The number of samples in this processing block.
     pub samples: usize,
 
@@ -166,30 +168,31 @@ pub struct ProcInfo<'a, C> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current time of the event clock in units of seconds, adjusted
-    /// for the latency of the stream. This uses the clock from the OS's
-    /// audio API so it should be very accurate.
+    /// The current time of the realtime clock in units of seconds. The
+    /// start of the range is the time at the first sample in this
+    /// processing block (inclusive), and the end of the range is the time
+    /// at the last sample in this processing block (exclusive).
     ///
-    /// This value accounts for any output underflows that may occur.
-    pub event_time_seconds: f64,
+    /// This uses the clock from the OS's audio API so it should be quite
+    /// accurate.
+    ///
+    /// This value also accounts for any output underflows that may occur.
+    pub realtime_seconds: Range<f64>,
 
-    /// The current time of the event clock in units of samples, adjusted
-    /// for the latency of the stream.
+    /// The total number of samples that have been processed since the
+    /// start of the audio stream.
     ///
-    /// This value is more accurate than [`ProcInfo::event_time_seconds`],
+    /// This value is more accurate than [`ProcInfo::realtime_seconds`],
     /// but it does *NOT* account for any output underflows that may occur.
     /// If any underflows occur, then this will become out of sync
-    /// with [`ProcInfo::event_time_seconds`]. Prefer to use
-    /// [`ProcInfo::event_time_seconds`] unless you are syncing your game
+    /// with [`ProcInfo::realtime_seconds`]. Prefer to use
+    /// [`ProcInfo::realtime_seconds`] unless you are syncing your game
     /// to the sample event clock (or you are not concerned about underflows
     /// happenning.)
-    pub event_time_samples: SampleTime,
+    pub total_samples_processed: SampleTime,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
-
-    /// A global user-defined processing context
-    pub cx: &'a mut C,
 }
 
 bitflags::bitflags! {
@@ -211,7 +214,7 @@ bitflags::bitflags! {
 pub enum ProcessStatus {
     /// No output buffers were modified. If this is returned, then
     /// the engine will automatically clear all output buffers
-    /// efficiently.
+    /// for you as efficiently as possible.
     #[default]
     NoOutputsModified,
     /// Output buffers were modified

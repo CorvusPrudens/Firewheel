@@ -11,15 +11,15 @@ pub enum EventDelay {
     /// The event should happen immediately when it is recieved.
     #[default]
     Immediate,
-    /// The event should happen when the event clock reaches the given time
+    /// The event should happen when the real-time clock reaches the given time
     /// in seconds.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::event_time_seconds`] to get the current time of the event
-    /// clock.
+    /// [`AudioGraph::realtime_clock_secs`] to get the current time of the
+    /// realtime clock.
     DelayUntilSeconds(f64),
-    /// The event should happen when the event clock reaches the given time
-    /// in samples.
+    /// The event should happen when the sample clock reaches the given time in
+    /// samples.
     ///
     /// This is more accurate than [`EventDelay::DelayUntilSeconds`],
     /// but it does *NOT* account for any output underflows that may occur.
@@ -30,7 +30,7 @@ pub enum EventDelay {
     /// happenning.)
     ///
     /// This value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::event_time_samples`] to get the current time of the event
+    /// [`AudioGraph::sample_clock_time`] to get the current time of the sample
     /// clock.
     DelayUntilSample(SampleTime),
 }
