@@ -42,15 +42,15 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * Seamlessly blending between multiple audio tracks in the `LoopingSamplerNode`
 * Extra built-in nodes:
     * [ ] delay compensation
-    * [ ] convolution (user can load any own impulse response they want to create effects like reverbs)
+    * [ ] convolution (user can load any impulse response they want to create effects like reverbs)
     * [ ] echo
     * [ ] filters (lowpass, highpass, bandpass)
 * [ ] Doppler stretching on sampler nodes
-* [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek)) on native and network streaming support on WebAssembly
+* [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek) on native and network streaming support on WebAssembly)
 * [ ] Better spatial positioning with sound absorption capabilities
 * [ ] Basic [CLAP] plugin hosting (non-WebAssembly only)
 * [ ] Animation curve support
-* [ ] Snapping events to musical beats (useful for rhythm games)
+* [ ] Helpers to snap events to musical beats (useful for rhythm games)
 * [ ] [RtAudio](https://github.com/thestk/rtaudio) backend
 * [ ] [SDL](https://github.com/libsdl-org/SDL) backend
 * [ ] C bindings
@@ -127,23 +127,23 @@ Usage of the clock works like this:
 
 1. At the top of the game's processing loop, `AudioGraph::realtime_clock_secs()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
 2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(realtime_clock_secs + desired_amount_of_delay)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall with the range given in `ProcInfo::realtime_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::realtime_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
 
 ### Sample Clock
 
 This clock provides sample-accurate timing of audio events, which could be useful for some games such as rhythm games. The drawback is that this clock does *NOT* account for any output underflows that may occur, and thus may become desynced with the realtime clock. Only use this clock if you are synchronizing your game to the sample clock (or if you are not concerned about output underflows occurring).
 
-Usage of this clock is the similar to the realtime clock:
+Usage of this clock is similar to the realtime clock:
 
 1. At the top of the game's processing loop, `AudioGraph::sample_clock_time()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
 2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSamples(sample_clock_time + desired_amount_of_delay_in_samples)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall with the range given in `ProcInfo::total_samples_processed`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::total_samples_processed`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
 
 ## Silence Optimizations
 
 It is common to have a "pool of audio nodes" at the ready to accept work from a certain maximum number of concurrent audio instances in the game engine. However, this means that the majority of the time, most of these nodes will be unused which would lead to a lot of unnecessary processing.
 
-To get around this, every audio buffer in the graph is marked with a "silence flag". Audio nodes can read `ProcInfo::in_silence_mask` to quickly check which input buffers contain silence. If all input buffers are silent, then the audio node can choose to skip processing, for example.
+To get around this, every audio buffer in the graph is marked with a "silence flag". Audio nodes can read `ProcInfo::in_silence_mask` to quickly check which input buffers contain silence. If all input buffers are silent, then the audio node can choose to skip processing.
 
 Audio nodes which output audio also must notify the graph on which output channels should/do contain silence. See `ProcessStatus` in [node.rs](crates/firewheel-core/src/node.rs) for more details.
 
@@ -167,7 +167,7 @@ Calling `OneShotSamplerNode::pause` will pause all voices, `OneShotSamplerNode::
 
 This node is useful for playing music and ambiances.
 
-Unlike `OneShotSamplerNode`, this node only has a singular "voice". However, it takes anything that implements the `MultiSampleResource` (TODO) which allows it seamlessly blend between multiple audio tracks (useful for creating effects like smoothly changing the music when the player enters a different room). 
+Unlike `OneShotSamplerNode`, this node only has a singular "voice". However, it takes anything that implements the `MultiSampleResource` trait (TODO) which allows it seamlessly blend between multiple audio tracks (useful for creating effects like smoothly changing the music when the player enters a different room). 
 
 When the user calls `LoopingSamplerNode::load_sample`, the old `MultiSampleResource` will be stopped and replaced with the new one, and the playhead will be reset to `0`.
 

@@ -14,14 +14,14 @@ Firewheel aims to be a fully-featured libre open source audio engine for games!
     * Default backend supporting Windows, Mac, Linux, Android, iOS, and WebAssembly
 * Flexible audio graph engine (supports any directed, acyclic graph with support for one-to-many connections)
 * A suite of essential built-in audio nodes:
-    * gain, stereo panning, stereo width, and summing
+    * gain, stereo panning, and summing
     * versatile sampler with seamless blending between tracks and disk/network streaming
     * effects like filters, delays (echos), and reverbs
     * spatial positioning (make a sound "emanate" from a point in 3d space)
     * triple buffering for inserting/reading raw samples from any thread
 * Custom audio node API allowing for a plethora of 3rd party generators and effects
 * Basic [CLAP](https://cleveraudio.org/) plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
-* Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
+* Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused)
 * Tweens and animation curves for various effects
 * A general purpose "preset" graph with an easy-to-use interface
 * Support for loading a wide variety of audio formats
@@ -33,7 +33,7 @@ Firewheel aims to be a fully-featured libre open source audio engine for games!
 
 ## Motivation
 
-While Firewheel is its own standalone project, we are also working closely with the [Bevy](https://bevyengine.org/) to make it Bevy's default audio engine.
+While Firewheel is its own standalone project, we are also working closely with the [Bevy](https://bevyengine.org/) game engine to make it Bevy's default audio engine.
 
 ## Get Involved
 
