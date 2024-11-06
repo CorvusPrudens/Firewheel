@@ -280,17 +280,19 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// Get an immutable reference to a node.
     ///
     /// This will return `None` if a node with the given ID does not
-    /// exist in the graph.
-    pub fn node(&self, node_id: NodeID) -> Option<&Box<dyn AudioNode<C>>> {
-        self.nodes.get(node_id.idx).map(|n| &n.weight.node)
+    /// exist in the graph, or if the node doesn't match the given
+    /// type.
+    pub fn node<N: AudioNode<C>>(&self, node_id: NodeID) -> Option<&N> {
+        self.nodes.get(node_id.idx).and_then(|n| n.weight.node.downcast_ref::<N>())
     }
 
     /// Get a mutable reference to the node.
     ///
     /// This will return `None` if a node with the given ID does not
-    /// exist in the graph.
-    pub fn node_mut(&mut self, node_id: NodeID) -> Option<&mut Box<dyn AudioNode<C>>> {
-        self.nodes.get_mut(node_id.idx).map(|n| &mut n.weight.node)
+    /// exist in the graph, or if the node doesn't match the given
+    /// type.
+    pub fn node_mut<N: AudioNode<C>>(&mut self, node_id: NodeID) -> Option<&mut N> {
+        self.nodes.get_mut(node_id.idx).and_then(|n| n.weight.node.downcast_mut::<N>())
     }
 
     /// Get info about a node.

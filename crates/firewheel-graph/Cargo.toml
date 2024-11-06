@@ -19,3 +19,4 @@ atomic_float.workspace = true
 thunderdome.workspace = true
 ahash = "0.8.11"
 arraydeque = "0.5.1"
+downcast-rs.workspace = true
