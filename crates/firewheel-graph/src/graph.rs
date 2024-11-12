@@ -3,10 +3,12 @@ mod compiler;
 use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use ahash::{AHashMap, AHashSet};
-use firewheel_core::clock::{SampleTime, SampleTimeShared, SecondsShared};
+use firewheel_core::clock::{ClockSamples, ClockSeconds};
 use firewheel_core::{ChannelConfig, ChannelCount, StreamInfo};
 use thunderdome::Arena;
 
@@ -93,9 +95,8 @@ struct EdgeHash {
 
 struct ActiveState {
     stream_info: StreamInfo,
-    stream_latency_secs: f64,
-    event_time_samples_shared: Arc<SampleTimeShared>,
-    event_time_secs_shared: Arc<SecondsShared>,
+    event_time_samples_shared: Arc<AtomicU64>,
+    main_thread_clock_start_instant: Instant,
 }
 
 /// An audio graph implementation.
@@ -283,7 +284,9 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// exist in the graph, or if the node doesn't match the given
     /// type.
     pub fn node<N: AudioNode<C>>(&self, node_id: NodeID) -> Option<&N> {
-        self.nodes.get(node_id.idx).and_then(|n| n.weight.node.downcast_ref::<N>())
+        self.nodes
+            .get(node_id.idx)
+            .and_then(|n| n.weight.node.downcast_ref::<N>())
     }
 
     /// Get a mutable reference to the node.
@@ -292,7 +295,9 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// exist in the graph, or if the node doesn't match the given
     /// type.
     pub fn node_mut<N: AudioNode<C>>(&mut self, node_id: NodeID) -> Option<&mut N> {
-        self.nodes.get_mut(node_id.idx).and_then(|n| n.weight.node.downcast_mut::<N>())
+        self.nodes
+            .get_mut(node_id.idx)
+            .and_then(|n| n.weight.node.downcast_mut::<N>())
     }
 
     /// Get info about a node.
@@ -602,35 +607,34 @@ impl<C: Send + 'static> AudioGraph<C> {
         edges_to_remove
     }
 
-    /// The current real time of the audio stream in seconds, adjusted for
-    /// the latency of the stream.
-    ///
-    /// This value accounts for any output underflows that may occur.
-    ///
-    /// Also note this uses an atomic load under the hood, so avoid calling
-    /// this method excessively.
-    pub fn realtime_clock_secs(&self) -> f64 {
-        let s = self.active_state.as_ref().unwrap();
-        s.event_time_secs_shared.load() + s.stream_latency_secs
+    /// The current time of the clock in the number of seconds since the stream
+    /// was started.
+    pub fn clock_seconds(&self) -> ClockSeconds {
+        ClockSeconds(
+            (Instant::now()
+                - self
+                    .active_state
+                    .as_ref()
+                    .unwrap()
+                    .main_thread_clock_start_instant)
+                .as_secs_f64(),
+        )
     }
 
-    /// The current sample time of the audio stream, adjusted for the latency
-    /// of the stream.
+    /// The total number of samples that have been processed in the audio stream.
     ///
-    /// This value is more accurate than [`AudioGraph::realtime_clock_secs`],
-    /// but it does *NOT* account for any output underflows that may occur.
-    /// If any underflows occur, then this will become out of sync
-    /// with [`AudioGraph::realtime_clock_secs`]. Prefer to use
-    /// [`AudioGraph::realtime_clock_secs`] unless you are syncing your game to
-    /// the sample event clock (or you are not concerned about underflows
-    /// happenning.)
+    /// This value can be used for more accurate timing than
+    /// [`AudioGraph::clock_seconds`], but it does *NOT* account for any output
+    /// underflows that may occur. If any underflows occur, then this will become
+    /// out of sync with [`AudioGraph::clock_seconds`]. Prefer to use
+    /// [`AudioGraph::clock_seconds`] unless you are syncing your game to this
+    /// sample clock (or you are not concerned about underflows happenning.)
     ///
     /// Also note this uses an atomic load under the hood, so avoid calling
     /// this method excessively.
-    pub fn sample_clock_time(&self) -> SampleTime {
+    pub fn clock_samples(&self) -> ClockSamples {
         let s = self.active_state.as_ref().unwrap();
-        s.event_time_samples_shared.load()
-            + SampleTime::new(u64::from(s.stream_info.stream_latency_samples))
+        ClockSamples(s.event_time_samples_shared.load(Ordering::SeqCst))
     }
 
     pub fn cycle_detected(&mut self) -> bool {
@@ -709,8 +713,8 @@ impl<C: Send + 'static> AudioGraph<C> {
     pub(crate) fn activate(
         &mut self,
         stream_info: StreamInfo,
-        event_time_samples_shared: Arc<SampleTimeShared>,
-        event_time_secs_shared: Arc<SecondsShared>,
+        main_thread_clock_start_instant: Instant,
+        event_time_samples_shared: Arc<AtomicU64>,
     ) -> Result<(), NodeError> {
         let mut error = None;
 
@@ -742,10 +746,8 @@ impl<C: Send + 'static> AudioGraph<C> {
         } else {
             self.active_state = Some(ActiveState {
                 stream_info,
-                stream_latency_secs: f64::from(stream_info.stream_latency_samples)
-                    / f64::from(stream_info.sample_rate),
                 event_time_samples_shared,
-                event_time_secs_shared,
+                main_thread_clock_start_instant,
             });
             self.needs_compile = true;
             Ok(())

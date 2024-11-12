@@ -1,13 +1,10 @@
 use std::{
     error::Error,
-    sync::Arc,
+    sync::{atomic::AtomicU64, Arc},
     time::{Duration, Instant},
 };
 
-use firewheel_core::{
-    clock::{SampleTime, SampleTimeShared, SecondsShared},
-    ChannelCount, StreamInfo,
-};
+use firewheel_core::{ChannelCount, StreamInfo};
 use rtrb::PushError;
 
 use crate::{
@@ -87,13 +84,13 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
             return Err((ActivateCtxError::AlreadyActivated, user_cx));
         }
 
-        let event_time_samples_shared = Arc::new(SampleTimeShared::new(SampleTime::default()));
-        let event_time_secs_shared = Arc::new(SecondsShared::new(0.0));
+        let clock_samples_shared = Arc::new(AtomicU64::new(0));
+        let main_thread_clock_start_instant = Instant::now();
 
         if let Err(e) = self.graph.activate(
             stream_info,
-            Arc::clone(&event_time_samples_shared),
-            Arc::clone(&event_time_secs_shared),
+            main_thread_clock_start_instant,
+            Arc::clone(&clock_samples_shared),
         ) {
             return Err((ActivateCtxError::NodeFailedToActived(e), user_cx));
         }
@@ -112,8 +109,8 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
         Ok(FirewheelProcessor::new(
             from_graph_rx,
             to_graph_tx,
-            event_time_samples_shared,
-            event_time_secs_shared,
+            clock_samples_shared,
+            main_thread_clock_start_instant,
             self.graph.current_node_capacity(),
             stream_info,
             user_cx,
@@ -207,13 +204,12 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
 
     /// Deactivate the firewheel context.
     ///
-    /// This will block the thread until either the processor has
-    /// been successfully dropped or a timeout has been reached.
+    /// On native platforms, this will block the thread until either
+    /// the processor has been successfully dropped or a timeout has
+    /// been reached.
     ///
-    /// If the stream is still currently running, then the context
-    /// will attempt to cleanly deactivate the processor. If not,
-    /// then the context will wait for either the processor to be
-    /// dropped or a timeout being reached.
+    /// On WebAssembly, this will *NOT* wait for the processor to be
+    /// successfully dropped.
     ///
     /// If the context is already deactivated, then this will do
     /// nothing and return `None`.
@@ -227,39 +223,47 @@ impl<C: Send + 'static> FirewheelGraphCtx<C> {
         let mut dropped = false;
         let mut dropped_user_cx = None;
 
-        if stream_is_running {
-            loop {
-                if let Err(_) = state.to_executor_tx.push(ContextToProcessorMsg::Stop) {
-                    log::error!("Failed to send stop signal: Firewheel message channel is full");
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if stream_is_running {
+                loop {
+                    if let Err(_) = state.to_executor_tx.push(ContextToProcessorMsg::Stop) {
+                        log::error!(
+                            "Failed to send stop signal: Firewheel message channel is full"
+                        );
 
-                    // TODO: I don't think sleep is supported in WASM, so we will
-                    // need to figure out something if that's the case.
+                        std::thread::sleep(CLOSE_STREAM_SLEEP_INTERVAL);
+
+                        if start.elapsed() > CLOSE_STREAM_TIMEOUT {
+                            log::error!(
+                                "Timed out trying to send stop signal to firewheel processor"
+                            );
+                            dropped = true;
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            while !dropped {
+                self.update_internal(&mut dropped, &mut dropped_user_cx);
+
+                if !dropped {
                     std::thread::sleep(CLOSE_STREAM_SLEEP_INTERVAL);
 
                     if start.elapsed() > CLOSE_STREAM_TIMEOUT {
-                        log::error!("Timed out trying to send stop signal to firewheel processor");
+                        log::error!("Timed out waiting for firewheel processor to drop");
                         dropped = true;
-                        break;
                     }
-                } else {
-                    break;
                 }
             }
         }
 
-        while !dropped {
+        #[cfg(target_family = "wasm")]
+        {
             self.update_internal(&mut dropped, &mut dropped_user_cx);
-
-            if !dropped {
-                // TODO: I don't think sleep is supported in WASM, so we will
-                // need to figure out something if that's the case.
-                std::thread::sleep(CLOSE_STREAM_SLEEP_INTERVAL);
-
-                if start.elapsed() > CLOSE_STREAM_TIMEOUT {
-                    log::error!("Timed out waiting for firewheel processor to drop");
-                    dropped = true;
-                }
-            }
         }
 
         self.graph.deactivate();

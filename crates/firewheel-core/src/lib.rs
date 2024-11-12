@@ -12,9 +12,9 @@ pub use silence_mask::SilenceMask;
 pub struct StreamInfo {
     pub sample_rate: u32,
     pub max_block_samples: u32,
-    pub stream_latency_samples: u32,
     pub num_stream_in_channels: u32,
     pub num_stream_out_channels: u32,
+    pub stream_latency_samples: Option<u32>,
 }
 
 impl Default for StreamInfo {
@@ -22,7 +22,7 @@ impl Default for StreamInfo {
         Self {
             sample_rate: 44100,
             max_block_samples: 1024,
-            stream_latency_samples: 1024,
+            stream_latency_samples: None,
             num_stream_in_channels: 0,
             num_stream_out_channels: 2,
         }

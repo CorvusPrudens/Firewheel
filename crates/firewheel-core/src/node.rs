@@ -1,7 +1,10 @@
 use downcast_rs::Downcast;
 use std::{error::Error, ops::Range};
 
-use crate::{clock::SampleTime, ChannelConfig, ChannelCount, SilenceMask, StreamInfo};
+use crate::{
+    clock::{ClockSamples, ClockSeconds},
+    ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
+};
 
 /// The trait describing an audio node in an audio graph.
 ///
@@ -168,28 +171,29 @@ pub struct ProcInfo {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current time of the realtime clock in units of seconds. The
+    /// The current time of the internal clock in units of seconds. The
     /// start of the range is the time at the first sample in this
     /// processing block (inclusive), and the end of the range is the time
     /// at the last sample in this processing block (exclusive).
     ///
     /// This uses the clock from the OS's audio API so it should be quite
-    /// accurate.
+    /// accurate. This value has also been adjusted to match the clock in
+    /// the main thread.
     ///
-    /// This value also accounts for any output underflows that may occur.
-    pub realtime_seconds: Range<f64>,
+    /// This value correctly accounts for any output underflows that may
+    /// occur.
+    pub clock_seconds: Range<ClockSeconds>,
 
     /// The total number of samples that have been processed since the
     /// start of the audio stream.
     ///
-    /// This value is more accurate than [`ProcInfo::realtime_seconds`],
-    /// but it does *NOT* account for any output underflows that may occur.
-    /// If any underflows occur, then this will become out of sync
-    /// with [`ProcInfo::realtime_seconds`]. Prefer to use
-    /// [`ProcInfo::realtime_seconds`] unless you are syncing your game
-    /// to the sample event clock (or you are not concerned about underflows
-    /// happenning.)
-    pub total_samples_processed: SampleTime,
+    /// This value is more accurate than [`ProcInfo::clock_secs`], but it
+    /// does *NOT* account for any output underflows that may occur. If any
+    /// underflows occur, then this will become out of sync with
+    /// [`ProcInfo::clock_secs`]. Prefer to use [`ProcInfo::clock_secs`]
+    /// unless you are syncing your game to the sample event clock (or you
+    /// are not concerned about underflows happenning.)
+    pub clock_samples: ClockSamples,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,

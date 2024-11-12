@@ -1,15 +1,7 @@
-use std::{
-    fmt::Debug,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
-    time::Duration,
-    u32,
-};
+use std::{fmt::Debug, time::Duration, u32};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::{node::StreamStatus, StreamInfo};
+use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::DeviceInfo,
     error::ActivateCtxError,
@@ -142,8 +134,6 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
 
         let host = cpal::default_host();
 
-        // What a mess cpal's enumeration API is.
-
         let mut device = None;
         if let Some(output_device_name) = &config.output_device_name {
             match host.output_devices() {
@@ -269,6 +259,12 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             cpal::BufferSize::Fixed(f) => f as usize,
         };
 
+        let stream_latency_samples = if let cpal::BufferSize::Fixed(s) = cpal_config.buffer_size {
+            Some(s)
+        } else {
+            None
+        };
+
         let (mut to_stream_tx, from_ctx_rx) =
             rtrb::RingBuffer::<CtxToStreamMsg<C>>::new(MSG_CHANNEL_CAPACITY);
         let (mut err_to_cx_tx, from_err_rx) =
@@ -281,48 +277,28 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             cpal_config.sample_rate.0,
         );
 
-        // There doesn't seem to be a way to get the stream latency from cpal before
-        // the stream starts when using the `Default` buffer size, so do this as a
-        // workaround.
-        let (mut sl, mut sl1, sl2) = if let cpal::BufferSize::Default = cpal_config.buffer_size {
-            let sl = Arc::new(AtomicU32::new(u32::MAX));
-            (Some(Arc::clone(&sl)), Some(Arc::clone(&sl)), Some(sl))
-        } else {
-            (None, None, None)
-        };
-
         let mut is_first_callback = true;
         let stream = match device.build_output_stream(
             &cpal_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
                 if is_first_callback {
-                    // The second audio callback is usually more reliable for getting
-                    // the average latency.
+                    // Apparently there is a bug in CPAL where the callback instant in
+                    // the first callback can be greater than in the second callback.
+                    //
+                    // Work around this by ignoring the first block of samples.
                     is_first_callback = false;
-                } else if let Some(sl1) = sl1.take() {
-                    sl1.store((output.len() / num_out_channels) as u32, Ordering::Relaxed);
+                    output.fill(0.0);
+                } else {
+                    data_callback.callback(output, info);
                 }
-
-                data_callback.callback(output, info);
             },
             move |err| {
-                // Make sure we don't deadlock if there happens to be an error right away.
-                if let Some(sl2) = &sl2 {
-                    sl2.store(0, Ordering::Relaxed);
-                }
-
                 let _ = err_to_cx_tx.push(err);
             },
             Some(BUILD_STREAM_TIMEOUT),
         ) {
             Ok(s) => s,
             Err(e) => {
-                // Make sure we don't deadlock if there happens to be an error.
-                #[allow(unused_assignments)]
-                {
-                    sl = None;
-                }
-
                 if config.fallback {
                     log::error!("Failed to start output audio stream: {}. Falling back to dummy output device...", e);
                     // TODO: Use dummy audio backend as fallback.
@@ -337,29 +313,13 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
             return Err((e.into(), user_cx));
         }
 
-        let stream_latency_samples = if let Some(sl) = sl.take() {
-            while sl.load(Ordering::Relaxed) == u32::MAX {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-
-            let l = sl.load(Ordering::Relaxed);
-
-            log::info!("Estimated audio stream latency: {}", l);
-
-            l
-        } else if let cpal::BufferSize::Fixed(samples) = cpal_config.buffer_size {
-            samples
-        } else {
-            unreachable!()
-        };
-
         let processor = match self.cx.activate(
             StreamInfo {
                 sample_rate: cpal_config.sample_rate.0,
                 max_block_samples: max_block_samples as u32,
-                stream_latency_samples,
                 num_stream_in_channels: num_in_channels as u32,
                 num_stream_out_channels: num_out_channels as u32,
+                stream_latency_samples,
             },
             user_cx,
         ) {
@@ -445,18 +405,22 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
 
     /// Deactivate the firewheel context and stop the audio stream.
     ///
-    /// This will block the thread until either the processor has
-    /// been successfully dropped or a timeout has been reached.
+    /// On native platforms, his will block the thread until either
+    /// the processor has been successfully dropped or a timeout has
+    /// been reached.
     ///
-    /// If the stream is still currently running, then the context
-    /// will attempt to cleanly deactivate the processor. If not,
-    /// then the context will wait for either the processor to be
-    /// dropped or a timeout being reached.
+    /// On WebAssembly, this will *NOT* wait for the processor to be
+    /// successfully dropped.
     ///
     /// If the context is already deactivated, then this will do
     /// nothing and return `None`.
     pub fn deactivate(&mut self) -> Option<C> {
         if self.cx.is_activated() {
+            #[cfg(target_family = "wasm")]
+            {
+                self.active_state = None;
+            }
+
             let user_cx = self.cx.deactivate(self.active_state.is_some());
             self.active_state = None;
             user_cx
@@ -523,9 +487,8 @@ struct DataCallback<C: Send + 'static> {
     from_ctx_rx: rtrb::Consumer<CtxToStreamMsg<C>>,
     processor: Option<FirewheelProcessor<C>>,
     sample_rate_recip: f64,
-    first_stream_instant: Option<cpal::StreamInstant>,
+    first_internal_clock_instant: Option<cpal::StreamInstant>,
     predicted_stream_secs: f64,
-    is_first_callback: bool,
 }
 
 impl<C: Send + 'static> DataCallback<C> {
@@ -541,9 +504,8 @@ impl<C: Send + 'static> DataCallback<C> {
             from_ctx_rx,
             processor: None,
             sample_rate_recip: f64::from(sample_rate).recip(),
-            first_stream_instant: None,
+            first_internal_clock_instant: None,
             predicted_stream_secs: 1.0,
-            is_first_callback: true,
         }
     }
 
@@ -555,40 +517,32 @@ impl<C: Send + 'static> DataCallback<C> {
 
         let samples = output.len() / self.num_out_channels;
 
-        let (event_time_secs, underflow) = if self.is_first_callback {
-            // Apparently there is a bug in CPAL where the callback instant in
-            // the first callback can be greater than in the second callback.
-            //
-            // Work around this by ignoring the first callback instant.
-            self.is_first_callback = false;
-            self.predicted_stream_secs = samples as f64 * self.sample_rate_recip;
-            (0.0, false)
-        } else if let Some(instant) = &self.first_stream_instant {
-            let event_time_secs = info
-                .timestamp()
-                .callback
-                .duration_since(instant)
-                .unwrap()
-                .as_secs_f64();
+        let (internal_clock_secs, underflow) =
+            if let Some(instant) = &self.first_internal_clock_instant {
+                let internal_clock_secs = info
+                    .timestamp()
+                    .callback
+                    .duration_since(instant)
+                    .unwrap()
+                    .as_secs_f64();
 
-            // If the stream time is significantly greater than the predicted stream
-            // time, it means an underflow has occurred.
-            let underrun = event_time_secs > self.predicted_stream_secs;
+                // If the stream time is significantly greater than the predicted stream
+                // time, it means an output underflow has occurred.
+                let underflow = internal_clock_secs > self.predicted_stream_secs;
 
-            // Calculate the next predicted stream time to detect underflows.
-            //
-            // Add a little bit of wiggle room to account for tiny clock
-            // innacuracies and rounding errors.
-            self.predicted_stream_secs =
-                event_time_secs + (samples as f64 * self.sample_rate_recip * 1.2);
+                // Calculate the next predicted stream time to detect underflows.
+                //
+                // Add a little bit of wiggle room to account for tiny clock
+                // innacuracies and rounding errors.
+                self.predicted_stream_secs =
+                    internal_clock_secs + (samples as f64 * self.sample_rate_recip * 1.2);
 
-            (event_time_secs, underrun)
-        } else {
-            self.first_stream_instant = Some(info.timestamp().callback);
-            let event_time_secs = self.predicted_stream_secs;
-            self.predicted_stream_secs += samples as f64 * self.sample_rate_recip * 1.2;
-            (event_time_secs, false)
-        };
+                (ClockSeconds(internal_clock_secs), underflow)
+            } else {
+                self.first_internal_clock_instant = Some(info.timestamp().callback);
+                self.predicted_stream_secs = samples as f64 * self.sample_rate_recip * 1.2;
+                (ClockSeconds(0.0), false)
+            };
 
         let mut drop_processor = false;
         if let Some(processor) = &mut self.processor {
@@ -604,7 +558,7 @@ impl<C: Send + 'static> DataCallback<C> {
                 self.num_in_channels,
                 self.num_out_channels,
                 samples,
-                event_time_secs,
+                internal_clock_secs,
                 stream_status,
             ) {
                 FirewheelProcessorStatus::Ok => {}

@@ -438,7 +438,10 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        sync::{atomic::AtomicU64, Arc},
+        time::Instant,
+    };
 
     use crate::{
         basic_nodes::dummy::DummyAudioNode,
@@ -448,10 +451,7 @@ mod tests {
 
     use super::*;
     use ahash::AHashSet;
-    use firewheel_core::{
-        clock::{SampleTimeShared, SecondsShared},
-        ChannelCount, StreamInfo,
-    };
+    use firewheel_core::{ChannelCount, StreamInfo};
 
     // Simplest graph compile test:
     //
@@ -468,8 +468,8 @@ mod tests {
         graph
             .activate(
                 StreamInfo::default(),
-                Arc::new(SampleTimeShared::new(Default::default())),
-                Arc::new(SecondsShared::new(0.0)),
+                Instant::now(),
+                Arc::new(AtomicU64::new(0)),
             )
             .unwrap();
 
@@ -519,8 +519,8 @@ mod tests {
         graph
             .activate(
                 StreamInfo::default(),
-                Arc::new(SampleTimeShared::new(Default::default())),
-                Arc::new(SecondsShared::new(0.0)),
+                Instant::now(),
+                Arc::new(AtomicU64::new(0)),
             )
             .unwrap();
 
@@ -624,8 +624,8 @@ mod tests {
         graph
             .activate(
                 StreamInfo::default(),
-                Arc::new(SampleTimeShared::new(Default::default())),
-                Arc::new(SecondsShared::new(0.0)),
+                Instant::now(),
+                Arc::new(AtomicU64::new(0)),
             )
             .unwrap();
 
@@ -764,8 +764,8 @@ mod tests {
         graph
             .activate(
                 StreamInfo::default(),
-                Arc::new(SampleTimeShared::new(Default::default())),
-                Arc::new(SecondsShared::new(0.0)),
+                Instant::now(),
+                Arc::new(AtomicU64::new(0)),
             )
             .unwrap();
 
@@ -794,8 +794,8 @@ mod tests {
         graph
             .activate(
                 StreamInfo::default(),
-                Arc::new(SampleTimeShared::new(Default::default())),
-                Arc::new(SecondsShared::new(0.0)),
+                Instant::now(),
+                Arc::new(AtomicU64::new(0)),
             )
             .unwrap();
 

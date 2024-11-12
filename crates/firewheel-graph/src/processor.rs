@@ -1,10 +1,17 @@
-use std::{ops::Range, sync::Arc};
+use std::{
+    ops::Range,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 use thunderdome::Arena;
 
 use crate::graph::{NodeID, ScheduleHeapData};
 use firewheel_core::{
-    clock::{SampleTime, SampleTimeShared, SecondsShared},
+    clock::{ClockSamples, ClockSeconds},
     node::{AudioNodeProcessor, ProcInfo, ProcessStatus, StreamStatus},
     SilenceMask, StreamInfo,
 };
@@ -27,8 +34,10 @@ pub struct FirewheelProcessor<C: Send + 'static> {
     from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
 
-    total_samples_processed_shared: Arc<SampleTimeShared>,
-    event_time_secs_shared: Arc<SecondsShared>,
+    clock_samples_shared: Arc<AtomicU64>,
+    clock_samples: ClockSamples,
+    main_thread_clock_start_instant: Instant,
+    main_to_internal_clock_offset: Option<ClockSeconds>,
 
     running: bool,
     stream_info: StreamInfo,
@@ -39,8 +48,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
     pub(crate) fn new(
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg<C>>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg<C>>,
-        total_samples_processed_shared: Arc<SampleTimeShared>,
-        event_time_secs_shared: Arc<SecondsShared>,
+        clock_samples_shared: Arc<AtomicU64>,
+        main_thread_clock_start_instant: Instant,
         node_capacity: usize,
         stream_info: StreamInfo,
         user_cx: C,
@@ -53,8 +62,10 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             user_cx: Some(user_cx),
             from_graph_rx,
             to_graph_tx,
-            total_samples_processed_shared,
-            event_time_secs_shared,
+            clock_samples_shared,
+            clock_samples: ClockSamples(0),
+            main_thread_clock_start_instant,
+            main_to_internal_clock_offset: None,
             running: true,
             stream_info,
             sample_rate_recip,
@@ -72,13 +83,29 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
         num_in_channels: usize,
         num_out_channels: usize,
         samples: usize,
-        mut realtime_seconds: f64,
+        internal_clock_seconds: ClockSeconds,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
-        let mut total_samples_processed = self.total_samples_processed_shared.load();
-        self.total_samples_processed_shared
-            .store(total_samples_processed + SampleTime::new(samples as u64));
-        self.event_time_secs_shared.store(realtime_seconds);
+        self.clock_samples_shared
+            .store(self.clock_samples.0, Ordering::SeqCst);
+        let mut clock_samples = self.clock_samples;
+        self.clock_samples += ClockSamples(samples as u64);
+
+        // If this is the first block, calculate the offset between the the main thread's
+        // clock and the internal realtime clock.
+        //
+        // main_thread_clock_seconds - internal_clock_seconds =
+        //    (first_block_instant - main_thread_clock_start_instant)
+        //    - first_block_internal_clock_seconds
+        let main_to_internal_clock_offset =
+            *self.main_to_internal_clock_offset.get_or_insert_with(|| {
+                ClockSeconds(
+                    (Instant::now() - self.main_thread_clock_start_instant).as_secs_f64()
+                        - internal_clock_seconds.0,
+                )
+            });
+        // Offset the internal clock so it matches the main thread clock.
+        let mut clock_seconds = internal_clock_seconds + main_to_internal_clock_offset;
 
         self.poll_messages();
 
@@ -119,13 +146,13 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                     },
                 );
 
-            let next_realtime_seconds =
-                realtime_seconds + (block_samples as f64 * self.sample_rate_recip);
+            let next_clock_seconds =
+                clock_seconds + ClockSeconds(block_samples as f64 * self.sample_rate_recip);
 
             self.process_block(
                 block_samples,
-                total_samples_processed,
-                realtime_seconds..next_realtime_seconds,
+                clock_samples,
+                clock_seconds..next_clock_seconds,
                 stream_status,
             );
 
@@ -156,8 +183,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
             }
 
             samples_processed += block_samples;
-            total_samples_processed += SampleTime::new(block_samples as u64);
-            realtime_seconds = next_realtime_seconds;
+            clock_samples += ClockSamples(block_samples as u64);
+            clock_seconds = next_clock_seconds;
         }
 
         if self.running {
@@ -211,8 +238,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
     fn process_block(
         &mut self,
         block_samples: usize,
-        total_samples_processed: SampleTime,
-        realtime_seconds: Range<f64>,
+        clock_samples: ClockSamples,
+        clock_seconds: Range<ClockSeconds>,
         stream_status: StreamStatus,
     ) {
         self.poll_messages();
@@ -242,8 +269,8 @@ impl<C: Send + 'static> FirewheelProcessor<C> {
                         samples: block_samples,
                         in_silence_mask,
                         out_silence_mask,
-                        total_samples_processed,
-                        realtime_seconds: realtime_seconds.clone(),
+                        clock_samples,
+                        clock_seconds: clock_seconds.clone(),
                         stream_status,
                     },
                     user_cx,

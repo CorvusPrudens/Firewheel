@@ -135,10 +135,7 @@ impl AudioSystem {
     }
 
     pub fn set_volume(&mut self, node_id: NodeID, percent_volume: f32) {
-        let volume_node = self
-            .graph_mut()
-            .node_mut::<VolumeNode>(node_id)
-            .unwrap();
+        let volume_node = self.graph_mut().node_mut::<VolumeNode>(node_id).unwrap();
 
         volume_node.set_percent_volume(percent_volume);
     }

@@ -1,9 +1,4 @@
-use std::{
-    ops::{Add, AddAssign, Sub, SubAssign},
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-use atomic_float::AtomicF64;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// When a particular audio event should occur.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -11,36 +6,78 @@ pub enum EventDelay {
     /// The event should happen immediately when it is recieved.
     #[default]
     Immediate,
-    /// The event should happen when the real-time clock reaches the given time
-    /// in seconds.
+    /// The event should happen when the clock reaches the given time in
+    /// seconds.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::realtime_clock_secs`] to get the current time of the
-    /// realtime clock.
-    DelayUntilSeconds(f64),
+    /// [`AudioGraph::clock_seconds`] to get the current time of the clock.
+    DelayUntilSeconds(ClockSeconds),
     /// The event should happen when the sample clock reaches the given time in
     /// samples.
     ///
-    /// This is more accurate than [`EventDelay::DelayUntilSeconds`],
-    /// but it does *NOT* account for any output underflows that may occur.
-    /// If any underflows occur, then this will become out of sync
-    /// with [`EventDelay::DelayUntilSeconds`]. Prefer to use
-    /// [`EventDelay::DelayUntilSeconds`] unless you are syncing your game to
-    /// the sample event clock (or you are not concerned about underflows
-    /// happenning.)
+    /// This can be used for more accurate timing than
+    /// [`EventDelay::DelayUntilSeconds`], but it does *NOT* account for any
+    /// output underflows that may occur. If any underflows occur, then this
+    /// will become out of sync with [`EventDelay::DelayUntilSeconds`]. Prefer
+    /// to use [`EventDelay::DelayUntilSeconds`] unless you are syncing your
+    /// game to the sample event clock (or you are not concerned about
+    /// underflows happenning.)
     ///
     /// This value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::sample_clock_time`] to get the current time of the sample
+    /// [`AudioGraph::clock_samples`] to get the current time of the sample
     /// clock.
-    DelayUntilSample(SampleTime),
+    DelayUntilSample(ClockSamples),
 }
 
-/// Time in units of samples
+/// An absolute clock time in units of seconds.
+#[repr(transparent)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct ClockSeconds(pub f64);
+
+impl Add for ClockSeconds {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for ClockSeconds {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl AddAssign for ClockSeconds {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
+impl SubAssign for ClockSeconds {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0;
+    }
+}
+
+impl From<f64> for ClockSeconds {
+    fn from(value: f64) -> Self {
+        Self(value)
+    }
+}
+
+impl Into<f64> for ClockSeconds {
+    fn into(self) -> f64 {
+        self.0
+    }
+}
+
+/// An absolute clock time in units of samples.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SampleTime(pub u64);
+pub struct ClockSamples(pub u64);
 
-impl SampleTime {
+impl ClockSamples {
     pub const fn new(samples: u64) -> Self {
         Self(samples)
     }
@@ -81,65 +118,41 @@ impl SampleTime {
     }
 }
 
-impl Add for SampleTime {
+impl Add for ClockSamples {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
 }
 
-impl Sub for SampleTime {
+impl Sub for ClockSamples {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
 }
 
-impl AddAssign for SampleTime {
+impl AddAssign for ClockSamples {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
     }
 }
 
-impl SubAssign for SampleTime {
+impl SubAssign for ClockSamples {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0;
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug)]
-pub struct SampleTimeShared(AtomicU64);
-
-impl SampleTimeShared {
-    pub fn new(time: SampleTime) -> Self {
-        Self(AtomicU64::new(time.0))
-    }
-
-    pub fn load(&self) -> SampleTime {
-        SampleTime(self.0.load(Ordering::SeqCst))
-    }
-
-    pub fn store(&self, time: SampleTime) {
-        self.0.store(time.0, Ordering::SeqCst);
+impl From<u64> for ClockSamples {
+    fn from(value: u64) -> Self {
+        Self(value)
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug)]
-pub struct SecondsShared(AtomicF64);
-
-impl SecondsShared {
-    pub fn new(secs: f64) -> Self {
-        Self(AtomicF64::new(secs))
-    }
-
-    pub fn load(&self) -> f64 {
-        self.0.load(Ordering::SeqCst)
-    }
-
-    pub fn store(&self, secs: f64) {
-        self.0.store(secs, Ordering::SeqCst);
+impl Into<u64> for ClockSamples {
+    fn into(self) -> u64 {
+        self.0
     }
 }
 
@@ -240,7 +253,7 @@ pub struct TempoPart {
 }
 
 impl TempoMap {
-    pub fn musical_to_clock_time(&self, time: MusicalTime, sample_rate: u32) -> SampleTime {
+    pub fn musical_to_clock_time(&self, time: MusicalTime, sample_rate: u32) -> ClockSamples {
         match self {
             &TempoMap::Constant { beats_per_minute } => {
                 let seconds_per_beat = 60.0 / beats_per_minute;
@@ -248,7 +261,7 @@ impl TempoMap {
                 let beats_f64 = time.as_beats_f64();
                 let secs_f64 = beats_f64 * seconds_per_beat;
 
-                SampleTime::from_secs_f64(secs_f64, sample_rate)
+                ClockSamples::from_secs_f64(secs_f64, sample_rate)
             }
             TempoMap::PieceWise { parts: _ } => {
                 todo!()
@@ -258,7 +271,7 @@ impl TempoMap {
 
     pub fn clock_time_to_musical(
         &self,
-        time: SampleTime,
+        time: ClockSamples,
         sample_rate: u32,
         sample_rate_recip: f64,
     ) -> MusicalTime {

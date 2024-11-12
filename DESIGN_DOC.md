@@ -101,7 +101,7 @@ Audio backends should have the following features:
 * Spawn an audio stream with the chosen input/output devices (or `None` which specifies to use the default device).
     * If the device is not found, try falling back to the default audio device first before returning an error (if the user specified that they want to fall back).
     * If no default device is found, try falling back to a "dummy" audio device first before returning an error (if the user specified that they want to fall back). If the backend does not support dummy devices, then emulate an audio stream by spawning a thread manually.
-* While the stream is running, the realtime clock should be updated accordingly before calling `FirewheelProcessor::process()`. (See the `Clocks and Events` section below.)
+* While the stream is running, the internal clock should be updated accordingly before calling `FirewheelProcessor::process()`. (See the `Clocks and Events` section below.)
 * If an error occurs, notify the user of the error when they call the `update()` method. From there the user can decide how to respond to the error (try to reconnect, fallback to a different device, etc.)
 
 ## Engine Lifecycle
@@ -117,27 +117,28 @@ Audio backends should have the following features:
 
 ## Clocks and Events
 
-There are two clocks in the audio stream: the realtime clock and the sample clock.
+There are two clocks in the audio stream: the seconds clock and the sample clock.
 
-### Realtime Clock
+### Seconds Clock
 
 This clock is recommended for most use cases. It counts the total number of seconds (as an `f64` value) that have elapsed since the start of the audio stream. This value is read from the OS's native audio API where possible, so it is quite accurate and it correctly accounts for any output underflows that may occur.
 
 Usage of the clock works like this:
 
-1. At the top of the game's processing loop, `AudioGraph::realtime_clock_secs()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
-2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(realtime_clock_secs + desired_amount_of_delay)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::realtime_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+1. Before sending an event to an audio node, the user calls `AudioGraph::clock_seconds()` to retrieve the current clock time.
+2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(clock_secs + desired_amount_of_delay)`.
+3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::clock_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
 
 ### Sample Clock
 
-This clock provides sample-accurate timing of audio events, which could be useful for some games such as rhythm games. The drawback is that this clock does *NOT* account for any output underflows that may occur, and thus may become desynced with the realtime clock. Only use this clock if you are synchronizing your game to the sample clock (or if you are not concerned about output underflows occurring).
+This clock provides sample-accurate timing of audio events, which could be useful for some games such as rhythm games. The drawback is that this clock does *NOT* account for any output underflows that may occur, and thus may become desynced with the seconds clock. Only use this clock if you are synchronizing your game to this sample clock (or if you are not concerned about output underflows occurring).
 
-Usage of this clock is similar to the realtime clock:
+Usage of this clock works like this:
 
-1. At the top of the game's processing loop, `AudioGraph::sample_clock_time()` is called to retrieve the current time of the audio stream. The returned value is also automatically adjusted for the latency of the audio stream.
-2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSamples(sample_clock_time + desired_amount_of_delay_in_samples)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::total_samples_processed`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+1. At any point in the game, the user calls `AudioGraph::clock_samples()` to retrieve the current sample clock time. This will be used as the "starting reference point" for any events that follow. (For example, you may do this when it's time to start playing a MIDI song.)
+2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSamples(reference_sample_clock_time + desired_offset_from_reference_in_samples)`.
+3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::clock_samples`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+4. (Optional) At the top of the game loop, the engine calls `AudioGraph::clock_samples()` to synchronize the game to the sample clock.
 
 ## Silence Optimizations
 
@@ -255,7 +256,6 @@ Since WebAssembly (WASM) is one of the targets, special considerations must be m
     * The audio backend (i.e. [CPAL]) should be in charge of spawning the audio thread.
     * While the [creek](https://github.com/MeadowlarkDAW/creek) crate requires threads, file operations aren't supported in WASM anyway, so this crate can just be disabled when compiling to WASM.
 * Don't Block Threads
-    * The current code as of this writing blocks the thread when opening/closing audio streams, so I need to find a way around that.
 
 [CPAL]: https://github.com/RustAudio/cpal
 [CLAP]: https://github.com/free-audio/clap
