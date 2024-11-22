@@ -1,9 +1,10 @@
 use arrayvec::ArrayVec;
 use smallvec::SmallVec;
-use std::fmt::Debug;
+use std::{collections::VecDeque, fmt::Debug};
 
 use firewheel_core::{
-    node::{AudioNodeProcessor, ProcessStatus},
+    clock::ClockSeconds,
+    node::{AudioNodeProcessor, NodeEventType, ProcessStatus},
     SilenceMask,
 };
 
@@ -128,34 +129,66 @@ pub(super) struct OutBufferAssignment {
     pub generation: usize,
 }
 
-pub struct ScheduleHeapData<C> {
-    pub schedule: CompiledSchedule,
-    pub nodes_to_remove: Vec<NodeID>,
-    pub removed_node_processors: Vec<(NodeID, Box<dyn AudioNodeProcessor<C>>)>,
-    pub new_node_processors: Vec<(NodeID, Box<dyn AudioNodeProcessor<C>>)>,
+pub struct NodeHeapData {
+    pub id: NodeID,
+    pub processor: Box<dyn AudioNodeProcessor>,
+    pub immediate_event_queue: VecDeque<NodeEventType>,
+    pub delayed_event_queue: VecDeque<(ClockSeconds, NodeEventType)>,
 }
 
-impl<C> ScheduleHeapData<C> {
+impl NodeHeapData {
+    pub fn new(
+        id: NodeID,
+        processor: Box<dyn AudioNodeProcessor>,
+        event_queue_capacity: usize,
+        uses_events: bool,
+    ) -> Self {
+        let (immediate_event_queue, delayed_event_queue) = if uses_events {
+            (
+                VecDeque::with_capacity(event_queue_capacity),
+                VecDeque::with_capacity(event_queue_capacity),
+            )
+        } else {
+            (VecDeque::new(), VecDeque::new())
+        };
+
+        Self {
+            id,
+            processor,
+            immediate_event_queue,
+            delayed_event_queue,
+        }
+    }
+}
+
+pub struct ScheduleHeapData {
+    pub schedule: CompiledSchedule,
+    pub nodes_to_remove: Vec<NodeID>,
+    pub removed_nodes: Vec<NodeHeapData>,
+    pub new_node_processors: Vec<NodeHeapData>,
+}
+
+impl ScheduleHeapData {
     pub fn new(
         schedule: CompiledSchedule,
         nodes_to_remove: Vec<NodeID>,
-        new_node_processors: Vec<(NodeID, Box<dyn AudioNodeProcessor<C>>)>,
+        new_node_processors: Vec<NodeHeapData>,
     ) -> Self {
         let num_nodes_to_remove = nodes_to_remove.len();
 
         Self {
             schedule,
             nodes_to_remove,
-            removed_node_processors: Vec::with_capacity(num_nodes_to_remove),
+            removed_nodes: Vec::with_capacity(num_nodes_to_remove),
             new_node_processors,
         }
     }
 }
 
-impl<C> Debug for ScheduleHeapData<C> {
+impl Debug for ScheduleHeapData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let new_node_processors: Vec<NodeID> =
-            self.new_node_processors.iter().map(|(id, _)| *id).collect();
+            self.new_node_processors.iter().map(|n| n.id).collect();
 
         f.debug_struct("ScheduleHeapData")
             .field("schedule", &self.schedule)
@@ -361,21 +394,65 @@ impl CompiledSchedule {
                 outputs.as_mut_slice(),
             );
 
+            let clear_buffer = |buffer_index: usize, silence_flag: &mut bool| {
+                if !*silence_flag {
+                    buffer_slice_mut(&self.buffers, buffer_index, self.max_block_samples, samples)
+                        .fill(0.0);
+                    *silence_flag = true;
+                }
+            };
+
             match status {
-                ProcessStatus::NoOutputsModified => {
+                ProcessStatus::ClearAllOutputs => {
                     // Clear output buffers which need cleared.
                     for b in scheduled_node.output_buffers.iter() {
                         let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
-                        if !*s {
-                            buffer_slice_mut(
+                        clear_buffer(b.buffer_index, s);
+                    }
+                }
+                ProcessStatus::Bypass => {
+                    for (in_buf, out_buf) in scheduled_node
+                        .input_buffers
+                        .iter()
+                        .zip(scheduled_node.output_buffers.iter())
+                    {
+                        let in_s =
+                            *silence_mask_mut(&mut self.buffer_silence_flags, in_buf.buffer_index);
+                        let out_s =
+                            silence_mask_mut(&mut self.buffer_silence_flags, out_buf.buffer_index);
+
+                        if in_s {
+                            clear_buffer(out_buf.buffer_index, out_s);
+                        } else {
+                            let in_buf_slice = buffer_slice_mut(
                                 &self.buffers,
-                                b.buffer_index,
+                                in_buf.buffer_index,
                                 self.max_block_samples,
                                 samples,
-                            )
-                            .fill(0.0);
-                            *s = true;
+                            );
+                            let out_buf_slice = buffer_slice_mut(
+                                &self.buffers,
+                                out_buf.buffer_index,
+                                self.max_block_samples,
+                                samples,
+                            );
+
+                            out_buf_slice.copy_from_slice(in_buf_slice);
+                            *out_s = false;
+                        }
+                    }
+
+                    if scheduled_node.output_buffers.len() > scheduled_node.input_buffers.len() {
+                        for b in scheduled_node
+                            .output_buffers
+                            .iter()
+                            .skip(scheduled_node.input_buffers.len())
+                        {
+                            let s =
+                                silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+
+                            clear_buffer(b.buffer_index, s);
                         }
                     }
                 }
@@ -438,10 +515,9 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        sync::{atomic::AtomicU64, Arc},
-        time::Instant,
-    };
+    use ahash::AHashSet;
+    use firewheel_core::{ChannelCount, StreamInfo};
+    use std::time::Instant;
 
     use crate::{
         basic_nodes::dummy::DummyAudioNode,
@@ -450,8 +526,6 @@ mod tests {
     };
 
     use super::*;
-    use ahash::AHashSet;
-    use firewheel_core::{ChannelCount, StreamInfo};
 
     // Simplest graph compile test:
     //
@@ -466,11 +540,7 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(
-                StreamInfo::default(),
-                Instant::now(),
-                Arc::new(AtomicU64::new(0)),
-            )
+            .activate(StreamInfo::default(), Instant::now())
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -517,11 +587,7 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(
-                StreamInfo::default(),
-                Instant::now(),
-                Arc::new(AtomicU64::new(0)),
-            )
+            .activate(StreamInfo::default(), Instant::now())
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -622,11 +688,7 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(
-                StreamInfo::default(),
-                Instant::now(),
-                Arc::new(AtomicU64::new(0)),
-            )
+            .activate(StreamInfo::default(), Instant::now())
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -696,7 +758,7 @@ mod tests {
         node_id: NodeID,
         in_ports_that_should_clear: &[bool],
         schedule: &CompiledSchedule,
-        graph: &AudioGraph<()>,
+        graph: &AudioGraph,
     ) {
         let node = graph.node_info(node_id).unwrap();
         let scheduled_node = schedule.schedule.iter().find(|&s| s.id == node_id).unwrap();
@@ -729,7 +791,7 @@ mod tests {
         }
     }
 
-    fn verify_edge(edge_id: EdgeID, graph: &AudioGraph<()>, schedule: &CompiledSchedule) {
+    fn verify_edge(edge_id: EdgeID, graph: &AudioGraph, schedule: &CompiledSchedule) {
         let edge = graph.edge(edge_id).unwrap();
 
         let mut src_buffer_idx = None;
@@ -756,17 +818,13 @@ mod tests {
 
     #[test]
     fn many_to_one_detection() {
-        let mut graph = AudioGraph::<()>::new(&FirewheelConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: ChannelCount::STEREO,
             num_graph_outputs: ChannelCount::MONO,
             ..Default::default()
         });
         graph
-            .activate(
-                StreamInfo::default(),
-                Instant::now(),
-                Arc::new(AtomicU64::new(0)),
-            )
+            .activate(StreamInfo::default(), Instant::now())
             .unwrap();
 
         let node1 = graph.graph_in_node();
@@ -786,17 +844,13 @@ mod tests {
 
     #[test]
     fn cycle_detection() {
-        let mut graph = AudioGraph::<()>::new(&FirewheelConfig {
+        let mut graph = AudioGraph::new(&FirewheelConfig {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
         graph
-            .activate(
-                StreamInfo::default(),
-                Instant::now(),
-                Arc::new(AtomicU64::new(0)),
-            )
+            .activate(StreamInfo::default(), Instant::now())
             .unwrap();
 
         let node1 = graph

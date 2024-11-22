@@ -1,13 +1,13 @@
 use std::error::Error;
 
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct DummyAudioNode;
 
-impl<C> AudioNode<C> for DummyAudioNode {
+impl AudioNode for DummyAudioNode {
     fn debug_name(&self) -> &'static str {
         "dummy"
     }
@@ -16,6 +16,7 @@ impl<C> AudioNode<C> for DummyAudioNode {
         AudioNodeInfo {
             num_max_supported_inputs: ChannelCount::MAX,
             num_max_supported_outputs: ChannelCount::MAX,
+            uses_events: false,
             ..Default::default()
         }
     }
@@ -24,27 +25,27 @@ impl<C> AudioNode<C> for DummyAudioNode {
         &mut self,
         _stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn Error>> {
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>> {
         Ok(Box::new(DummyAudioNodeProcessor))
     }
 }
 
 pub struct DummyAudioNodeProcessor;
 
-impl<C> AudioNodeProcessor<C> for DummyAudioNodeProcessor {
+impl AudioNodeProcessor for DummyAudioNodeProcessor {
     fn process(
         &mut self,
         _inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
+        _events: NodeEventIter,
         _proc_info: ProcInfo,
-        _cx: &mut C,
     ) -> ProcessStatus {
-        ProcessStatus::NoOutputsModified
+        ProcessStatus::ClearAllOutputs
     }
 }
 
-impl<C> Into<Box<dyn AudioNode<C>>> for DummyAudioNode {
-    fn into(self) -> Box<dyn AudioNode<C>> {
+impl Into<Box<dyn AudioNode>> for DummyAudioNode {
+    fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }

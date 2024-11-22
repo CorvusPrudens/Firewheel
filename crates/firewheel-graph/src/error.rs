@@ -4,9 +4,12 @@
 use std::error::Error;
 use std::fmt;
 
-use firewheel_core::{node::AudioNodeInfo, ChannelConfig, ChannelCount};
+use firewheel_core::{
+    node::{AudioNodeInfo, NodeID},
+    ChannelConfig, ChannelCount,
+};
 
-use crate::graph::{Edge, EdgeID, InPortIdx, NodeID, OutPortIdx};
+use crate::graph::{Edge, EdgeID, InPortIdx, OutPortIdx};
 
 /// An error occurred while attempting to add an edge to the graph.
 #[derive(Debug, Clone)]

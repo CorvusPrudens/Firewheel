@@ -1,45 +1,48 @@
-use atomic_float::AtomicF32;
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
+        ProcessStatus,
+    },
     param::{range::percent_volume_to_raw_gain, smoother::ParamSmoother},
     ChannelConfig, ChannelCount, StreamInfo,
 };
-use std::sync::{atomic::Ordering, Arc};
 
 pub struct VolumeNode {
-    // TODO: Find a good solution for webassembly.
-    raw_gain: Arc<AtomicF32>,
     percent_volume: f32,
 }
 
 impl VolumeNode {
+    /// Create a new volume node.
+    ///
+    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
     pub fn new(percent_volume: f32) -> Self {
         let percent_volume = percent_volume.max(0.0);
 
-        Self {
-            raw_gain: Arc::new(AtomicF32::new(percent_volume_to_raw_gain(percent_volume))),
-            percent_volume,
-        }
+        Self { percent_volume }
     }
 
+    /// Get the current percent volume where `0.0` is mute and `100.0` is unity gain.
     pub fn percent_volume(&self) -> f32 {
         self.percent_volume
     }
 
-    pub fn set_percent_volume(&mut self, percent_volume: f32) {
-        self.raw_gain.store(
-            percent_volume_to_raw_gain(percent_volume),
-            Ordering::Relaxed,
-        );
+    /// Return an event type to set the volume parameter.
+    ///
+    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
+    /// * `no_smoothing` - Set this to `true` to have the node immediately jump to this new
+    /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
+    /// can be useful to preserve transients when playing a new sound at a different volume.
+    pub fn set_volume(&mut self, percent_volume: f32, no_smoothing: bool) -> NodeEventType {
         self.percent_volume = percent_volume.max(0.0);
-    }
-
-    pub fn raw_gain(&self) -> f32 {
-        self.raw_gain.load(Ordering::Relaxed)
+        NodeEventType::FloatParam {
+            id: 0,
+            value: percent_volume,
+            no_smoothing,
+        }
     }
 }
 
-impl<C> AudioNode<C> for VolumeNode {
+impl AudioNode for VolumeNode {
     fn debug_name(&self) -> &'static str {
         "volume"
     }
@@ -56,6 +59,7 @@ impl<C> AudioNode<C> for VolumeNode {
             },
             equal_num_ins_and_outs: true,
             updates: false,
+            uses_events: true,
         }
     }
 
@@ -63,11 +67,12 @@ impl<C> AudioNode<C> for VolumeNode {
         &mut self,
         stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
+        let raw_gain = percent_volume_to_raw_gain(self.percent_volume);
+
         Ok(Box::new(VolumeProcessor {
-            raw_gain: Arc::clone(&self.raw_gain),
             gain_smoother: ParamSmoother::new(
-                self.raw_gain(),
+                raw_gain,
                 stream_info.sample_rate,
                 stream_info.max_block_samples as usize,
                 Default::default(),
@@ -77,35 +82,53 @@ impl<C> AudioNode<C> for VolumeNode {
 }
 
 struct VolumeProcessor {
-    raw_gain: Arc<AtomicF32>,
     gain_smoother: ParamSmoother,
 }
 
-impl<C> AudioNodeProcessor<C> for VolumeProcessor {
+impl AudioNodeProcessor for VolumeProcessor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
+        events: NodeEventIter,
         proc_info: ProcInfo,
-        _cx: &mut C,
     ) -> ProcessStatus {
         let samples = proc_info.samples;
 
-        let raw_gain = self.raw_gain.load(Ordering::Relaxed);
+        for msg in events {
+            if let NodeEventType::FloatParam {
+                id,
+                value,
+                no_smoothing,
+            } = msg
+            {
+                if *id != 0 {
+                    continue;
+                }
+                let raw_gain = percent_volume_to_raw_gain(*value);
+                self.gain_smoother
+                    .set_with_smoothing(raw_gain, *no_smoothing);
+            }
+        }
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
-            self.gain_smoother.reset(raw_gain);
+            self.gain_smoother.reset(self.gain_smoother.target_value());
 
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         }
 
-        let gain = self.gain_smoother.set_and_process(raw_gain, samples);
+        let gain = self.gain_smoother.process(samples);
 
-        if !gain.is_smoothing() && gain.values[0] < 0.00001 {
-            // Muted, so there is no need to process.
-            return ProcessStatus::NoOutputsModified;
+        if !gain.is_smoothing() {
+            if gain.values[0] < 0.00001 {
+                // Muted, so there is no need to process.
+                return ProcessStatus::ClearAllOutputs;
+            } else if gain.values[0] > 0.99999 && gain.values[0] < 1.00001 {
+                // Unity gain, there is no need to process.
+                return ProcessStatus::Bypass;
+            }
         }
 
         // Hint to the compiler to optimize loop.
@@ -147,8 +170,8 @@ impl<C> AudioNodeProcessor<C> for VolumeProcessor {
     }
 }
 
-impl<C> Into<Box<dyn AudioNode<C>>> for VolumeNode {
-    fn into(self) -> Box<dyn AudioNode<C>> {
+impl Into<Box<dyn AudioNode>> for VolumeNode {
+    fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }

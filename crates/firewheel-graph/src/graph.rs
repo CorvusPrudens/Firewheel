@@ -3,84 +3,24 @@ mod compiler;
 use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 
 use ahash::{AHashMap, AHashSet};
-use firewheel_core::clock::{ClockSamples, ClockSeconds};
+use firewheel_core::clock::ClockSeconds;
 use firewheel_core::{ChannelConfig, ChannelCount, StreamInfo};
 use thunderdome::Arena;
 
 use crate::basic_nodes::dummy::DummyAudioNode;
 use crate::context::FirewheelConfig;
 use crate::error::{AddEdgeError, CompileGraphError, NodeError};
-use firewheel_core::node::{AudioNode, AudioNodeProcessor};
+use firewheel_core::node::{AudioNode, NodeEvent, NodeID};
 
-pub(crate) use self::compiler::{CompiledSchedule, ScheduleHeapData};
+pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
 pub use self::compiler::{Edge, EdgeID, InPortIdx, NodeEntry, OutPortIdx};
 
-/// A globally unique identifier for a node.
-#[derive(Clone, Copy)]
-pub struct NodeID {
-    pub idx: thunderdome::Index,
-    pub debug_name: &'static str,
-}
-
-impl NodeID {
-    pub const DANGLING: Self = Self {
-        idx: thunderdome::Index::DANGLING,
-        debug_name: "dangling",
-    };
-}
-
-impl Default for NodeID {
-    fn default() -> Self {
-        Self::DANGLING
-    }
-}
-
-impl PartialEq for NodeID {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
-    }
-}
-
-impl Eq for NodeID {}
-
-impl Ord for NodeID {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.idx.cmp(&other.idx)
-    }
-}
-
-impl PartialOrd for NodeID {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Hash for NodeID {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.idx.hash(state);
-    }
-}
-
-impl Debug for NodeID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}-{}-{}",
-            self.debug_name,
-            self.idx.slot(),
-            self.idx.generation()
-        )
-    }
-}
-
-pub struct NodeWeight<C> {
-    pub node: Box<dyn AudioNode<C>>,
+pub struct NodeWeight {
+    pub node: Box<dyn AudioNode>,
     pub activated: bool,
     pub updates: bool,
 }
@@ -95,7 +35,6 @@ struct EdgeHash {
 
 struct ActiveState {
     stream_info: StreamInfo,
-    event_time_samples_shared: Arc<AtomicU64>,
     main_thread_clock_start_instant: Instant,
 }
 
@@ -103,8 +42,8 @@ struct ActiveState {
 ///
 /// The generic is a custom global processing context that is available to
 /// node processors.
-pub struct AudioGraph<C: Send + 'static> {
-    nodes: Arena<NodeEntry<NodeWeight<C>>>,
+pub struct AudioGraph {
+    nodes: Arena<NodeEntry<NodeWeight>>,
     edges: Arena<Edge>,
     connected_input_ports: AHashSet<(NodeID, InPortIdx)>,
     existing_edges: AHashMap<EdgeHash, EdgeID>,
@@ -116,13 +55,19 @@ pub struct AudioGraph<C: Send + 'static> {
     active_state: Option<ActiveState>,
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
-    active_nodes_to_remove: AHashMap<NodeID, NodeEntry<NodeWeight<C>>>,
-    new_node_processors: Vec<(NodeID, Box<dyn AudioNodeProcessor<C>>)>,
+    active_nodes_to_remove: AHashMap<NodeID, NodeEntry<NodeWeight>>,
+    new_node_processors: Vec<NodeHeapData>,
+    event_queue_capacity: usize,
+
+    // Re-uses the allocations for groups of events.
+    event_group_pool: Vec<Vec<NodeEvent>>,
+    event_group: Vec<NodeEvent>,
+    initial_event_group_capacity: usize,
 }
 
-impl<C: Send + 'static> AudioGraph<C> {
+impl AudioGraph {
     pub(crate) fn new(config: &FirewheelConfig) -> Self {
-        let mut nodes = Arena::with_capacity(config.initial_node_capacity);
+        let mut nodes = Arena::with_capacity(config.initial_node_capacity as usize);
 
         let graph_in_id = NodeID {
             idx: nodes.insert(NodeEntry::new(
@@ -156,19 +101,46 @@ impl<C: Send + 'static> AudioGraph<C> {
         };
         nodes[graph_out_id.idx].id = graph_out_id;
 
+        let initial_event_group_capacity = config.initial_event_group_capacity as usize;
+        let mut event_group_pool = Vec::with_capacity(16);
+        for _ in 0..3 {
+            event_group_pool.push(Vec::with_capacity(initial_event_group_capacity));
+        }
+
         Self {
             nodes,
-            edges: Arena::with_capacity(config.initial_edge_capacity),
-            connected_input_ports: AHashSet::with_capacity(config.initial_edge_capacity),
-            existing_edges: AHashMap::with_capacity(config.initial_edge_capacity),
+            edges: Arena::with_capacity(config.initial_edge_capacity as usize),
+            connected_input_ports: AHashSet::with_capacity(config.initial_edge_capacity as usize),
+            existing_edges: AHashMap::with_capacity(config.initial_edge_capacity as usize),
             graph_in_id,
             graph_out_id,
             needs_compile: true,
             active_state: None,
-            nodes_to_remove_from_schedule: Vec::with_capacity(config.initial_node_capacity),
-            active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity),
-            new_node_processors: Vec::with_capacity(config.initial_node_capacity),
+            nodes_to_remove_from_schedule: Vec::with_capacity(
+                config.initial_node_capacity as usize,
+            ),
+            active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity as usize),
+            new_node_processors: Vec::with_capacity(config.initial_node_capacity as usize),
+            event_queue_capacity: config.event_queue_capacity as usize,
+            event_group_pool,
+            event_group: Vec::with_capacity(initial_event_group_capacity),
+            initial_event_group_capacity,
         }
+    }
+
+    /// Queue an event to be sent to a node's processor.
+    ///
+    /// Note, events in the queue will not be sent until `FirewheelGraphCtx::flush_events()`
+    /// is called.
+    ///
+    /// If a node with the given ID does not exist in the graph, then the event will be
+    /// ignored.
+    pub fn queue_event(&mut self, event: NodeEvent) {
+        if !self.nodes.contains(event.node_id.idx) {
+            return;
+        }
+
+        self.event_group.push(event);
     }
 
     /// Remove all existing nodes from the graph.
@@ -207,7 +179,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// this to `None` to use the default configuration.
     pub fn add_node(
         &mut self,
-        mut node: Box<dyn AudioNode<C>>,
+        mut node: Box<dyn AudioNode>,
         channel_config: Option<ChannelConfig>,
     ) -> Result<NodeID, NodeError> {
         let stream_info = &self.active_state.as_ref().unwrap().stream_info;
@@ -271,7 +243,12 @@ impl<C: Send + 'static> AudioGraph<C> {
         };
         self.nodes[new_id.idx].id = new_id;
 
-        self.new_node_processors.push((new_id, processor));
+        self.new_node_processors.push(NodeHeapData::new(
+            new_id,
+            processor,
+            self.event_queue_capacity,
+            info.uses_events,
+        ));
 
         self.needs_compile = true;
 
@@ -283,7 +260,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// This will return `None` if a node with the given ID does not
     /// exist in the graph, or if the node doesn't match the given
     /// type.
-    pub fn node<N: AudioNode<C>>(&self, node_id: NodeID) -> Option<&N> {
+    pub fn node<N: AudioNode>(&self, node_id: NodeID) -> Option<&N> {
         self.nodes
             .get(node_id.idx)
             .and_then(|n| n.weight.node.downcast_ref::<N>())
@@ -294,7 +271,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     /// This will return `None` if a node with the given ID does not
     /// exist in the graph, or if the node doesn't match the given
     /// type.
-    pub fn node_mut<N: AudioNode<C>>(&mut self, node_id: NodeID) -> Option<&mut N> {
+    pub fn node_mut<N: AudioNode>(&mut self, node_id: NodeID) -> Option<&mut N> {
         self.nodes
             .get_mut(node_id.idx)
             .and_then(|n| n.weight.node.downcast_mut::<N>())
@@ -304,7 +281,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     ///
     /// This will return `None` if a node with the given ID does not
     /// exist in the graph.
-    pub fn node_info(&self, node_id: NodeID) -> Option<&NodeEntry<NodeWeight<C>>> {
+    pub fn node_info(&self, node_id: NodeID) -> Option<&NodeEntry<NodeWeight>> {
         self.nodes.get(node_id.idx)
     }
 
@@ -353,7 +330,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     }
 
     /// Get a list of all the existing nodes in the graph.
-    pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry<NodeWeight<C>>> {
+    pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry<NodeWeight>> {
         self.nodes.iter().map(|(_, n)| n)
     }
 
@@ -609,7 +586,7 @@ impl<C: Send + 'static> AudioGraph<C> {
 
     /// The current time of the clock in the number of seconds since the stream
     /// was started.
-    pub fn clock_seconds(&self) -> ClockSeconds {
+    pub fn clock_now(&self) -> ClockSeconds {
         ClockSeconds(
             (Instant::now()
                 - self
@@ -621,24 +598,8 @@ impl<C: Send + 'static> AudioGraph<C> {
         )
     }
 
-    /// The total number of samples that have been processed in the audio stream.
-    ///
-    /// This value can be used for more accurate timing than
-    /// [`AudioGraph::clock_seconds`], but it does *NOT* account for any output
-    /// underflows that may occur. If any underflows occur, then this will become
-    /// out of sync with [`AudioGraph::clock_seconds`]. Prefer to use
-    /// [`AudioGraph::clock_seconds`] unless you are syncing your game to this
-    /// sample clock (or you are not concerned about underflows happenning.)
-    ///
-    /// Also note this uses an atomic load under the hood, so avoid calling
-    /// this method excessively.
-    pub fn clock_samples(&self) -> ClockSamples {
-        let s = self.active_state.as_ref().unwrap();
-        ClockSamples(s.event_time_samples_shared.load(Ordering::SeqCst))
-    }
-
     pub fn cycle_detected(&mut self) -> bool {
-        compiler::cycle_detected::<NodeWeight<C>>(
+        compiler::cycle_detected::<NodeWeight>(
             &mut self.nodes,
             &mut self.edges,
             self.graph_in_id,
@@ -653,7 +614,7 @@ impl<C: Send + 'static> AudioGraph<C> {
     pub(crate) fn compile(
         &mut self,
         stream_info: StreamInfo,
-    ) -> Result<ScheduleHeapData<C>, CompileGraphError> {
+    ) -> Result<ScheduleHeapData, CompileGraphError> {
         let schedule = self.compile_internal(stream_info.max_block_samples as usize)?;
 
         let new_node_processors = self.new_node_processors.drain(..).collect::<Vec<_>>();
@@ -687,23 +648,44 @@ impl<C: Send + 'static> AudioGraph<C> {
         )
     }
 
-    pub(crate) fn on_schedule_returned(&mut self, mut schedule_data: Box<ScheduleHeapData<C>>) {
-        for (node_id, processor) in schedule_data.removed_node_processors.drain(..) {
-            if let Some(mut node_entry) = self.active_nodes_to_remove.remove(&node_id) {
-                node_entry.weight.node.deactivate(Some(processor));
+    pub(crate) fn flush_events(&mut self) -> Option<Vec<NodeEvent>> {
+        if self.event_group.is_empty() {
+            return None;
+        }
+
+        let mut next_event_group = self
+            .event_group_pool
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(self.initial_event_group_capacity));
+        std::mem::swap(&mut next_event_group, &mut self.event_group);
+        Some(next_event_group)
+    }
+
+    pub(crate) fn return_event_group(&mut self, mut event_group: Vec<NodeEvent>) {
+        event_group.clear();
+        self.event_group_pool.push(event_group);
+    }
+
+    pub(crate) fn on_schedule_returned(&mut self, mut schedule_data: Box<ScheduleHeapData>) {
+        for node_heap_data in schedule_data.removed_nodes.drain(..) {
+            if let Some(mut node_entry) = self.active_nodes_to_remove.remove(&node_heap_data.id) {
+                node_entry
+                    .weight
+                    .node
+                    .deactivate(Some(node_heap_data.processor));
                 node_entry.weight.activated = false;
             }
         }
     }
 
-    pub(crate) fn on_processor_dropped(
-        &mut self,
-        mut nodes: Arena<Box<dyn AudioNodeProcessor<C>>>,
-    ) {
-        for (node_id, processor) in nodes.drain() {
+    pub(crate) fn on_processor_dropped(&mut self, mut nodes: Arena<crate::processor::NodeEntry>) {
+        for (node_id, proc_node_entry) in nodes.drain() {
             if let Some(node_entry) = self.nodes.get_mut(node_id) {
                 if node_entry.weight.activated {
-                    node_entry.weight.node.deactivate(Some(processor));
+                    node_entry
+                        .weight
+                        .node
+                        .deactivate(Some(proc_node_entry.processor));
                     node_entry.weight.activated = false;
                 }
             }
@@ -714,7 +696,6 @@ impl<C: Send + 'static> AudioGraph<C> {
         &mut self,
         stream_info: StreamInfo,
         main_thread_clock_start_instant: Instant,
-        event_time_samples_shared: Arc<AtomicU64>,
     ) -> Result<(), NodeError> {
         let mut error = None;
 
@@ -727,7 +708,13 @@ impl<C: Send + 'static> AudioGraph<C> {
                 .activate(&stream_info, node_entry.channel_config)
             {
                 Ok(processor) => {
-                    self.new_node_processors.push((node_entry.id, processor));
+                    self.new_node_processors.push(NodeHeapData::new(
+                        node_entry.id,
+                        processor,
+                        self.event_queue_capacity,
+                        node_entry.weight.node.info().uses_events,
+                    ));
+
                     node_entry.weight.activated = true;
                 }
                 Err(e) => {
@@ -746,7 +733,6 @@ impl<C: Send + 'static> AudioGraph<C> {
         } else {
             self.active_state = Some(ActiveState {
                 stream_info,
-                event_time_samples_shared,
                 main_thread_clock_start_instant,
             });
             self.needs_compile = true;
@@ -761,8 +747,8 @@ impl<C: Send + 'static> AudioGraph<C> {
                     .new_node_processors
                     .iter()
                     .enumerate()
-                    .find_map(|(i, (id, _))| if *id == node_entry.id { Some(i) } else { None })
-                    .map(|i| self.new_node_processors.remove(i).1);
+                    .find_map(|(i, n)| if n.id == node_entry.id { Some(i) } else { None })
+                    .map(|i| self.new_node_processors.remove(i).processor);
 
                 node_entry.weight.node.deactivate(processor);
                 node_entry.weight.activated = false;

@@ -582,14 +582,14 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             // TODO: Declick
 
             // No sample data, output silence.
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         };
 
         if !self.playing {
             // TODO: Declick
 
             // Not playing, output silence.
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         }
 
         let raw_gain = self.raw_gain.load(Ordering::Relaxed);
@@ -601,7 +601,7 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
             // TODO: Reset declick.
 
             // Muted, so there is no need to process.
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         }
 
         if let Some(loop_range) = &self.loop_range {
@@ -647,7 +647,7 @@ impl<S: SampleResource> AudioNodeProcessor for SamplerProcessor<S> {
         } else {
             if self.playhead >= sample.len_samples() {
                 // Playhead is out of range. Output silence.
-                return ProcessStatus::NoOutputsModified;
+                return ProcessStatus::ClearAllOutputs;
 
                 // TODO: Notify node that sample has finished.
             }

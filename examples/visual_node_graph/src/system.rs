@@ -1,9 +1,10 @@
 use firewheel::{
     basic_nodes::{beep_test::BeepTestNode, HardClipNode, StereoToMonoNode, SumNode, VolumeNode},
+    clock::EventDelay,
     error::AddEdgeError,
-    graph::{AudioGraph, NodeID},
-    node::AudioNode,
-    ChannelConfig, DefaultFirewheelCtx, UpdateStatus,
+    graph::AudioGraph,
+    node::{AudioNode, NodeEvent, NodeID},
+    ChannelConfig, FirewheelCpalCtx, UpdateStatus,
 };
 
 use crate::ui::GuiAudioNode;
@@ -21,22 +22,22 @@ pub enum NodeType {
 }
 
 pub struct AudioSystem {
-    cx: DefaultFirewheelCtx,
+    cx: FirewheelCpalCtx,
 }
 
 impl AudioSystem {
     pub fn new() -> Self {
-        let mut cx = DefaultFirewheelCtx::new(Default::default());
-        cx.activate(Default::default(), ()).unwrap();
+        let mut cx = FirewheelCpalCtx::new(Default::default());
+        cx.activate(Default::default()).unwrap();
 
         Self { cx }
     }
 
-    fn graph(&self) -> &AudioGraph<()> {
+    fn graph(&self) -> &AudioGraph {
         self.cx.graph()
     }
 
-    fn graph_mut(&mut self) -> &mut AudioGraph<()> {
+    fn graph_mut(&mut self) -> &mut AudioGraph {
         self.cx.graph_mut().unwrap()
     }
 
@@ -47,17 +48,16 @@ impl AudioSystem {
     }
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
-        let (node, num_inputs, num_outputs): (Box<dyn AudioNode<()>>, usize, usize) =
-            match node_type {
-                NodeType::BeepTest => (Box::new(BeepTestNode::new(440.0, -12.0, true)), 0, 1),
-                NodeType::HardClip => (Box::new(HardClipNode::new(0.0)), 2, 2),
-                NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
-                NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
-                NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
-                NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
-                NodeType::VolumeMono => (Box::new(VolumeNode::new(100.0)), 1, 1),
-                NodeType::VolumeStereo => (Box::new(VolumeNode::new(100.0)), 2, 2),
-            };
+        let (node, num_inputs, num_outputs): (Box<dyn AudioNode>, usize, usize) = match node_type {
+            NodeType::BeepTest => (Box::new(BeepTestNode::new(440.0, -12.0, true)), 0, 1),
+            NodeType::HardClip => (Box::new(HardClipNode::new(0.0)), 2, 2),
+            NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
+            NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
+            NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
+            NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
+            NodeType::VolumeMono => (Box::new(VolumeNode::new(100.0)), 1, 1),
+            NodeType::VolumeStereo => (Box::new(VolumeNode::new(100.0)), 2, 2),
+        };
 
         let id = self
             .graph_mut()
@@ -113,6 +113,8 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
+        self.cx.flush_events();
+
         match self.cx.update() {
             UpdateStatus::Inactive => {}
             UpdateStatus::Active { graph_error } => {
@@ -135,8 +137,19 @@ impl AudioSystem {
     }
 
     pub fn set_volume(&mut self, node_id: NodeID, percent_volume: f32) {
-        let volume_node = self.graph_mut().node_mut::<VolumeNode>(node_id).unwrap();
+        let graph = self.graph_mut();
 
-        volume_node.set_percent_volume(percent_volume);
+        let event = graph
+            .node_mut::<VolumeNode>(node_id)
+            .unwrap()
+            .set_volume(percent_volume, false);
+
+        graph.queue_event(NodeEvent {
+            node_id,
+            // Note, if you wanted to delay this event, use:
+            // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
+            delay: EventDelay::Immediate,
+            event,
+        });
     }
 }

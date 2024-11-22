@@ -14,35 +14,35 @@ pub enum GuiAudioNode {
     SystemIn,
     SystemOut,
     BeepTest {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     HardClip {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     StereoToMono {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     SumMono4Ins {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     SumStereo2Ins {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     SumStereo4Ins {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
     },
     VolumeMono {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
         percent: f32,
     },
     VolumeStereo {
-        id: firewheel::graph::NodeID,
+        id: firewheel::node::NodeID,
         percent: f32,
     },
 }
 
 impl GuiAudioNode {
-    fn node_id(&self, audio_system: &AudioSystem) -> firewheel::graph::NodeID {
+    fn node_id(&self, audio_system: &AudioSystem) -> firewheel::node::NodeID {
         match self {
             &Self::SystemIn => audio_system.graph_in_node(),
             &Self::SystemOut => audio_system.graph_out_node(),

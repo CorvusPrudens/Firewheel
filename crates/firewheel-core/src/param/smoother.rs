@@ -139,8 +139,23 @@ impl ParamSmoother {
         self.status = SmootherStatus::Active;
     }
 
+    /// Set the new target value.
+    ///
+    /// If `no_smoothing` is `false` and the value is different from the previous
+    /// process cycle, then smoothing will begin.
+    ///
+    /// If `no_smoothing` is `true`, then the filter will be reset with the new
+    /// value.
+    pub fn set_with_smoothing(&mut self, val: f32, no_smoothing: bool) {
+        if no_smoothing {
+            self.reset(val);
+        } else {
+            self.set(val);
+        }
+    }
+
     /// The current target value that is being smoothed to.
-    pub fn dest(&self) -> f32 {
+    pub fn target_value(&self) -> f32 {
         self.input
     }
 

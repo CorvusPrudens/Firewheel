@@ -1,11 +1,11 @@
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct SumNode;
 
-impl<C> AudioNode<C> for SumNode {
+impl AudioNode for SumNode {
     fn debug_name(&self) -> &'static str {
         "sum"
     }
@@ -22,6 +22,7 @@ impl<C> AudioNode<C> for SumNode {
             },
             equal_num_ins_and_outs: false,
             updates: false,
+            uses_events: false,
         }
     }
 
@@ -40,7 +41,7 @@ impl<C> AudioNode<C> for SumNode {
         &mut self,
         _stream_info: &StreamInfo,
         channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         assert!(channel_config.num_inputs.get() % channel_config.num_outputs.get() == 0);
 
         Ok(Box::new(SumNodeProcessor {
@@ -54,13 +55,13 @@ struct SumNodeProcessor {
     num_in_ports: usize,
 }
 
-impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
+impl AudioNodeProcessor for SumNodeProcessor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
+        _events: NodeEventIter,
         proc_info: ProcInfo,
-        _cx: &mut C,
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();
@@ -68,7 +69,7 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All inputs are silent.
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         }
 
         if num_inputs == num_outputs {
@@ -149,12 +150,12 @@ impl<C> AudioNodeProcessor<C> for SumNodeProcessor {
             }
         }
 
-        ProcessStatus::all_outputs_filled()
+        ProcessStatus::outputs_not_silent()
     }
 }
 
-impl<C> Into<Box<dyn AudioNode<C>>> for SumNode {
-    fn into(self) -> Box<dyn AudioNode<C>> {
+impl Into<Box<dyn AudioNode>> for SumNode {
+    fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }

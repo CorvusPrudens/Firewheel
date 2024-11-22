@@ -1,5 +1,5 @@
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
@@ -15,7 +15,7 @@ impl HardClipNode {
     }
 }
 
-impl<C> AudioNode<C> for HardClipNode {
+impl AudioNode for HardClipNode {
     fn debug_name(&self) -> &'static str {
         "hard_clip"
     }
@@ -32,6 +32,7 @@ impl<C> AudioNode<C> for HardClipNode {
             },
             equal_num_ins_and_outs: true,
             updates: false,
+            uses_events: false,
         }
     }
 
@@ -39,7 +40,7 @@ impl<C> AudioNode<C> for HardClipNode {
         &mut self,
         _stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         Ok(Box::new(HardClipProcessor {
             threshold_gain: self.threshold_gain,
         }))
@@ -50,13 +51,13 @@ struct HardClipProcessor {
     threshold_gain: f32,
 }
 
-impl<C> AudioNodeProcessor<C> for HardClipProcessor {
+impl AudioNodeProcessor for HardClipProcessor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
+        _events: NodeEventIter,
         proc_info: ProcInfo,
-        _cx: &mut C,
     ) -> ProcessStatus {
         let samples = proc_info.samples;
 
@@ -80,7 +81,7 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
                     .max(-self.threshold_gain);
             }
 
-            return ProcessStatus::all_outputs_filled();
+            return ProcessStatus::outputs_not_silent();
         }
 
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
@@ -100,8 +101,8 @@ impl<C> AudioNodeProcessor<C> for HardClipProcessor {
     }
 }
 
-impl<C> Into<Box<dyn AudioNode<C>>> for HardClipNode {
-    fn into(self) -> Box<dyn AudioNode<C>> {
+impl Into<Box<dyn AudioNode>> for HardClipNode {
+    fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }

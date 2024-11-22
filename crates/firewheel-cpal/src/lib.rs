@@ -16,9 +16,9 @@ const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const MSG_CHANNEL_CAPACITY: usize = 4;
 
-struct ActiveState<C: Send + 'static> {
+struct ActiveState {
     _stream: cpal::Stream,
-    _to_stream_tx: rtrb::Producer<CtxToStreamMsg<C>>,
+    _to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
     from_err_rx: rtrb::Consumer<cpal::StreamError>,
     out_device_name: String,
     cpal_config: cpal::StreamConfig,
@@ -28,12 +28,12 @@ struct ActiveState<C: Send + 'static> {
 ///
 /// The generic is a custom global processing context that is available to
 /// node processors.
-pub struct FirewheelCpalCtx<C: Send + 'static> {
-    cx: FirewheelGraphCtx<C>,
-    active_state: Option<ActiveState<C>>,
+pub struct FirewheelCpalCtx {
+    cx: FirewheelGraphCtx,
+    active_state: Option<ActiveState>,
 }
 
-impl<C: Send + 'static> FirewheelCpalCtx<C> {
+impl FirewheelCpalCtx {
     pub fn new(config: FirewheelConfig) -> Self {
         Self {
             cx: FirewheelGraphCtx::new(config),
@@ -42,14 +42,14 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
     }
 
     /// Get an immutable reference to the audio graph.
-    pub fn graph(&self) -> &AudioGraph<C> {
+    pub fn graph(&self) -> &AudioGraph {
         self.cx.graph()
     }
 
     /// Get a mutable reference to the audio graph.
     ///
     /// Returns `None` if the context is not currently activated.
-    pub fn graph_mut(&mut self) -> Option<&mut AudioGraph<C>> {
+    pub fn graph_mut(&mut self) -> Option<&mut AudioGraph> {
         self.cx.graph_mut()
     }
 
@@ -116,19 +116,10 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
     /// Activate the context and start the audio stream.
     ///
     /// Returns an error if the context is already active.
-    ///
-    /// * `config` - The configuration of the audio stream.
-    /// * `user_cx` - A custom global processing context that is available to
-    /// node processors.
-    pub fn activate(
-        &mut self,
-        config: AudioStreamConfig,
-        user_cx: C,
-    ) -> Result<(), (ActivateError, C)> {
+    pub fn activate(&mut self, config: AudioStreamConfig) -> Result<(), ActivateError> {
         if self.cx.is_activated() {
-            return Err((
-                ActivateError::ContextError(ActivateCtxError::AlreadyActivated),
-                user_cx,
+            return Err(ActivateError::ContextError(
+                ActivateCtxError::AlreadyActivated,
             ));
         }
 
@@ -149,17 +140,14 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
                     } else if config.fallback {
                         log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &output_device_name);
                     } else {
-                        return Err((
-                            ActivateError::DeviceNotFound(output_device_name.clone()),
-                            user_cx,
-                        ));
+                        return Err(ActivateError::DeviceNotFound(output_device_name.clone()));
                     }
                 }
                 Err(e) => {
                     if config.fallback {
                         log::error!("Failed to get output audio devices: {}. Falling back to default device...", e);
                     } else {
-                        return Err((e.into(), user_cx));
+                        return Err(e.into());
                     }
                 }
             }
@@ -172,7 +160,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
                 } else {
-                    return Err((ActivateError::DefaultDeviceNotFound, user_cx));
+                    return Err(ActivateError::DefaultDeviceNotFound);
                 }
             };
             device = Some(default_device);
@@ -190,7 +178,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
                 } else {
-                    return Err((e.into(), user_cx));
+                    return Err(e.into());
                 }
             }
         };
@@ -217,7 +205,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
                 } else {
-                    return Err((e.into(), user_cx));
+                    return Err(e.into());
                 }
             }
         };
@@ -266,7 +254,7 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
         };
 
         let (mut to_stream_tx, from_ctx_rx) =
-            rtrb::RingBuffer::<CtxToStreamMsg<C>>::new(MSG_CHANNEL_CAPACITY);
+            rtrb::RingBuffer::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY);
         let (mut err_to_cx_tx, from_err_rx) =
             rtrb::RingBuffer::<cpal::StreamError>::new(MSG_CHANNEL_CAPACITY);
 
@@ -304,30 +292,20 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
                 } else {
-                    return Err((e.into(), user_cx));
+                    return Err(e.into());
                 }
             }
         };
 
-        if let Err(e) = stream.play() {
-            return Err((e.into(), user_cx));
-        }
+        stream.play()?;
 
-        let processor = match self.cx.activate(
-            StreamInfo {
-                sample_rate: cpal_config.sample_rate.0,
-                max_block_samples: max_block_samples as u32,
-                num_stream_in_channels: num_in_channels as u32,
-                num_stream_out_channels: num_out_channels as u32,
-                stream_latency_samples,
-            },
-            user_cx,
-        ) {
-            Ok(p) => p,
-            Err((e, c)) => {
-                return Err((e.into(), c));
-            }
-        };
+        let processor = self.cx.activate(StreamInfo {
+            sample_rate: cpal_config.sample_rate.0,
+            max_block_samples: max_block_samples as u32,
+            num_stream_in_channels: num_in_channels as u32,
+            num_stream_out_channels: num_out_channels as u32,
+            stream_latency_samples,
+        })?;
 
         to_stream_tx
             .push(CtxToStreamMsg::NewProcessor(processor))
@@ -371,15 +349,15 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
     ///
     /// This must be called reguarly once the context has been activated
     /// (i.e. once every frame).
-    pub fn update(&mut self) -> UpdateStatus<C> {
+    #[must_use]
+    pub fn update(&mut self) -> UpdateStatus {
         if let Some(state) = &mut self.active_state {
             if let Ok(e) = state.from_err_rx.pop() {
-                let user_cx = self.cx.deactivate(false);
+                self.cx.deactivate(false);
                 self.active_state = None;
 
                 return UpdateStatus::Deactivated {
                     error: Some(Box::new(e)),
-                    returned_user_cx: user_cx,
                 };
             }
         }
@@ -387,20 +365,22 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
         match self.cx.update() {
             UpdateStatus::Active { graph_error } => UpdateStatus::Active { graph_error },
             UpdateStatus::Inactive => UpdateStatus::Inactive,
-            UpdateStatus::Deactivated {
-                returned_user_cx,
-                error,
-            } => {
+            UpdateStatus::Deactivated { error } => {
                 if self.active_state.is_some() {
                     self.active_state = None;
                 }
 
-                UpdateStatus::Deactivated {
-                    error,
-                    returned_user_cx,
-                }
+                UpdateStatus::Deactivated { error }
             }
         }
+    }
+
+    /// Flush the event queue.
+    ///
+    /// If the context is not currently activated, then this will do
+    /// nothing.
+    pub fn flush_events(&mut self) {
+        self.cx.flush_events();
     }
 
     /// Deactivate the firewheel context and stop the audio stream.
@@ -413,25 +393,25 @@ impl<C: Send + 'static> FirewheelCpalCtx<C> {
     /// successfully dropped.
     ///
     /// If the context is already deactivated, then this will do
-    /// nothing and return `None`.
-    pub fn deactivate(&mut self) -> Option<C> {
+    /// nothing and return `false`.
+    pub fn deactivate(&mut self) -> bool {
         if self.cx.is_activated() {
             #[cfg(target_family = "wasm")]
             {
                 self.active_state = None;
             }
 
-            let user_cx = self.cx.deactivate(self.active_state.is_some());
+            self.cx.deactivate(self.active_state.is_some());
             self.active_state = None;
-            user_cx
+            true
         } else {
-            None
+            false
         }
     }
 }
 
 // Implement Debug so `unwrap()` can be used.
-impl<C: Send + 'static> Debug for FirewheelCpalCtx<C> {
+impl Debug for FirewheelCpalCtx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FirewheelCpalCtx")
     }
@@ -481,21 +461,21 @@ impl Default for AudioStreamConfig {
     }
 }
 
-struct DataCallback<C: Send + 'static> {
+struct DataCallback {
     num_in_channels: usize,
     num_out_channels: usize,
-    from_ctx_rx: rtrb::Consumer<CtxToStreamMsg<C>>,
-    processor: Option<FirewheelProcessor<C>>,
+    from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
+    processor: Option<FirewheelProcessor>,
     sample_rate_recip: f64,
     first_internal_clock_instant: Option<cpal::StreamInstant>,
     predicted_stream_secs: f64,
 }
 
-impl<C: Send + 'static> DataCallback<C> {
+impl DataCallback {
     fn new(
         num_in_channels: usize,
         num_out_channels: usize,
-        from_ctx_rx: rtrb::Consumer<CtxToStreamMsg<C>>,
+        from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
         sample_rate: u32,
     ) -> Self {
         Self {
@@ -575,15 +555,15 @@ impl<C: Send + 'static> DataCallback<C> {
     }
 }
 
-impl<C: Send + 'static> Drop for FirewheelCpalCtx<C> {
+impl Drop for FirewheelCpalCtx {
     fn drop(&mut self) {
         if self.cx.is_activated() {
             self.cx.deactivate(self.active_state.is_some());
         }
     }
 }
-enum CtxToStreamMsg<C: Send + 'static> {
-    NewProcessor(FirewheelProcessor<C>),
+enum CtxToStreamMsg {
+    NewProcessor(FirewheelProcessor),
 }
 
 /// An error occured while trying to activate an [`InactiveFwCpalCtx`]

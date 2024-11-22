@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
@@ -35,7 +35,7 @@ impl BeepTestNode {
     }
 }
 
-impl<C> AudioNode<C> for BeepTestNode {
+impl AudioNode for BeepTestNode {
     fn debug_name(&self) -> &'static str {
         "beep_test"
     }
@@ -56,7 +56,7 @@ impl<C> AudioNode<C> for BeepTestNode {
         &mut self,
         stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         Ok(Box::new(BeepTestProcessor {
             enabled: Arc::clone(&self.enabled),
             phasor: 0.0,
@@ -73,20 +73,20 @@ struct BeepTestProcessor {
     gain: f32,
 }
 
-impl<C> AudioNodeProcessor<C> for BeepTestProcessor {
+impl AudioNodeProcessor for BeepTestProcessor {
     fn process(
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
+        _events: NodeEventIter,
         proc_info: ProcInfo,
-        _cx: &mut C,
     ) -> ProcessStatus {
         let Some((out1, outputs)) = outputs.split_first_mut() else {
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         };
 
         if !self.enabled.load(Ordering::Relaxed) {
-            return ProcessStatus::NoOutputsModified;
+            return ProcessStatus::ClearAllOutputs;
         }
 
         for s in out1[..proc_info.samples].iter_mut() {
@@ -98,12 +98,12 @@ impl<C> AudioNodeProcessor<C> for BeepTestProcessor {
             out2[..proc_info.samples].copy_from_slice(&out1[..proc_info.samples]);
         }
 
-        ProcessStatus::all_outputs_filled()
+        ProcessStatus::outputs_not_silent()
     }
 }
 
-impl<C> Into<Box<dyn AudioNode<C>>> for BeepTestNode {
-    fn into(self) -> Box<dyn AudioNode<C>> {
+impl Into<Box<dyn AudioNode>> for BeepTestNode {
+    fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }

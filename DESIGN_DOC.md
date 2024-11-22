@@ -125,9 +125,9 @@ This clock is recommended for most use cases. It counts the total number of seco
 
 Usage of the clock works like this:
 
-1. Before sending an event to an audio node, the user calls `AudioGraph::clock_seconds()` to retrieve the current clock time.
-2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(clock_secs + desired_amount_of_delay)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::clock_seconds`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
+1. Before sending an event to an audio node, the user calls `AudioGraph::clock_now()` to retrieve the current clock time.
+2. For any event type that accepts an `EventDelay` parameter, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(AudioGraph::clock_now() + desired_amount_of_delay)`.
+3. When the engine processor receives the event, it waits for the event to elapse. Once reached, it then sends the event to the node at the resulting sample offset.
 
 ### Sample Clock
 
@@ -135,10 +135,7 @@ This clock provides sample-accurate timing of audio events, which could be usefu
 
 Usage of this clock works like this:
 
-1. At any point in the game, the user calls `AudioGraph::clock_samples()` to retrieve the current sample clock time. This will be used as the "starting reference point" for any events that follow. (For example, you may do this when it's time to start playing a MIDI song.)
-2. For any audio node that accepts an `EventDelay` parameter in one of its methods, the user will schedule the event like so: `EventDelay::DelayUntilSamples(reference_sample_clock_time + desired_offset_from_reference_in_samples)`.
-3. When the audio node processor receives the event, it waits for the event delay value to fall within the range given in `ProcInfo::clock_samples`. Once reached, it then executes the event at the corresponding sample offset in the processing block.
-4. (Optional) At the top of the game loop, the engine calls `AudioGraph::clock_samples()` to synchronize the game to the sample clock.
+*TODO*
 
 ## Silence Optimizations
 

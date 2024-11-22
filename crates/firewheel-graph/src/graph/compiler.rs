@@ -1,15 +1,13 @@
-use firewheel_core::ChannelConfig;
+use firewheel_core::{node::NodeID, ChannelConfig};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
 
 use crate::error::CompileGraphError;
 
-use super::NodeID;
-
 mod schedule;
 
-pub use schedule::{CompiledSchedule, ScheduleHeapData};
+pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
 pub struct NodeEntry<N> {

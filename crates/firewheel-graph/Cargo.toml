@@ -15,7 +15,6 @@ log.workspace = true
 rtrb.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
-atomic_float.workspace = true
 thunderdome.workspace = true
 ahash = "0.8.11"
 arraydeque = "0.5.1"

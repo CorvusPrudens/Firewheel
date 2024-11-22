@@ -10,23 +10,9 @@ pub enum EventDelay {
     /// seconds.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::clock_seconds`] to get the current time of the clock.
+    /// [`AudioGraph::clock_now`] to get the current time of the clock.
     DelayUntilSeconds(ClockSeconds),
-    /// The event should happen when the sample clock reaches the given time in
-    /// samples.
-    ///
-    /// This can be used for more accurate timing than
-    /// [`EventDelay::DelayUntilSeconds`], but it does *NOT* account for any
-    /// output underflows that may occur. If any underflows occur, then this
-    /// will become out of sync with [`EventDelay::DelayUntilSeconds`]. Prefer
-    /// to use [`EventDelay::DelayUntilSeconds`] unless you are syncing your
-    /// game to the sample event clock (or you are not concerned about
-    /// underflows happenning.)
-    ///
-    /// This value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::clock_samples`] to get the current time of the sample
-    /// clock.
-    DelayUntilSample(ClockSamples),
+    // TODO: Sample-accurate timing.
 }
 
 /// An absolute clock time in units of seconds.

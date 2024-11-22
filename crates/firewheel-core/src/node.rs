@@ -1,15 +1,70 @@
 use downcast_rs::Downcast;
-use std::{error::Error, ops::Range};
+use std::{any::Any, error::Error, fmt::Debug, hash::Hash};
 
 use crate::{
-    clock::{ClockSamples, ClockSeconds},
+    clock::{ClockSamples, ClockSeconds, EventDelay},
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
 
+/// A globally unique identifier for a node.
+#[derive(Clone, Copy)]
+pub struct NodeID {
+    pub idx: thunderdome::Index,
+    pub debug_name: &'static str,
+}
+
+impl NodeID {
+    pub const DANGLING: Self = Self {
+        idx: thunderdome::Index::DANGLING,
+        debug_name: "dangling",
+    };
+}
+
+impl Default for NodeID {
+    fn default() -> Self {
+        Self::DANGLING
+    }
+}
+
+impl PartialEq for NodeID {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx
+    }
+}
+
+impl Eq for NodeID {}
+
+impl Ord for NodeID {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.idx.cmp(&other.idx)
+    }
+}
+
+impl PartialOrd for NodeID {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Hash for NodeID {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.idx.hash(state);
+    }
+}
+
+impl Debug for NodeID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}-{}-{}",
+            self.debug_name,
+            self.idx.slot(),
+            self.idx.generation()
+        )
+    }
+}
+
 /// The trait describing an audio node in an audio graph.
-///
-/// The generic is for the user's custom global processing context which
-/// is sent to the processor counterpart in [`ProcInfo`].
 ///
 /// # Audio Node Lifecycle:
 ///
@@ -39,7 +94,7 @@ use crate::{
 /// If the audio stream did not crash, then the processor counterpart
 /// is returned for any additional cleanup.
 /// 7. Here, the node may either be activated again or dropped.
-pub trait AudioNode<C>: 'static + Downcast {
+pub trait AudioNode: 'static + Downcast {
     /// The name of this type of audio node for debugging purposes.
     fn debug_name(&self) -> &'static str;
 
@@ -69,14 +124,14 @@ pub trait AudioNode<C>: 'static + Downcast {
         &mut self,
         stream_info: &StreamInfo,
         channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor<C>>, Box<dyn Error>>;
+    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>>;
 
     /// Called when the processor counterpart has been deactivated
     /// and dropped.
     ///
     /// If the audio graph counterpart has gracefully shut down, then
     /// the processor counterpart is returned.
-    fn deactivate(&mut self, processor: Option<Box<dyn AudioNodeProcessor<C>>>) {
+    fn deactivate(&mut self, processor: Option<Box<dyn AudioNodeProcessor>>) {
         let _ = processor;
     }
 
@@ -87,7 +142,7 @@ pub trait AudioNode<C>: 'static + Downcast {
     fn update(&mut self) {}
 }
 
-downcast_rs::impl_downcast!(AudioNode<C>);
+downcast_rs::impl_downcast!(AudioNode);
 
 /// Information about an [`AudioNode`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +171,15 @@ pub struct AudioNodeInfo {
     ///
     /// By default this is set to `false`.
     pub updates: bool,
+
+    /// Whether or not this node reads any events in
+    /// [`AudioNodeProcessor::process`].
+    ///
+    /// Setting this to `false` will skip allocating an event
+    /// buffer for this node.
+    ///
+    /// By default this is set to `true`.
+    pub uses_events: bool,
 }
 
 impl Default for AudioNodeInfo {
@@ -128,20 +192,18 @@ impl Default for AudioNodeInfo {
             default_channel_config: ChannelConfig::default(),
             equal_num_ins_and_outs: false,
             updates: false,
+            uses_events: true,
         }
     }
 }
 
 /// The trait describing the realtime processor counterpart to an
 /// [`AudioNode`].
-///
-/// The generic is for the user's custom global processing context which
-/// is sent to the processor in [`ProcInfo`].
-pub trait AudioNodeProcessor<C>: 'static + Send {
+pub trait AudioNodeProcessor: 'static + Send {
     /// Process the given block of audio. Only process data in the
     /// buffers up to `samples`.
     ///
-    /// The node *MUST* either return `ProcessStatus::NoOutputsModified`
+    /// The node *MUST* either return `ProcessStatus::ClearAllOutputs`
     /// or fill all output buffers with data.
     ///
     /// If any output buffers contain all zeros up to `samples` (silent),
@@ -150,8 +212,8 @@ pub trait AudioNodeProcessor<C>: 'static + Send {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
+        events: NodeEventIter,
         proc_info: ProcInfo,
-        cx: &mut C,
     ) -> ProcessStatus;
 }
 
@@ -171,10 +233,7 @@ pub struct ProcInfo {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current time of the internal clock in units of seconds. The
-    /// start of the range is the time at the first sample in this
-    /// processing block (inclusive), and the end of the range is the time
-    /// at the last sample in this processing block (exclusive).
+    /// The current time of the internal clock in units of seconds.
     ///
     /// This uses the clock from the OS's audio API so it should be quite
     /// accurate. This value has also been adjusted to match the clock in
@@ -182,17 +241,14 @@ pub struct ProcInfo {
     ///
     /// This value correctly accounts for any output underflows that may
     /// occur.
-    pub clock_seconds: Range<ClockSeconds>,
+    pub clock_seconds: ClockSeconds,
 
     /// The total number of samples that have been processed since the
     /// start of the audio stream.
     ///
-    /// This value is more accurate than [`ProcInfo::clock_secs`], but it
-    /// does *NOT* account for any output underflows that may occur. If any
-    /// underflows occur, then this will become out of sync with
-    /// [`ProcInfo::clock_secs`]. Prefer to use [`ProcInfo::clock_secs`]
-    /// unless you are syncing your game to the sample event clock (or you
-    /// are not concerned about underflows happenning.)
+    /// This value can be used for more accurate timing than
+    /// [`ProcInfo::clock_secs`], but note it does *NOT* account for any
+    /// output underflows that may occur.
     pub clock_samples: ClockSamples,
 
     /// Flags indicating the current status of the audio stream
@@ -220,21 +276,135 @@ pub enum ProcessStatus {
     /// the engine will automatically clear all output buffers
     /// for you as efficiently as possible.
     #[default]
-    NoOutputsModified,
-    /// Output buffers were modified
+    ClearAllOutputs,
+    /// No output buffers were modified. If this is returned, then
+    /// the engine will automatically copy the input buffers to
+    /// their corresponding output buffers for you as efficiently
+    /// as possible.
+    Bypass,
+    /// All output buffers were filled with data.
     OutputsModified { out_silence_mask: SilenceMask },
 }
 
 impl ProcessStatus {
-    /// All output buffers were filled with non-silence
-    pub const fn all_outputs_filled() -> Self {
+    /// All output buffers were filled with non-silence.
+    pub const fn outputs_not_silent() -> Self {
         Self::OutputsModified {
             out_silence_mask: SilenceMask::NONE_SILENT,
         }
     }
 
-    /// Output buffers were modified
+    /// All output buffers were filled with data.
     pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
         Self::OutputsModified { out_silence_mask }
     }
 }
+
+/// An event sent to an [`AudioNode`].
+pub struct NodeEvent {
+    /// The ID of the node that should receive the event.
+    pub node_id: NodeID,
+    /// The delay of this event.
+    ///
+    /// Note the following event types will ignore this value and execute
+    /// the event immediately instead:
+    /// * [`NodeEventType::Pause`]
+    /// * [`NodeEventType::Resume`]
+    /// * [`NodeEventType::Stop`]
+    pub delay: EventDelay,
+    /// The type of event.
+    pub event: NodeEventType,
+}
+
+/// An event type associated with an [`AudioNode`].
+pub enum NodeEventType {
+    /// Pause this node and all of its queued delayed events.
+    ///
+    /// Note this event type cannot be delayed.
+    Pause,
+    /// Resume this node and all of its queued delayed events.
+    ///
+    /// Note this event type cannot be delayed.
+    Resume,
+    /// Stop this node and discard all of its queued delayed events.
+    ///
+    /// Note this event type cannot be delayed.
+    Stop,
+    /// Enable/disable this node.
+    ///
+    /// Note the node must implement this event type for this to take
+    /// effect.
+    SetEnabled(bool),
+    /// Set the value of an `f32` parameter.
+    FloatParam {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: f32,
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Set the value of an `f64` parameter.
+    FloatParamF64 {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: f64,
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Set the value of an `i32` parameter.
+    IntParam {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: i32,
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Set the value of an `i64` parameter.
+    IntParamI64 {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: i64,
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Set the value of a `bool` parameter.
+    BoolParam {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: bool,
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Set the value of a parameter containing three
+    /// `f32` elements.
+    Vector3DParam {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: [f32; 3],
+        /// Set this to `true` to request the node to immediately jump
+        /// to this new value without smoothing (may cause audible
+        /// clicking or stair-stepping artifacts).
+        no_smoothing: bool,
+    },
+    /// Custom event type.
+    Custom(Box<dyn Any + Send>),
+    // TODO: Animation (automation) event types.
+}
+
+pub type NodeEventIter<'a> = std::collections::vec_deque::IterMut<'a, NodeEventType>;
