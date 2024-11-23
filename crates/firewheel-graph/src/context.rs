@@ -25,7 +25,11 @@ pub struct FirewheelConfig {
     /// If `true`, then all outputs will be hard clipped at 0db to help
     /// protect the system's speakers.
     ///
-    /// By default this is set to `true`.
+    /// Note that most operating systems already hard clip the output,
+    /// so this is usually not needed (TODO: Do research to see if this
+    /// assumption is true.)
+    ///
+    /// By default this is set to `false`.
     pub hard_clip_outputs: bool,
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
@@ -54,7 +58,7 @@ impl Default for FirewheelConfig {
         Self {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
-            hard_clip_outputs: true,
+            hard_clip_outputs: false,
             initial_node_capacity: 64,
             initial_edge_capacity: 256,
             initial_event_group_capacity: 128,
@@ -194,6 +198,10 @@ impl FirewheelGraphCtx {
 
     /// Set whether or not outputs should be hard clipped at 0dB to
     /// help protect the system's speakers.
+    ///
+    /// Note that most operating systems already hard clip the output,
+    /// so this is usually not needed (TODO: Do research to see if this
+    /// assumption is true.)
     pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) {
         if self.config.hard_clip_outputs == hard_clip_outputs {
             return;
