@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use firewheel::{basic_nodes::beep_test::BeepTestNode, FirewheelCpalCtx, UpdateStatus};
 
 const BEEP_FREQUENCY_HZ: f32 = 440.0;
-const BEEP_GAIN_DB: f32 = -12.0;
+const BEEP_VOLUME_PERCENT: f32 = 25.0;
 const BEEP_DURATION: Duration = Duration::from_secs(4);
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
@@ -18,7 +18,11 @@ fn main() {
     let graph = cx.graph_mut().unwrap();
     let beep_test_node = graph
         .add_node(
-            Box::new(BeepTestNode::new(BEEP_FREQUENCY_HZ, BEEP_GAIN_DB, true)),
+            Box::new(BeepTestNode::new(
+                BEEP_VOLUME_PERCENT,
+                BEEP_FREQUENCY_HZ,
+                true,
+            )),
             None,
         )
         .unwrap();

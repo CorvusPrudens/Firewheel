@@ -43,6 +43,7 @@ pub struct FirewheelProcessor {
     stream_info: StreamInfo,
     sample_rate: f64,
     sample_rate_recip: f64,
+    hard_clip_outputs: bool,
 }
 
 impl FirewheelProcessor {
@@ -52,6 +53,7 @@ impl FirewheelProcessor {
         main_thread_clock_start_instant: Instant,
         node_capacity: usize,
         stream_info: StreamInfo,
+        hard_clip_outputs: bool,
     ) -> Self {
         let sample_rate = f64::from(stream_info.sample_rate);
         let sample_rate_recip = sample_rate.recip();
@@ -68,8 +70,11 @@ impl FirewheelProcessor {
             stream_info,
             sample_rate,
             sample_rate_recip,
+            hard_clip_outputs,
         }
     }
+
+    // TODO: Add a `process_deinterleaved` method.
 
     /// Process the given buffers of audio data.
     ///
@@ -184,6 +189,12 @@ impl FirewheelProcessor {
             clock_seconds = next_clock_seconds;
         }
 
+        if self.hard_clip_outputs {
+            for s in output.iter_mut() {
+                *s = s.fract();
+            }
+        }
+
         if self.running {
             FirewheelProcessorStatus::Ok
         } else {
@@ -249,6 +260,9 @@ impl FirewheelProcessor {
                     }
 
                     self.schedule_data = Some(new_schedule_data);
+                }
+                ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs) => {
+                    self.hard_clip_outputs = hard_clip_outputs;
                 }
                 ContextToProcessorMsg::Stop => {
                     self.running = false;
@@ -430,6 +444,7 @@ impl Drop for FirewheelProcessor {
 pub(crate) enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
+    HardClipOutputs(bool),
     Stop,
 }
 

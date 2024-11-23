@@ -1,37 +1,91 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
+        ProcessStatus,
+    },
+    param::range::percent_volume_to_raw_gain,
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
+/// A simple node that outputs a sine wave, used for testing purposes.
+///
+/// Note that because this node is for testing purposes, it does not
+/// bother with parameter smoothing.
 pub struct BeepTestNode {
-    enabled: Arc<AtomicBool>,
     freq_hz: f32,
-    gain: f32,
+    percent_volume: f32,
+    enabled: bool,
 }
 
 impl BeepTestNode {
-    pub fn new(freq_hz: f32, gain_db: f32, enabled: bool) -> Self {
-        let freq_hz = freq_hz.clamp(20.0, 20_000.0);
-        let gain = firewheel_core::util::db_to_gain_clamped_neg_100_db(gain_db).clamp(0.0, 1.0);
+    /// The ID of the volume parameter.
+    pub const PARAM_VOLUME: u32 = 0;
+    /// The ID of the frequency parameter.
+    pub const PARAM_FREQUENCY: u32 = 1;
 
+    /// Create a new [`BeepTestNode`].
+    ///
+    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
+    /// NOTE, a sine wave at 100% volume is *LOUD*, prefer to use a value like 25%.
+    /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
+    /// value for testing is `440` (middle C).
+    /// * `enabled` - Whether or not to start outputting a sine wave when the node is added
+    /// to the graph.
+    pub fn new(percent_volume: f32, freq_hz: f32, enabled: bool) -> Self {
         Self {
-            freq_hz,
-            gain,
-            enabled: Arc::new(AtomicBool::new(enabled)),
+            freq_hz: freq_hz.clamp(20.0, 20_000.0),
+            percent_volume: percent_volume.max(0.0),
+            enabled,
         }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
+    /// Get the current percent volume where `0.0` is mute and `100.0` is unity gain.
+    pub fn percent_volume(&self) -> f32 {
+        self.percent_volume
     }
 
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
+    /// Return an event type to set the volume parameter.
+    ///
+    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
+    ///
+    /// NOTE, a sine wave at 100% volume is *LOUD*, prefer to use a value like 25%.
+    pub fn set_volume(&mut self, percent_volume: f32) -> NodeEventType {
+        self.percent_volume = percent_volume;
+        NodeEventType::FloatParam {
+            id: Self::PARAM_VOLUME,
+            value: percent_volume,
+            no_smoothing: false,
+        }
+    }
+
+    /// Get the frequency of the sine wave in the range `[20.0, 20_000.0]`
+    pub fn freq_hz(&self) -> f32 {
+        self.freq_hz
+    }
+
+    /// Return an event type to set the frequency parameter.
+    ///
+    /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`.
+    ///
+    /// A good value for testing is `440` (middle C).
+    pub fn set_freq_hz(&mut self, freq_hz: f32) -> NodeEventType {
+        self.freq_hz = freq_hz;
+        NodeEventType::FloatParam {
+            id: Self::PARAM_FREQUENCY,
+            value: freq_hz,
+            no_smoothing: false,
+        }
+    }
+
+    /// Get whether or not this node is currently enabled.
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Return an event type to enable/disable the node.
+    pub fn set_enabled(&mut self, enabled: bool) -> NodeEventType {
+        self.enabled = enabled;
+        NodeEventType::SetEnabled(enabled)
     }
 }
 
@@ -58,19 +112,21 @@ impl AudioNode for BeepTestNode {
         _channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         Ok(Box::new(BeepTestProcessor {
-            enabled: Arc::clone(&self.enabled),
             phasor: 0.0,
             phasor_inc: self.freq_hz / stream_info.sample_rate as f32,
-            gain: self.gain,
+            gain: percent_volume_to_raw_gain(self.percent_volume),
+            sample_rate_recip: (stream_info.sample_rate as f32).recip(),
+            enabled: self.enabled,
         }))
     }
 }
 
 struct BeepTestProcessor {
-    enabled: Arc<AtomicBool>,
     phasor: f32,
     phasor_inc: f32,
     gain: f32,
+    sample_rate_recip: f32,
+    enabled: bool,
 }
 
 impl AudioNodeProcessor for BeepTestProcessor {
@@ -78,14 +134,30 @@ impl AudioNodeProcessor for BeepTestProcessor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        _events: NodeEventIter,
+        events: NodeEventIter,
         proc_info: ProcInfo,
     ) -> ProcessStatus {
         let Some((out1, outputs)) = outputs.split_first_mut() else {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        if !self.enabled.load(Ordering::Relaxed) {
+        for event in events {
+            match event {
+                NodeEventType::SetEnabled(enabled) => {
+                    self.enabled = *enabled;
+                }
+                NodeEventType::FloatParam { id, value, .. } => match *id {
+                    BeepTestNode::PARAM_VOLUME => self.gain = percent_volume_to_raw_gain(*value),
+                    BeepTestNode::PARAM_FREQUENCY => {
+                        self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
+        if !self.enabled {
             return ProcessStatus::ClearAllOutputs;
         }
 

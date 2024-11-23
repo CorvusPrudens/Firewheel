@@ -22,6 +22,11 @@ pub struct FirewheelConfig {
     pub num_graph_inputs: ChannelCount,
     /// The number of output channels in the audio graph.
     pub num_graph_outputs: ChannelCount,
+    /// If `true`, then all outputs will be hard clipped at 0db to help
+    /// protect the system's speakers.
+    ///
+    /// By default this is set to `true`.
+    pub hard_clip_outputs: bool,
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
     /// By default this is set to `64`.
@@ -49,6 +54,7 @@ impl Default for FirewheelConfig {
         Self {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
+            hard_clip_outputs: true,
             initial_node_capacity: 64,
             initial_edge_capacity: 256,
             initial_event_group_capacity: 128,
@@ -66,6 +72,23 @@ struct ActiveState {
     from_executor_rx: rtrb::Consumer<ProcessorToContextMsg>,
 
     stream_info: StreamInfo,
+}
+
+impl ActiveState {
+    fn send_message_to_processor(
+        &mut self,
+        msg: ContextToProcessorMsg,
+    ) -> Result<(), ContextToProcessorMsg> {
+        if let Err(e) = self.to_executor_tx.push(msg) {
+            let PushError::Full(msg) = e;
+
+            log::error!("Firewheel message channel is full!");
+
+            Err(msg)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// A firewheel context with no audio backend.
@@ -116,8 +139,9 @@ impl FirewheelGraphCtx {
 
         let (to_executor_tx, from_graph_rx) =
             rtrb::RingBuffer::<ContextToProcessorMsg>::new(self.config.channel_capacity as usize);
-        let (to_graph_tx, from_executor_rx) =
-            rtrb::RingBuffer::<ProcessorToContextMsg>::new(self.config.channel_capacity as usize);
+        let (to_graph_tx, from_executor_rx) = rtrb::RingBuffer::<ProcessorToContextMsg>::new(
+            self.config.channel_capacity as usize * 4,
+        );
 
         self.active_state = Some(ActiveState {
             to_executor_tx,
@@ -131,6 +155,7 @@ impl FirewheelGraphCtx {
             main_thread_clock_start_instant,
             self.graph.current_node_capacity(),
             stream_info,
+            self.config.hard_clip_outputs,
         ))
     }
 
@@ -162,6 +187,26 @@ impl FirewheelGraphCtx {
         self.active_state.as_ref().map(|s| &s.stream_info)
     }
 
+    /// Whether or not outputs are being hard clipped at 0dB.
+    pub fn hard_clip_outputs(&self) -> bool {
+        self.config.hard_clip_outputs
+    }
+
+    /// Set whether or not outputs should be hard clipped at 0dB to
+    /// help protect the system's speakers.
+    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) {
+        if self.config.hard_clip_outputs == hard_clip_outputs {
+            return;
+        }
+        self.config.hard_clip_outputs = hard_clip_outputs;
+
+        if let Some(state) = &mut self.active_state {
+            let _ = state.send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(
+                hard_clip_outputs,
+            ));
+        };
+    }
+
     /// Update the firewheel context.
     ///
     /// This must be called reguarly (i.e. once every frame).
@@ -190,16 +235,9 @@ impl FirewheelGraphCtx {
         if self.graph.needs_compile() {
             match self.graph.compile(state.stream_info) {
                 Ok(schedule_data) => {
-                    if let Err(e) = state
-                        .to_executor_tx
-                        .push(ContextToProcessorMsg::NewSchedule(Box::new(schedule_data)))
-                    {
-                        let PushError::Full(msg) = e;
-
-                        log::error!(
-                            "Failed to send new schedule: Firewheel message channel is full"
-                        );
-
+                    if let Err(msg) = state.send_message_to_processor(
+                        ContextToProcessorMsg::NewSchedule(Box::new(schedule_data)),
+                    ) {
                         if let ContextToProcessorMsg::NewSchedule(schedule_data) = msg {
                             self.graph.on_schedule_returned(schedule_data);
                         }
@@ -229,14 +267,9 @@ impl FirewheelGraphCtx {
             return;
         };
 
-        if let Err(e) = state
-            .to_executor_tx
-            .push(ContextToProcessorMsg::EventGroup(event_group))
+        if let Err(msg) =
+            state.send_message_to_processor(ContextToProcessorMsg::EventGroup(event_group))
         {
-            let PushError::Full(msg) = e;
-
-            log::error!("Failed to send event group: Firewheel message channel is full");
-
             if let ContextToProcessorMsg::EventGroup(event_group) = msg {
                 self.graph.return_event_group(event_group);
             }

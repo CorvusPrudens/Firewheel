@@ -17,7 +17,6 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [x] volume (minimum value mutes)
     * [ ] stereo panning
     * [x] sum
-    * [x] hard clip
     * [x] mono to stereo
     * [x] stereo to mono
     * [ ] decibel (peak) meter
@@ -33,6 +32,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [ ] A general purpose "preset" graph with an easy-to-use interface
 * [ ] Support for loading a wide variety of audio formats (using [Symphonium](https://github.com/MeadowlarkDAW/symphonium))
 * [x] Fault tolerance for audio streams (The game shouldn't crash just because the player accidentally unplugged their headphones.)
+* [x] Option to hard clip outputs at 0dB to help protect the system's speakers.
 * [x] Properly respect realtime constraints (no mutexes!)
 * [x] Windows, Mac, and Linux support 
 * [ ] WebAssembly support (Note special considerations must be made about the design of the threading model.)

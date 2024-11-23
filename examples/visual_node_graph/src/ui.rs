@@ -16,9 +16,6 @@ pub enum GuiAudioNode {
     BeepTest {
         id: firewheel::node::NodeID,
     },
-    HardClip {
-        id: firewheel::node::NodeID,
-    },
     StereoToMono {
         id: firewheel::node::NodeID,
     },
@@ -47,7 +44,6 @@ impl GuiAudioNode {
             &Self::SystemIn => audio_system.graph_in_node(),
             &Self::SystemOut => audio_system.graph_out_node(),
             &Self::BeepTest { id } => id,
-            &Self::HardClip { id } => id,
             &Self::StereoToMono { id } => id,
             &Self::SumMono4Ins { id } => id,
             &Self::SumStereo2Ins { id } => id,
@@ -62,7 +58,6 @@ impl GuiAudioNode {
             &Self::SystemIn => "System In",
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
-            &Self::HardClip { .. } => "Hard Clip",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::SumMono4Ins { .. } => "Sum (Mono, 4 Ins)",
             &Self::SumStereo2Ins { .. } => "Sum (Stereo, 2 Ins)",
@@ -78,7 +73,6 @@ impl GuiAudioNode {
             &Self::SystemIn => 0,
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
-            &Self::HardClip { .. } => 2,
             &Self::StereoToMono { .. } => 2,
             &Self::SumMono4Ins { .. } => 4,
             &Self::SumStereo2Ins { .. } => 4,
@@ -93,7 +87,6 @@ impl GuiAudioNode {
             &Self::SystemIn => 1,
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
-            &Self::HardClip { .. } => 2,
             &Self::StereoToMono { .. } => 1,
             &Self::SumMono4Ins { .. } => 1,
             &Self::SumStereo2Ins { .. } => 2,
@@ -210,11 +203,6 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         ui.label("Add node");
         if ui.button("Beep Test").clicked() {
             let node = self.audio_system.add_node(NodeType::BeepTest);
-            snarl.insert_node(pos, node);
-            ui.close_menu();
-        }
-        if ui.button("Hard Clip").clicked() {
-            let node = self.audio_system.add_node(NodeType::HardClip);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
