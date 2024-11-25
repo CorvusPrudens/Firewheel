@@ -69,6 +69,7 @@ where
 }
 
 /// A simple filter used to smooth a parameter
+#[derive(Clone)]
 pub struct ParamSmoother {
     output: Vec<f32>,
     input: f32,
@@ -90,19 +91,14 @@ impl ParamSmoother {
     /// * `max_block_samples` - The maximum number of samples that can
     /// appear in a processing block.
     /// * `config` - Additional options for a [`ParamSmoother`]
-    pub fn new(
-        val: f32,
-        sample_rate: u32,
-        max_block_samples: usize,
-        config: SmootherConfig,
-    ) -> Self {
+    pub fn new(val: f32, sample_rate: u32, max_block_samples: u32, config: SmootherConfig) -> Self {
         let b = (-1.0f32 / (config.smooth_secs * sample_rate as f32)).exp();
         let a = 1.0f32 - b;
 
         Self {
             status: SmootherStatus::Inactive,
             input: val,
-            output: vec![val; max_block_samples],
+            output: vec![val; max_block_samples as usize],
 
             a,
             b,

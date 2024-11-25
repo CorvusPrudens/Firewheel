@@ -12,6 +12,9 @@ pub struct VolumeNode {
 }
 
 impl VolumeNode {
+    /// The ID of the volume parameter.
+    pub const PARAM_VOLUME: u32 = 0;
+
     /// Create a new volume node.
     ///
     /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
@@ -35,7 +38,7 @@ impl VolumeNode {
     pub fn set_volume(&mut self, percent_volume: f32, no_smoothing: bool) -> NodeEventType {
         self.percent_volume = percent_volume.max(0.0);
         NodeEventType::FloatParam {
-            id: 0,
+            id: Self::PARAM_VOLUME,
             value: percent_volume,
             no_smoothing,
         }
@@ -74,7 +77,7 @@ impl AudioNode for VolumeNode {
             gain_smoother: ParamSmoother::new(
                 raw_gain,
                 stream_info.sample_rate,
-                stream_info.max_block_samples as usize,
+                stream_info.max_block_samples,
                 Default::default(),
             ),
         }))
@@ -102,7 +105,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 no_smoothing,
             } = msg
             {
-                if *id != 0 {
+                if *id != VolumeNode::PARAM_VOLUME {
                     continue;
                 }
                 let raw_gain = percent_volume_to_raw_gain(*value);

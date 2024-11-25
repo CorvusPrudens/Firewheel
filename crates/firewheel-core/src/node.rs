@@ -1,8 +1,9 @@
 use downcast_rs::Downcast;
-use std::{any::Any, error::Error, fmt::Debug, hash::Hash};
+use std::{any::Any, error::Error, fmt::Debug, hash::Hash, sync::Arc};
 
 use crate::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
+    sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
 
@@ -401,6 +402,24 @@ pub enum NodeEventType {
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
         no_smoothing: bool,
+    },
+    /// Play a sample to completion.
+    ///
+    /// (Even though this event is only used by the `OneShotSamplerNode`,
+    /// because it is so common, define it here so the event doesn't have
+    /// to be allocated every time.)
+    PlaySample {
+        /// The sample resource to play.
+        sample: Arc<dyn SampleResource>,
+        /// The percent volume to play this sample at (where `0.0` is mute
+        /// and `100.0` is unity gain.)
+        ///
+        /// Note, this value cannot be changed while the sample is playing.
+        /// Use a `VolumeNode` for that instead.
+        percent_volume: f32,
+        /// If `true`, then all other voices currently being played in this
+        /// node will be stopped.
+        stop_other_voices: bool,
     },
     /// Custom event type.
     Custom(Box<dyn Any + Send>),

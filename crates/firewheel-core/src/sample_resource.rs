@@ -1,7 +1,7 @@
 use std::{num::NonZeroUsize, ops::Range, sync::Arc};
 
 /// A resource of audio samples.
-pub trait SampleResource: Send + 'static {
+pub trait SampleResource: Send + Sync + 'static {
     /// The number of channels in this resource.
     fn num_channels(&self) -> NonZeroUsize;
 
@@ -12,16 +12,18 @@ pub trait SampleResource: Send + 'static {
     /// Fill the given buffers with audio data starting from the given
     /// starting frame in the resource.
     ///
-    /// The `buffer_range` is the range inside each buffer slice in which to
+    /// * `buffers` - The buffers to fill with data. If the length of `buffers`
+    /// is greater than the number of channels in this resource, then ignore
+    /// the extra buffers.
+    /// * `buffer_range` - The range inside each buffer slice in which to
     /// fill with data. Do not fill any data outside of this range.
-    ///
-    /// If the length of `buffers` is greater than the number of channels in
-    /// this resource, then ignore the extra buffers.
+    /// * `start_sample` - The sample in the resource at which to start copying
+    /// from.
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     );
 }
 
@@ -43,12 +45,12 @@ impl SampleResource for InterleavedResourceI16 {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_interleaved(
             buffers,
             buffer_range,
-            start_frame,
+            start_sample as usize,
             self.channels,
             &self.data,
             pcm_i16_to_f32,
@@ -69,12 +71,12 @@ impl SampleResource for Arc<InterleavedResourceI16> {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_interleaved(
             buffers,
             buffer_range,
-            start_frame,
+            start_sample as usize,
             self.channels,
             &self.data,
             pcm_i16_to_f32,
@@ -100,38 +102,12 @@ impl SampleResource for InterleavedResourceU16 {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_interleaved(
             buffers,
             buffer_range,
-            start_frame,
-            self.channels,
-            &self.data,
-            pcm_u16_to_f32,
-        );
-    }
-}
-
-impl SampleResource for Arc<InterleavedResourceU16> {
-    fn num_channels(&self) -> NonZeroUsize {
-        self.channels
-    }
-
-    fn len_samples(&self) -> u64 {
-        (self.data.len() / self.channels.get()) as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame,
+            start_sample as usize,
             self.channels,
             &self.data,
             pcm_u16_to_f32,
@@ -157,38 +133,12 @@ impl SampleResource for InterleavedResourceF32 {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_interleaved(
             buffers,
             buffer_range,
-            start_frame,
-            self.channels,
-            &self.data,
-            |s| s,
-        );
-    }
-}
-
-impl SampleResource for Arc<InterleavedResourceF32> {
-    fn num_channels(&self) -> NonZeroUsize {
-        self.channels
-    }
-
-    fn len_samples(&self) -> u64 {
-        (self.data.len() / self.channels.get()) as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame,
+            start_sample as usize,
             self.channels,
             &self.data,
             |s| s,
@@ -209,12 +159,12 @@ impl SampleResource for Vec<Vec<i16>> {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_deinterleaved(
             buffers,
             buffer_range,
-            start_frame,
+            start_sample as usize,
             self.as_slice(),
             pcm_i16_to_f32,
         );
@@ -234,12 +184,12 @@ impl SampleResource for Vec<Vec<u16>> {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
         fill_buffers_deinterleaved(
             buffers,
             buffer_range,
-            start_frame,
+            start_sample as usize,
             self.as_slice(),
             pcm_u16_to_f32,
         );
@@ -259,78 +209,9 @@ impl SampleResource for Vec<Vec<f32>> {
         &self,
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
-        start_frame: u64,
+        start_sample: u64,
     ) {
-        fill_buffers_deinterleaved_f32(buffers, buffer_range, start_frame, self);
-    }
-}
-
-impl SampleResource for Arc<Vec<Vec<i16>>> {
-    fn num_channels(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.len()).unwrap()
-    }
-
-    fn len_samples(&self) -> u64 {
-        self[0].len() as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved(
-            buffers,
-            buffer_range,
-            start_frame,
-            self.as_slice(),
-            pcm_i16_to_f32,
-        );
-    }
-}
-
-impl SampleResource for Arc<Vec<Vec<u16>>> {
-    fn num_channels(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.len()).unwrap()
-    }
-
-    fn len_samples(&self) -> u64 {
-        self[0].len() as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved(
-            buffers,
-            buffer_range,
-            start_frame,
-            self.as_slice(),
-            pcm_u16_to_f32,
-        );
-    }
-}
-
-impl SampleResource for Arc<Vec<Vec<f32>>> {
-    fn num_channels(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.len()).unwrap()
-    }
-
-    fn len_samples(&self) -> u64 {
-        self[0].len() as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved_f32(buffers, buffer_range, start_frame, self);
+        fill_buffers_deinterleaved_f32(buffers, buffer_range, start_sample as usize, self);
     }
 }
 
@@ -348,13 +229,12 @@ pub fn pcm_u16_to_f32(s: u16) -> f32 {
 pub fn fill_buffers_interleaved<T: Clone + Copy>(
     buffers: &mut [&mut [f32]],
     buffer_range: Range<usize>,
-    start_frame: u64,
+    start_sample: usize,
     channels: NonZeroUsize,
     data: &[T],
     convert: impl Fn(T) -> f32,
 ) {
-    assert!(start_frame < usize::MAX as u64);
-    let start_frame = start_frame as usize;
+    let start_sample = start_sample as usize;
     let channels = channels.get();
 
     let samples = buffer_range.end - buffer_range.start;
@@ -363,7 +243,7 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
         // Mono, no need to deinterleave.
         for (buf_s, &src_s) in buffers[0][buffer_range.clone()]
             .iter_mut()
-            .zip(&data[start_frame..start_frame + samples])
+            .zip(&data[start_sample..start_sample + samples])
         {
             *buf_s = convert(src_s);
         }
@@ -376,7 +256,7 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
         let buf0 = &mut buf0[buffer_range.clone()];
         let buf1 = &mut buf1[0][buffer_range.clone()];
 
-        let src_slice = &data[start_frame * 2..(start_frame + samples) * 2];
+        let src_slice = &data[start_sample * 2..(start_sample + samples) * 2];
 
         for (src_chunk, (buf0_s, buf1_s)) in src_slice
             .chunks_exact(2)
@@ -389,7 +269,7 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
         return;
     }
 
-    let src_slice = &data[start_frame * channels..(start_frame + samples) * channels];
+    let src_slice = &data[start_sample * channels..(start_sample + samples) * channels];
     for (ch_i, buf_ch) in (0..channels).zip(buffers.iter_mut()) {
         for (src_chunk, buf_s) in src_slice
             .chunks_exact(channels)
@@ -404,12 +284,11 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
 pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
     buffers: &mut [&mut [f32]],
     buffer_range: Range<usize>,
-    start_frame: u64,
+    start_sample: usize,
     data: &[V],
     convert: impl Fn(T) -> f32,
 ) {
-    assert!(start_frame < usize::MAX as u64);
-    let start_frame = start_frame as usize;
+    let start_sample = start_sample as usize;
     let samples = buffer_range.end - buffer_range.start;
 
     if data.len() == 2 && buffers.len() >= 2 {
@@ -417,8 +296,8 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
         let (buf0, buf1) = buffers.split_first_mut().unwrap();
         let buf0 = &mut buf0[buffer_range.clone()];
         let buf1 = &mut buf1[0][buffer_range.clone()];
-        let s0 = &data[0].as_ref()[start_frame..start_frame + samples];
-        let s1 = &data[1].as_ref()[start_frame..start_frame + samples];
+        let s0 = &data[0].as_ref()[start_sample..start_sample + samples];
+        let s1 = &data[1].as_ref()[start_sample..start_sample + samples];
 
         for i in 0..samples {
             buf0[i] = convert(s0[i]);
@@ -431,7 +310,7 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
     for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
         for (buf_s, &ch_s) in buf[buffer_range.clone()]
             .iter_mut()
-            .zip(ch.as_ref()[start_frame..start_frame + samples].iter())
+            .zip(ch.as_ref()[start_sample..start_sample + samples].iter())
         {
             *buf_s = convert(ch_s);
         }
@@ -442,15 +321,14 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
 pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
     buffers: &mut [&mut [f32]],
     buffer_range: Range<usize>,
-    start_frame: u64,
+    start_sample: usize,
     data: &[V],
 ) {
-    assert!(start_frame < usize::MAX as u64);
-    let start_frame = start_frame as usize;
+    let start_sample = start_sample as usize;
 
     for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
         buf[buffer_range.clone()].copy_from_slice(
-            &ch.as_ref()[start_frame..start_frame + buffer_range.end - buffer_range.start],
+            &ch.as_ref()[start_sample..start_sample + buffer_range.end - buffer_range.start],
         );
     }
 }
