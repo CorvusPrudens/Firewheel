@@ -37,7 +37,6 @@ fn main() {
     while start.elapsed() < BEEP_DURATION {
         std::thread::sleep(UPDATE_INTERVAL);
 
-        cx.flush_events();
         match cx.update() {
             UpdateStatus::Inactive => {}
             UpdateStatus::Active { graph_error } => {
@@ -51,6 +50,7 @@ fn main() {
                 break;
             }
         }
+        cx.flush_events();
     }
 
     println!("finished");

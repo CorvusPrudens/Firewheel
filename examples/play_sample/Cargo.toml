@@ -1,0 +1,12 @@
+[package]
+name = "play_sample"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+firewheel = { path = "../../" }
+log.workspace = true
+simple-log = "2.1.0"
+symphonium = { version = "0.2.2", features = ["mp3", "flac"] }
+clap = { version = "4", features = ["derive"] }

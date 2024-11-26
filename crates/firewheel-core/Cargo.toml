@@ -14,3 +14,4 @@ arrayvec.workspace = true
 bitflags.workspace = true
 downcast-rs.workspace = true
 thunderdome.workspace = true
+symphonium = { version = "0.2", default-features = false, optional = true }

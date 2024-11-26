@@ -108,3 +108,6 @@ impl From<(usize, usize)> for ChannelConfig {
         Self::new(value.0, value.1)
     }
 }
+
+#[cfg(feature = "symphonium")]
+pub use sample_resource::{load_audio_file, load_audio_file_from_source};

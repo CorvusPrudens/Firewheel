@@ -8,6 +8,11 @@ license.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
+exclude = ["assets/"]
+
+# Show documentation with all features enabled on docs.rs
+[package.metadata.docs.rs]
+all-features = true
 
 [workspace.package]
 edition = "2021"
@@ -25,17 +30,21 @@ members = [
     "crates/firewheel-spatial",
     "crates/firewheel-extra",
     "examples/beep_test",
+    "examples/play_sample",
     "examples/visual_node_graph",
 ]
 
 [features]
-default = ["cpal"]
+default = ["sampler", "cpal", "symphonium"]
 cpal = ["dep:firewheel-cpal"]
+sampler = ["dep:firewheel-sampler"]
+symphonium = ["firewheel-core/symphonium"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.1" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.1" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.1", optional = true }
+firewheel-sampler = { path = "crates/firewheel-sampler", version = "0.1", optional = true }
 
 [workspace.dependencies]
 log = "0.4.22"
@@ -49,6 +58,6 @@ downcast-rs = "1.2.1"
 triple_buffer = "8"
 thunderdome = "0.6.1"
 
-# Optimize all dependencies even in debug builds:
+# Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
 opt-level = 2

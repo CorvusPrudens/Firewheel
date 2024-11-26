@@ -332,3 +332,143 @@ pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
         );
     }
 }
+
+#[cfg(feature = "symphonium")]
+/// A wrapper around [`symphonium::DecodedAudio`] which implements the
+/// [`SampleResource`] trait.
+pub struct DecodedAudio(pub symphonium::DecodedAudio);
+
+impl DecodedAudio {
+    pub fn duration_seconds(&self) -> f64 {
+        self.0.frames() as f64 / self.0.sample_rate() as f64
+    }
+}
+
+impl SampleResource for DecodedAudio {
+    fn num_channels(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.channels()).unwrap()
+    }
+
+    fn len_samples(&self) -> u64 {
+        self.0.frames() as u64
+    }
+
+    fn fill_buffers(
+        &self,
+        buffers: &mut [&mut [f32]],
+        buffer_range: Range<usize>,
+        start_sample: u64,
+    ) {
+        let channels = self.0.channels().min(buffers.len());
+
+        if channels == 2 {
+            let (b1, b2) = buffers.split_first_mut().unwrap();
+
+            self.0.fill_stereo(
+                start_sample as usize,
+                &mut b1[buffer_range.clone()],
+                &mut b2[0][buffer_range.clone()],
+            );
+        } else {
+            for (ch_i, b) in buffers[0..channels].iter_mut().enumerate() {
+                self.0
+                    .fill_channel(ch_i, start_sample as usize, &mut b[buffer_range.clone()])
+                    .unwrap();
+            }
+        }
+    }
+}
+
+impl From<symphonium::DecodedAudio> for DecodedAudio {
+    fn from(data: symphonium::DecodedAudio) -> Self {
+        Self(data)
+    }
+}
+
+#[cfg(feature = "symphonium")]
+/// A wrapper around [`symphonium::DecodedAudioF32`] which implements the
+/// [`SampleResource`] trait.
+pub struct DecodedAudioF32(pub symphonium::DecodedAudioF32);
+
+impl DecodedAudioF32 {
+    pub fn duration_seconds(&self, sample_rate: u32) -> f64 {
+        self.0.frames() as f64 / sample_rate as f64
+    }
+}
+
+impl SampleResource for DecodedAudioF32 {
+    fn num_channels(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.channels()).unwrap()
+    }
+
+    fn len_samples(&self) -> u64 {
+        self.0.frames() as u64
+    }
+
+    fn fill_buffers(
+        &self,
+        buffers: &mut [&mut [f32]],
+        buffer_range: Range<usize>,
+        start_sample: u64,
+    ) {
+        fill_buffers_deinterleaved_f32(buffers, buffer_range, start_sample as usize, &self.0.data);
+    }
+}
+
+impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
+    fn from(data: symphonium::DecodedAudioF32) -> Self {
+        Self(data)
+    }
+}
+
+/// A helper method to load an audio file from a path using Symphonium.
+///
+/// * `loader` - The symphonium loader.
+/// * `path`` - The path to the audio file stored on disk.
+/// * `sample_rate` - The sample rate of the audio stream.
+/// * `resample_quality` - The quality of the resampler to use.
+#[cfg(feature = "symphonium")]
+pub fn load_audio_file<P: AsRef<std::path::Path>>(
+    loader: &mut symphonium::SymphoniumLoader,
+    path: P,
+    sample_rate: u32,
+    resample_quality: symphonium::ResampleQuality,
+) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    loader
+        .load(path, Some(sample_rate), resample_quality, None)
+        .map(|d| DecodedAudio(d))
+}
+
+/// A helper method to load an audio file from a custom source using Symphonium.
+///
+/// * `loader` - The symphonium loader.
+/// * `source` - The audio source which implements the [`MediaSource`] trait.
+/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
+/// * `sample_rate` - The sample rate of the audio stream.
+/// * `resample_quality` - The quality of the resampler to use.
+#[cfg(feature = "symphonium")]
+pub fn load_audio_file_from_source(
+    loader: &mut symphonium::SymphoniumLoader,
+    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
+    hint: Option<symphonium::symphonia::core::probe::Hint>,
+    sample_rate: u32,
+    resample_quality: symphonium::ResampleQuality,
+) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    loader
+        .load_from_source(source, hint, Some(sample_rate), resample_quality, None)
+        .map(|d| DecodedAudio(d))
+}
+
+#[cfg(feature = "symphonium")]
+/// A helper method to convert a [`symphonium::DecodedAudio`] resource into
+/// a [`SampleResource`].
+pub fn decoded_to_resource(data: symphonium::DecodedAudio) -> Arc<dyn SampleResource> {
+    Arc::new(DecodedAudio(data))
+}
+
+#[cfg(feature = "symphonium")]
+/// A helper method to convert a [`symphonium::DecodedAudioF32`] resource into
+/// a [`SampleResource`].
+pub fn decoded_f32_to_resource(data: symphonium::DecodedAudioF32) -> Arc<dyn SampleResource> {
+    Arc::new(DecodedAudioF32(data))
+}

@@ -110,8 +110,6 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
-        self.cx.flush_events();
-
         match self.cx.update() {
             UpdateStatus::Inactive => {}
             UpdateStatus::Active { graph_error } => {
@@ -127,6 +125,8 @@ impl AudioSystem {
                 }
             }
         }
+
+        self.cx.flush_events();
     }
 
     pub fn reset(&mut self) {

@@ -11,6 +11,8 @@ use firewheel_core::{
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
 
+pub const DEFAULT_MAX_VOICES: usize = 8;
+
 const MAX_OUT_CHANNELS: usize = 8;
 const DECLICK_FILTER_SETTLE_EPSILON: f32 = 0.00001;
 
@@ -70,30 +72,22 @@ impl<const MAX_VOICES: usize> AudioNode for OneShotSamplerNode<MAX_VOICES> {
                 stream_info.sample_rate,
                 self.config.declick_duration_seconds,
             ),
-            voices: std::array::from_fn(|_| Voice {
-                sample: None,
-                playhead: 0,
-                paused_playhead: 0,
-                len_samples: 0,
-                num_channels: NonZeroUsize::MIN,
-                gain: 1.0,
-                is_playing: false,
-                paused: false,
-                is_declicking: false,
-                declick_filter_gain: 1.0,
-                declick_filter_target: 1.0,
-            }),
+            voices: std::array::from_fn(|_| Voice::new()),
             voices_free_slots: (0..MAX_VOICES).collect(),
             active_voices: ArrayVec::new(),
             tmp_active_voices: ArrayVec::new(),
-
             mono_to_stereo: self.config.mono_to_stereo,
-
             tmp_buffer: (0..channel_config.num_outputs.get())
                 .map(|_| vec![0.0; stream_info.max_block_samples as usize])
                 .collect(),
             tmp_declick_buffer: vec![0.0; stream_info.max_block_samples as usize],
         }))
+    }
+}
+
+impl<const MAX_VOICES: usize> Into<Box<dyn AudioNode>> for OneShotSamplerNode<MAX_VOICES> {
+    fn into(self) -> Box<dyn AudioNode> {
+        Box::new(self)
     }
 }
 
@@ -104,7 +98,6 @@ struct OneShotSamplerProcessor<const MAX_VOICES: usize> {
     tmp_active_voices: ArrayVec<usize, MAX_VOICES>,
 
     declick_filter_coeff: DeclickFilterCoeff,
-
     mono_to_stereo: bool,
 
     tmp_buffer: Vec<Vec<f32>>,
@@ -294,7 +287,23 @@ struct Voice {
 }
 
 impl Voice {
-    pub fn start(&mut self, sample: &Arc<dyn SampleResource>, gain: f32) {
+    fn new() -> Self {
+        Self {
+            sample: None,
+            playhead: 0,
+            paused_playhead: 0,
+            len_samples: 0,
+            num_channels: NonZeroUsize::MIN,
+            gain: 1.0,
+            is_playing: false,
+            paused: false,
+            is_declicking: false,
+            declick_filter_gain: 1.0,
+            declick_filter_target: 1.0,
+        }
+    }
+
+    fn start(&mut self, sample: &Arc<dyn SampleResource>, gain: f32) {
         self.len_samples = sample.len_samples();
         self.num_channels = sample.num_channels();
         self.sample = Some(Arc::clone(&sample));
@@ -308,7 +317,7 @@ impl Voice {
         self.declick_filter_target = 1.0;
     }
 
-    pub fn pause(&mut self) {
+    fn pause(&mut self) {
         if !self.is_playing || self.paused {
             return;
         }
@@ -325,7 +334,7 @@ impl Voice {
         self.is_declicking = self.declick_filter_gain != self.declick_filter_target;
     }
 
-    pub fn resume(&mut self) {
+    fn resume(&mut self) {
         if !self.is_playing || !self.paused {
             return;
         }
@@ -342,7 +351,7 @@ impl Voice {
         self.is_declicking = self.declick_filter_gain != self.declick_filter_target;
     }
 
-    pub fn stop(&mut self) {
+    fn stop(&mut self) {
         if !self.is_playing {
             return;
         }
@@ -351,7 +360,7 @@ impl Voice {
         self.is_playing = false;
     }
 
-    pub fn process(
+    fn process(
         &mut self,
         outputs: &mut [&mut [f32]],
         mut tmp_buffer: Option<&mut [&mut [f32]]>,
