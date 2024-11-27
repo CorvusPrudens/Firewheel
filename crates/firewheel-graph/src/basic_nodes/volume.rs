@@ -1,14 +1,15 @@
 use firewheel_core::{
+    dsp::decibel::normalized_volume_to_raw_gain,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
     },
-    param::{range::percent_volume_to_raw_gain, smoother::ParamSmoother},
+    param::smoother::ParamSmoother,
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
 pub struct VolumeNode {
-    percent_volume: f32,
+    normalized_volume: f32,
 }
 
 impl VolumeNode {
@@ -17,30 +18,30 @@ impl VolumeNode {
 
     /// Create a new volume node.
     ///
-    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
-    pub fn new(percent_volume: f32) -> Self {
-        let percent_volume = percent_volume.max(0.0);
+    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
+    pub fn new(normalized_volume: f32) -> Self {
+        let normalized_volume = normalized_volume.max(0.0);
 
-        Self { percent_volume }
+        Self { normalized_volume }
     }
 
-    /// Get the current percent volume where `0.0` is mute and `100.0` is unity gain.
-    pub fn percent_volume(&self) -> f32 {
-        self.percent_volume
+    /// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
+    pub fn normalized_volume(&self) -> f32 {
+        self.normalized_volume
     }
 
     /// Return an event type to set the volume parameter.
     ///
-    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
-    /// * `no_smoothing` - Set this to `true` to have the node immediately jump to this new
+    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
+    /// * `smoothing` - Set this to `false` to have the node immediately jump to this new
     /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
     /// can be useful to preserve transients when playing a new sound at a different volume.
-    pub fn set_volume(&mut self, percent_volume: f32, no_smoothing: bool) -> NodeEventType {
-        self.percent_volume = percent_volume.max(0.0);
+    pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> NodeEventType {
+        self.normalized_volume = normalized_volume.max(0.0);
         NodeEventType::FloatParam {
             id: Self::PARAM_VOLUME,
-            value: percent_volume,
-            no_smoothing,
+            value: normalized_volume,
+            smoothing,
         }
     }
 }
@@ -71,7 +72,7 @@ impl AudioNode for VolumeNode {
         stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        let raw_gain = percent_volume_to_raw_gain(self.percent_volume);
+        let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
         Ok(Box::new(VolumeProcessor {
             gain_smoother: ParamSmoother::new(
@@ -102,15 +103,14 @@ impl AudioNodeProcessor for VolumeProcessor {
             if let NodeEventType::FloatParam {
                 id,
                 value,
-                no_smoothing,
+                smoothing,
             } = msg
             {
                 if *id != VolumeNode::PARAM_VOLUME {
                     continue;
                 }
-                let raw_gain = percent_volume_to_raw_gain(*value);
-                self.gain_smoother
-                    .set_with_smoothing(raw_gain, *no_smoothing);
+                let raw_gain = normalized_volume_to_raw_gain(*value);
+                self.gain_smoother.set_with_smoothing(raw_gain, *smoothing);
             }
         }
 
@@ -135,15 +135,16 @@ impl AudioNodeProcessor for VolumeProcessor {
         }
 
         // Hint to the compiler to optimize loop.
-        assert!(samples <= gain.values.len());
+        let samples = samples.min(gain.values.len());
 
         // Provide an optimized loop for stereo.
         if inputs.len() == 2 && outputs.len() == 2 {
             // Hint to the compiler to optimize loop.
-            assert!(samples <= outputs[0].len());
-            assert!(samples <= outputs[1].len());
-            assert!(samples <= inputs[0].len());
-            assert!(samples <= inputs[1].len());
+            let samples = samples
+                .min(outputs[0].len())
+                .min(outputs[1].len())
+                .min(inputs[0].len())
+                .min(inputs[1].len());
 
             for i in 0..samples {
                 outputs[0][i] = inputs[0][i] * gain[i];
@@ -154,15 +155,15 @@ impl AudioNodeProcessor for VolumeProcessor {
         }
 
         for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
+            // Hint to the compiler to optimize loop.
+            let samples = samples.min(output.len()).min(input.len());
+
             if proc_info.in_silence_mask.is_channel_silent(i) {
                 if !proc_info.out_silence_mask.is_channel_silent(i) {
                     output[..samples].fill(0.0);
                 }
                 continue;
             }
-
-            // Hint to the compiler to optimize loop.
-            assert!(samples <= input.len());
 
             for i in 0..samples {
                 output[i] = input[i] * gain[i];

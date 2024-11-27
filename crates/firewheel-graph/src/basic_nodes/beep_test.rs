@@ -1,9 +1,9 @@
 use firewheel_core::{
+    dsp::decibel::normalized_volume_to_raw_gain,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
     },
-    param::range::percent_volume_to_raw_gain,
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
@@ -13,7 +13,7 @@ use firewheel_core::{
 /// bother with parameter smoothing.
 pub struct BeepTestNode {
     freq_hz: f32,
-    percent_volume: f32,
+    normalized_volume: f32,
     enabled: bool,
 }
 
@@ -25,36 +25,36 @@ impl BeepTestNode {
 
     /// Create a new [`BeepTestNode`].
     ///
-    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
-    /// NOTE, a sine wave at 100% volume is *LOUD*, prefer to use a value like 25%.
+    /// * `normalized_volume` - The normalized volume where `.0` is mute and `1.0` is unity gain.
+    /// NOTE, a sine wave at `1.0`` volume is *LOUD*, prefer to use a value like `0.25``.
     /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
     /// value for testing is `440` (middle C).
     /// * `enabled` - Whether or not to start outputting a sine wave when the node is added
     /// to the graph.
-    pub fn new(percent_volume: f32, freq_hz: f32, enabled: bool) -> Self {
+    pub fn new(normalized_volume: f32, freq_hz: f32, enabled: bool) -> Self {
         Self {
             freq_hz: freq_hz.clamp(20.0, 20_000.0),
-            percent_volume: percent_volume.max(0.0),
+            normalized_volume: normalized_volume.max(0.0),
             enabled,
         }
     }
 
-    /// Get the current percent volume where `0.0` is mute and `100.0` is unity gain.
-    pub fn percent_volume(&self) -> f32 {
-        self.percent_volume
+    /// Get the current normalized volume where `0.0` is mute and `1.0` is unity gain.
+    pub fn normalized_volume(&self) -> f32 {
+        self.normalized_volume
     }
 
     /// Return an event type to set the volume parameter.
     ///
-    /// * `percent_volume` - The percent volume where `0.0` is mute and `100.0` is unity gain.
+    /// * `normalized_volume` - The normalized volume where `0.0` is mute and `1.0` is unity gain.
     ///
-    /// NOTE, a sine wave at 100% volume is *LOUD*, prefer to use a value like 25%.
-    pub fn set_volume(&mut self, percent_volume: f32) -> NodeEventType {
-        self.percent_volume = percent_volume;
+    /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.25`.
+    pub fn set_volume(&mut self, normalized_volume: f32) -> NodeEventType {
+        self.normalized_volume = normalized_volume;
         NodeEventType::FloatParam {
             id: Self::PARAM_VOLUME,
-            value: percent_volume,
-            no_smoothing: false,
+            value: normalized_volume,
+            smoothing: false,
         }
     }
 
@@ -73,7 +73,7 @@ impl BeepTestNode {
         NodeEventType::FloatParam {
             id: Self::PARAM_FREQUENCY,
             value: freq_hz,
-            no_smoothing: false,
+            smoothing: false,
         }
     }
 
@@ -114,7 +114,7 @@ impl AudioNode for BeepTestNode {
         Ok(Box::new(BeepTestProcessor {
             phasor: 0.0,
             phasor_inc: self.freq_hz / stream_info.sample_rate as f32,
-            gain: percent_volume_to_raw_gain(self.percent_volume),
+            gain: normalized_volume_to_raw_gain(self.normalized_volume),
             sample_rate_recip: (stream_info.sample_rate as f32).recip(),
             enabled: self.enabled,
         }))
@@ -147,7 +147,7 @@ impl AudioNodeProcessor for BeepTestProcessor {
                     self.enabled = *enabled;
                 }
                 NodeEventType::FloatParam { id, value, .. } => match *id {
-                    BeepTestNode::PARAM_VOLUME => self.gain = percent_volume_to_raw_gain(*value),
+                    BeepTestNode::PARAM_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
                     BeepTestNode::PARAM_FREQUENCY => {
                         self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip
                     }

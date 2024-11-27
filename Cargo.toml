@@ -35,9 +35,10 @@ members = [
 ]
 
 [features]
-default = ["sampler", "cpal", "symphonium"]
+default = ["sampler", "resampler", "cpal", "symphonium"]
 cpal = ["dep:firewheel-cpal"]
 sampler = ["dep:firewheel-sampler"]
+resampler = ["firewheel-core/resampler"]
 symphonium = ["firewheel-core/symphonium"]
 
 [dependencies]

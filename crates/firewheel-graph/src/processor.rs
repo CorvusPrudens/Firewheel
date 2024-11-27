@@ -138,7 +138,7 @@ impl FirewheelProcessor {
                     block_samples,
                     num_in_channels,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
-                        firewheel_core::util::deinterleave(
+                        firewheel_core::dsp::interleave::deinterleave(
                             channels,
                             &input[samples_processed * num_in_channels
                                 ..(samples_processed + block_samples) * num_in_channels],
@@ -167,7 +167,7 @@ impl FirewheelProcessor {
                     block_samples,
                     num_out_channels,
                     |channels: &[&[f32]], silence_mask| {
-                        firewheel_core::util::interleave(
+                        firewheel_core::dsp::interleave::interleave(
                             channels,
                             &mut output[samples_processed * num_out_channels
                                 ..(samples_processed + block_samples) * num_out_channels],

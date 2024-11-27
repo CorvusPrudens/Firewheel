@@ -48,13 +48,13 @@ impl AudioSystem {
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let (node, num_inputs, num_outputs): (Box<dyn AudioNode>, usize, usize) = match node_type {
-            NodeType::BeepTest => (Box::new(BeepTestNode::new(25.0, 440.0, true)), 0, 1),
+            NodeType::BeepTest => (Box::new(BeepTestNode::new(0.4, 440.0, true)), 0, 1),
             NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
             NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
             NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
             NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
-            NodeType::VolumeMono => (Box::new(VolumeNode::new(100.0)), 1, 1),
-            NodeType::VolumeStereo => (Box::new(VolumeNode::new(100.0)), 2, 2),
+            NodeType::VolumeMono => (Box::new(VolumeNode::new(1.0)), 1, 1),
+            NodeType::VolumeStereo => (Box::new(VolumeNode::new(1.0)), 2, 2),
         };
 
         let id = self
@@ -139,7 +139,7 @@ impl AudioSystem {
         let event = graph
             .node_mut::<VolumeNode>(node_id)
             .unwrap()
-            .set_volume(percent_volume, false);
+            .set_volume(percent_volume / 100.0, false);
 
         graph.queue_event(NodeEvent {
             node_id,

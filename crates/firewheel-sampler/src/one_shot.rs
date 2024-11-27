@@ -2,11 +2,11 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use arrayvec::ArrayVec;
 use firewheel_core::{
+    dsp::{decibel::normalized_volume_to_raw_gain, smoothing_filter},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
     },
-    param::range::percent_volume_to_raw_gain,
     sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
@@ -14,7 +14,6 @@ use firewheel_core::{
 pub const DEFAULT_MAX_VOICES: usize = 8;
 
 const MAX_OUT_CHANNELS: usize = 8;
-const DECLICK_FILTER_SETTLE_EPSILON: f32 = 0.00001;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OneShotSamplerConfig {
@@ -25,7 +24,7 @@ pub struct OneShotSamplerConfig {
 impl Default for OneShotSamplerConfig {
     fn default() -> Self {
         Self {
-            declick_duration_seconds: 10.0 / 1_000.0,
+            declick_duration_seconds: smoothing_filter::DEFAULT_SMOOTH_SECONDS,
             mono_to_stereo: true,
         }
     }
@@ -68,7 +67,7 @@ impl<const MAX_VOICES: usize> AudioNode for OneShotSamplerNode<MAX_VOICES> {
         channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         Ok(Box::new(OneShotSamplerProcessor::<MAX_VOICES> {
-            declick_filter_coeff: DeclickFilterCoeff::new(
+            declick_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
                 self.config.declick_duration_seconds,
             ),
@@ -97,7 +96,7 @@ struct OneShotSamplerProcessor<const MAX_VOICES: usize> {
     active_voices: ArrayVec<usize, MAX_VOICES>,
     tmp_active_voices: ArrayVec<usize, MAX_VOICES>,
 
-    declick_filter_coeff: DeclickFilterCoeff,
+    declick_filter_coeff: smoothing_filter::Coeff,
     mono_to_stereo: bool,
 
     tmp_buffer: Vec<Vec<f32>>,
@@ -131,7 +130,7 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
                 }
                 NodeEventType::PlaySample {
                     sample,
-                    percent_volume,
+                    normalized_volume,
                     stop_other_voices,
                 } => {
                     if *stop_other_voices {
@@ -140,7 +139,7 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
                         }
                     }
 
-                    let mut gain = percent_volume_to_raw_gain(*percent_volume);
+                    let mut gain = normalized_volume_to_raw_gain(*normalized_volume);
                     if gain < 0.00001 {
                         continue;
                     }
@@ -282,7 +281,7 @@ struct Voice {
     is_playing: bool,
     paused: bool,
     is_declicking: bool,
-    declick_filter_gain: f32,
+    declick_filter_state: f32,
     declick_filter_target: f32,
 }
 
@@ -298,7 +297,7 @@ impl Voice {
             is_playing: false,
             paused: false,
             is_declicking: false,
-            declick_filter_gain: 1.0,
+            declick_filter_state: 1.0,
             declick_filter_target: 1.0,
         }
     }
@@ -313,7 +312,7 @@ impl Voice {
         self.playhead = 0;
         self.paused_playhead = 0;
         self.is_declicking = false;
-        self.declick_filter_gain = 1.0;
+        self.declick_filter_state = 1.0;
         self.declick_filter_target = 1.0;
     }
 
@@ -328,10 +327,10 @@ impl Voice {
 
         if self.playhead == 0 {
             // The sample hasn't event begun playing yet, so no need to declick.
-            self.declick_filter_gain = 0.0;
+            self.declick_filter_state = 0.0;
         }
 
-        self.is_declicking = self.declick_filter_gain != self.declick_filter_target;
+        self.is_declicking = self.declick_filter_state != self.declick_filter_target;
     }
 
     fn resume(&mut self) {
@@ -345,10 +344,10 @@ impl Voice {
 
         if self.playhead == 0 {
             // The sample hasn't event begun playing yet, so no need to declick.
-            self.declick_filter_gain = 1.0;
+            self.declick_filter_state = 1.0;
         }
 
-        self.is_declicking = self.declick_filter_gain != self.declick_filter_target;
+        self.is_declicking = self.declick_filter_state != self.declick_filter_target;
     }
 
     fn stop(&mut self) {
@@ -367,7 +366,7 @@ impl Voice {
         tmp_declick_buffer: &mut [f32],
         block_samples: usize,
         mono_to_stereo: bool,
-        declick_filter_coeff: DeclickFilterCoeff,
+        declick_filter_coeff: smoothing_filter::Coeff,
     ) -> usize {
         let Some(sample) = self.sample.as_ref() else {
             return 0;
@@ -411,127 +410,59 @@ impl Voice {
             };
 
         if self.is_declicking {
-            let filter_input = self.declick_filter_target * declick_filter_coeff.a;
+            self.declick_filter_state = smoothing_filter::process_into_buffer(
+                &mut tmp_declick_buffer[..block_samples],
+                self.declick_filter_state,
+                self.declick_filter_target,
+                declick_filter_coeff,
+            );
 
-            if num_filled_channels == 2 {
-                // Provide an optimized loop for stereo.
-
-                if let Some(tmp_buffer) = &mut tmp_buffer {
-                    let samples = outputs[0]
-                        .len()
-                        .min(outputs[1].len())
-                        .min(tmp_buffer[0].len())
-                        .min(tmp_buffer[1].len());
-
-                    for i in 0..samples {
-                        self.declick_filter_gain =
-                            filter_input + (self.declick_filter_gain * declick_filter_coeff.b);
-
-                        outputs[0][i] += tmp_buffer[0][i] * self.gain * self.declick_filter_gain;
-                        outputs[1][i] += tmp_buffer[1][i] * self.gain * self.declick_filter_gain;
-                    }
-                } else {
-                    let samples = outputs[0].len().min(outputs[1].len());
-
-                    for i in 0..samples {
-                        self.declick_filter_gain =
-                            filter_input + (self.declick_filter_gain * declick_filter_coeff.b);
-
-                        outputs[0][i] *= self.gain * self.declick_filter_gain;
-                        outputs[1][i] *= self.gain * self.declick_filter_gain;
+            if let Some(tmp_buffer) = &mut tmp_buffer {
+                for (_, (out_buf, in_buf)) in
+                    (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
+                {
+                    for ((os, &ts), &g) in out_buf
+                        .iter_mut()
+                        .zip(in_buf.iter())
+                        .zip(tmp_declick_buffer.iter())
+                    {
+                        *os += ts * self.gain * g;
                     }
                 }
             } else {
-                for s in tmp_declick_buffer[..block_samples].iter_mut() {
-                    self.declick_filter_gain =
-                        filter_input + (self.declick_filter_gain * declick_filter_coeff.b);
-                    *s = self.declick_filter_gain;
-                }
-
-                if let Some(tmp_buffer) = &mut tmp_buffer {
-                    for (_, (out_buf, in_buf)) in
-                        (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
-                    {
-                        for ((os, &ts), &g) in out_buf
-                            .iter_mut()
-                            .zip(in_buf.iter())
-                            .zip(tmp_declick_buffer.iter())
-                        {
-                            *os += ts * self.gain * g;
-                        }
-                    }
-                } else {
-                    for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                        for (os, &g) in out_buf.iter_mut().zip(tmp_declick_buffer.iter()) {
-                            *os *= self.gain * g;
-                        }
+                for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
+                    for (os, &g) in out_buf.iter_mut().zip(tmp_declick_buffer.iter()) {
+                        *os *= self.gain * g;
                     }
                 }
             }
 
-            if (self.declick_filter_target - self.declick_filter_gain).abs()
-                < DECLICK_FILTER_SETTLE_EPSILON
-            {
-                self.declick_filter_gain = self.declick_filter_target;
+            if smoothing_filter::has_settled(
+                self.declick_filter_state,
+                self.declick_filter_target,
+                smoothing_filter::DEFAULT_SETTLE_EPSILON,
+            ) {
+                self.declick_filter_state = self.declick_filter_target;
                 self.is_declicking = false;
             }
         } else {
-            if num_filled_channels == 2 {
-                // Provide an optimized loop for stereo.
-
-                if let Some(tmp_buffer) = &mut tmp_buffer {
-                    let samples = outputs[0]
-                        .len()
-                        .min(outputs[1].len())
-                        .min(tmp_buffer[0].len())
-                        .min(tmp_buffer[1].len());
-
-                    for i in 0..samples {
-                        outputs[0][i] += tmp_buffer[0][i] * self.gain;
-                        outputs[1][i] += tmp_buffer[1][i] * self.gain;
-                    }
-                } else if self.gain != 1.0 {
-                    let samples = outputs[0].len().min(outputs[1].len());
-
-                    for i in 0..samples {
-                        outputs[0][i] *= self.gain;
-                        outputs[1][i] *= self.gain;
+            if let Some(tmp_buffer) = &mut tmp_buffer {
+                for (_, (out_buf, in_buf)) in
+                    (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
+                {
+                    for (os, &is) in out_buf.iter_mut().zip(in_buf.iter()) {
+                        *os += is * self.gain;
                     }
                 }
-            } else {
-                if let Some(tmp_buffer) = &mut tmp_buffer {
-                    for (_, (out_buf, in_buf)) in
-                        (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
-                    {
-                        for (os, &is) in out_buf.iter_mut().zip(in_buf.iter()) {
-                            *os += is * self.gain;
-                        }
-                    }
-                } else if self.gain != 1.0 {
-                    for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                        for s in out_buf.iter_mut() {
-                            *s *= self.gain;
-                        }
+            } else if self.gain != 1.0 {
+                for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
+                    for s in out_buf.iter_mut() {
+                        *s *= self.gain;
                     }
                 }
             }
         }
 
         num_filled_channels
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct DeclickFilterCoeff {
-    a: f32,
-    b: f32,
-}
-
-impl DeclickFilterCoeff {
-    pub fn new(sample_rate: u32, smooth_secs: f32) -> Self {
-        let b = (-1.0f32 / (smooth_secs * sample_rate as f32)).exp();
-        let a = 1.0f32 - b;
-
-        Self { a, b }
     }
 }

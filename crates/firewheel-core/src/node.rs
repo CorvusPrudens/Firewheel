@@ -342,10 +342,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: f32,
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Set the value of an `f64` parameter.
     FloatParamF64 {
@@ -353,10 +353,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: f64,
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Set the value of an `i32` parameter.
     IntParam {
@@ -364,10 +364,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: i32,
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Set the value of an `i64` parameter.
     IntParamI64 {
@@ -375,10 +375,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: i64,
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Set the value of a `bool` parameter.
     BoolParam {
@@ -386,10 +386,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: bool,
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Set the value of a parameter containing three
     /// `f32` elements.
@@ -398,10 +398,10 @@ pub enum NodeEventType {
         id: u32,
         /// The parameter value.
         value: [f32; 3],
-        /// Set this to `true` to request the node to immediately jump
+        /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).
-        no_smoothing: bool,
+        smoothing: bool,
     },
     /// Play a sample to completion.
     ///
@@ -411,12 +411,12 @@ pub enum NodeEventType {
     PlaySample {
         /// The sample resource to play.
         sample: Arc<dyn SampleResource>,
-        /// The percent volume to play this sample at (where `0.0` is mute
-        /// and `100.0` is unity gain.)
+        /// The normalized volume to play this sample at (where `0.0` is mute
+        /// and `1.0` is unity gain.)
         ///
         /// Note, this value cannot be changed while the sample is playing.
         /// Use a `VolumeNode` for that instead.
-        percent_volume: f32,
+        normalized_volume: f32,
         /// If `true`, then all other voices currently being played in this
         /// node will be stopped.
         stop_other_voices: bool,

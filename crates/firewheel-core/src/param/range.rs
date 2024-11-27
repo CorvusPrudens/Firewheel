@@ -26,14 +26,6 @@ impl Default for LinearRange {
     }
 }
 
-/// Map a percent value (where `0.0` means mute and `100.0` means unity
-/// gain) to the corresponding raw gain value (not decibels) for use in
-/// DSP. Values above `100.0` are allowed.
-pub fn percent_volume_to_raw_gain(percent_volume: f32) -> f32 {
-    let n = percent_volume.max(0.0) * (1.0 / 100.0);
-    n * n
-}
-
 /// A parameter range that takes a normalized value in the range `[0.0, 1.0]`
 /// as input and outputs a frequency value in Hz.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -431,11 +431,18 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
 pub fn load_audio_file<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
-    sample_rate: u32,
-    resample_quality: symphonium::ResampleQuality,
+    #[cfg(feature = "resampler")] sample_rate: u32,
+    #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load(path, Some(sample_rate), resample_quality, None)
+        .load(
+            path,
+            #[cfg(feature = "resampler")]
+            Some(sample_rate),
+            #[cfg(feature = "resampler")]
+            resample_quality,
+            None,
+        )
         .map(|d| DecodedAudio(d))
 }
 
@@ -451,11 +458,19 @@ pub fn load_audio_file_from_source(
     loader: &mut symphonium::SymphoniumLoader,
     source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
     hint: Option<symphonium::symphonia::core::probe::Hint>,
-    sample_rate: u32,
-    resample_quality: symphonium::ResampleQuality,
+    #[cfg(feature = "resampler")] sample_rate: u32,
+    #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load_from_source(source, hint, Some(sample_rate), resample_quality, None)
+        .load_from_source(
+            source,
+            hint,
+            #[cfg(feature = "resampler")]
+            Some(sample_rate),
+            #[cfg(feature = "resampler")]
+            resample_quality,
+            None,
+        )
         .map(|d| DecodedAudio(d))
 }
 

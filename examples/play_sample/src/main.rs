@@ -56,7 +56,7 @@ fn main() {
         delay: EventDelay::Immediate,
         event: NodeEventType::PlaySample {
             sample: Arc::new(sample),
-            percent_volume: 100.0,
+            normalized_volume: 1.0,
             stop_other_voices: false,
         },
     });
