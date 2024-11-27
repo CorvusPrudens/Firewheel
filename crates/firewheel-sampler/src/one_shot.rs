@@ -380,34 +380,21 @@ impl Voice {
             sample.fill_buffers(outputs, 0..copy_samples, self.playhead);
         }
 
+        let mut num_filled_channels = self.num_channels.get().min(outputs.len());
+
         if copy_samples < block_samples {
             if let Some(tmp_buffer) = &mut tmp_buffer {
-                for (_, b) in (0..self.num_channels.get()).zip(tmp_buffer.iter_mut()) {
+                for (_, b) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
                     b[copy_samples..].fill(0.0);
                 }
             } else {
-                for (_, b) in (0..self.num_channels.get()).zip(outputs.iter_mut()) {
+                for (_, b) in (0..num_filled_channels).zip(outputs.iter_mut()) {
                     b[copy_samples..].fill(0.0);
                 }
             }
         }
 
         self.playhead += block_samples as u64;
-
-        let num_filled_channels =
-            if outputs.len() > 1 && self.num_channels.get() == 1 && mono_to_stereo {
-                if let Some(tmp_buffer) = &mut tmp_buffer {
-                    let (b1, b2) = tmp_buffer.split_first_mut().unwrap();
-                    b2[0].copy_from_slice(b1);
-                } else {
-                    let (b1, b2) = outputs.split_first_mut().unwrap();
-                    b2[0].copy_from_slice(b1);
-                }
-
-                2
-            } else {
-                self.num_channels.get().min(outputs.len())
-            };
 
         if self.is_declicking {
             self.declick_filter_state = smoothing_filter::process_into_buffer(
@@ -461,6 +448,19 @@ impl Voice {
                     }
                 }
             }
+        }
+
+        if outputs.len() > 1 && num_filled_channels == 1 && mono_to_stereo {
+            if let Some(tmp_buffer) = &mut tmp_buffer {
+                for (os, &is) in outputs[1].iter_mut().zip(tmp_buffer[0].iter()) {
+                    *os += is;
+                }
+            } else {
+                let (b1, b2) = outputs.split_first_mut().unwrap();
+                b2[0].copy_from_slice(b1);
+            }
+
+            num_filled_channels = 2;
         }
 
         num_filled_channels
