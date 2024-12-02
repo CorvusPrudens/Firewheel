@@ -1,5 +1,5 @@
 use firewheel::{
-    basic_nodes::{beep_test::BeepTestNode, StereoToMonoNode, SumNode, VolumeNode},
+    basic_nodes::{beep_test::BeepTestNode, MixNode, StereoToMonoNode, VolumeNode},
     clock::EventDelay,
     error::AddEdgeError,
     graph::AudioGraph,
@@ -13,9 +13,9 @@ use crate::ui::GuiAudioNode;
 pub enum NodeType {
     BeepTest,
     StereoToMono,
-    SumMono4Ins,
-    SumStereo2Ins,
-    SumStereo4Ins,
+    MixMono4Ins,
+    MixStereo2Ins,
+    MixStereo4Ins,
     VolumeMono,
     VolumeStereo,
 }
@@ -50,9 +50,9 @@ impl AudioSystem {
         let (node, num_inputs, num_outputs): (Box<dyn AudioNode>, usize, usize) = match node_type {
             NodeType::BeepTest => (Box::new(BeepTestNode::new(0.4, 440.0, true)), 0, 1),
             NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
-            NodeType::SumMono4Ins => (Box::new(SumNode), 4, 1),
-            NodeType::SumStereo2Ins => (Box::new(SumNode), 4, 2),
-            NodeType::SumStereo4Ins => (Box::new(SumNode), 8, 2),
+            NodeType::MixMono4Ins => (Box::new(MixNode), 4, 1),
+            NodeType::MixStereo2Ins => (Box::new(MixNode), 4, 2),
+            NodeType::MixStereo4Ins => (Box::new(MixNode), 8, 2),
             NodeType::VolumeMono => (Box::new(VolumeNode::new(1.0)), 1, 1),
             NodeType::VolumeStereo => (Box::new(VolumeNode::new(1.0)), 2, 2),
         };
@@ -65,9 +65,9 @@ impl AudioSystem {
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest { id },
             NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
-            NodeType::SumMono4Ins => GuiAudioNode::SumMono4Ins { id },
-            NodeType::SumStereo2Ins => GuiAudioNode::SumStereo2Ins { id },
-            NodeType::SumStereo4Ins => GuiAudioNode::SumStereo4Ins { id },
+            NodeType::MixMono4Ins => GuiAudioNode::MixMono4Ins { id },
+            NodeType::MixStereo2Ins => GuiAudioNode::MixStereo2Ins { id },
+            NodeType::MixStereo4Ins => GuiAudioNode::MixStereo4Ins { id },
             NodeType::VolumeMono => GuiAudioNode::VolumeMono { id, percent: 100.0 },
             NodeType::VolumeStereo => GuiAudioNode::VolumeStereo { id, percent: 100.0 },
         }
@@ -77,24 +77,18 @@ impl AudioSystem {
         &mut self,
         src_node: NodeID,
         dst_node: NodeID,
-        src_port: usize,
-        dst_port: usize,
+        src_port: u32,
+        dst_port: u32,
     ) -> Result<(), AddEdgeError> {
         self.graph_mut()
-            .connect(src_node, src_port, dst_node, dst_port, true)?;
+            .connect(src_node, dst_node, &[(src_port, dst_port)], true)?;
 
         Ok(())
     }
 
-    pub fn disconnect(
-        &mut self,
-        src_node: NodeID,
-        dst_node: NodeID,
-        src_port: usize,
-        dst_port: usize,
-    ) {
+    pub fn disconnect(&mut self, src_node: NodeID, dst_node: NodeID, src_port: u32, dst_port: u32) {
         self.graph_mut()
-            .disconnect(src_node, src_port, dst_node, dst_port);
+            .disconnect(src_node, dst_node, &[(src_port, dst_port)]);
     }
 
     pub fn graph_in_node(&self) -> NodeID {

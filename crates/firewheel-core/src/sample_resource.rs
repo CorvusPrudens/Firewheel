@@ -338,12 +338,14 @@ pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
 /// [`SampleResource`] trait.
 pub struct DecodedAudio(pub symphonium::DecodedAudio);
 
+#[cfg(feature = "symphonium")]
 impl DecodedAudio {
     pub fn duration_seconds(&self) -> f64 {
         self.0.frames() as f64 / self.0.sample_rate() as f64
     }
 }
 
+#[cfg(feature = "symphonium")]
 impl SampleResource for DecodedAudio {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
@@ -379,6 +381,7 @@ impl SampleResource for DecodedAudio {
     }
 }
 
+#[cfg(feature = "symphonium")]
 impl From<symphonium::DecodedAudio> for DecodedAudio {
     fn from(data: symphonium::DecodedAudio) -> Self {
         Self(data)
@@ -390,12 +393,14 @@ impl From<symphonium::DecodedAudio> for DecodedAudio {
 /// [`SampleResource`] trait.
 pub struct DecodedAudioF32(pub symphonium::DecodedAudioF32);
 
+#[cfg(feature = "symphonium")]
 impl DecodedAudioF32 {
     pub fn duration_seconds(&self, sample_rate: u32) -> f64 {
         self.0.frames() as f64 / sample_rate as f64
     }
 }
 
+#[cfg(feature = "symphonium")]
 impl SampleResource for DecodedAudioF32 {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
@@ -415,6 +420,7 @@ impl SampleResource for DecodedAudioF32 {
     }
 }
 
+#[cfg(feature = "symphonium")]
 impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
     fn from(data: symphonium::DecodedAudioF32) -> Self {
         Self(data)

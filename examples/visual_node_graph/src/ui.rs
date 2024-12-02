@@ -1,4 +1,4 @@
-use eframe::{App, CreationContext};
+use eframe::App;
 use egui::{Color32, Id, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
@@ -19,13 +19,13 @@ pub enum GuiAudioNode {
     StereoToMono {
         id: firewheel::node::NodeID,
     },
-    SumMono4Ins {
+    MixMono4Ins {
         id: firewheel::node::NodeID,
     },
-    SumStereo2Ins {
+    MixStereo2Ins {
         id: firewheel::node::NodeID,
     },
-    SumStereo4Ins {
+    MixStereo4Ins {
         id: firewheel::node::NodeID,
     },
     VolumeMono {
@@ -45,9 +45,9 @@ impl GuiAudioNode {
             &Self::SystemOut => audio_system.graph_out_node(),
             &Self::BeepTest { id } => id,
             &Self::StereoToMono { id } => id,
-            &Self::SumMono4Ins { id } => id,
-            &Self::SumStereo2Ins { id } => id,
-            &Self::SumStereo4Ins { id } => id,
+            &Self::MixMono4Ins { id } => id,
+            &Self::MixStereo2Ins { id } => id,
+            &Self::MixStereo4Ins { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
         }
@@ -59,9 +59,9 @@ impl GuiAudioNode {
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
             &Self::StereoToMono { .. } => "Stereo To Mono",
-            &Self::SumMono4Ins { .. } => "Sum (Mono, 4 Ins)",
-            &Self::SumStereo2Ins { .. } => "Sum (Stereo, 2 Ins)",
-            &Self::SumStereo4Ins { .. } => "Sum (Stereo, 4 Ins)",
+            &Self::MixMono4Ins { .. } => "Mix (Mono, 4 Ins)",
+            &Self::MixStereo2Ins { .. } => "Mix (Stereo, 2 Ins)",
+            &Self::MixStereo4Ins { .. } => "Mix (Stereo, 4 Ins)",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
         }
@@ -74,9 +74,9 @@ impl GuiAudioNode {
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
             &Self::StereoToMono { .. } => 2,
-            &Self::SumMono4Ins { .. } => 4,
-            &Self::SumStereo2Ins { .. } => 4,
-            &Self::SumStereo4Ins { .. } => 8,
+            &Self::MixMono4Ins { .. } => 4,
+            &Self::MixStereo2Ins { .. } => 4,
+            &Self::MixStereo4Ins { .. } => 8,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
         }
@@ -88,9 +88,9 @@ impl GuiAudioNode {
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
             &Self::StereoToMono { .. } => 1,
-            &Self::SumMono4Ins { .. } => 1,
-            &Self::SumStereo2Ins { .. } => 2,
-            &Self::SumStereo4Ins { .. } => 2,
+            &Self::MixMono4Ins { .. } => 1,
+            &Self::MixStereo2Ins { .. } => 2,
+            &Self::MixStereo4Ins { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
         }
@@ -113,7 +113,7 @@ impl<'a> DemoViewer<'a> {
         let dst_node = dst_node.node_id(&self.audio_system);
 
         self.audio_system
-            .disconnect(src_node, dst_node, from.output, to.input);
+            .disconnect(src_node, dst_node, from.output as u32, to.input as u32);
 
         snarl.disconnect(from, to);
     }
@@ -146,10 +146,12 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             .unwrap()
             .node_id(&self.audio_system);
 
-        if let Err(e) = self
-            .audio_system
-            .connect(src_node, dst_node, from.id.output, to.id.input)
-        {
+        if let Err(e) = self.audio_system.connect(
+            src_node,
+            dst_node,
+            from.id.output as u32,
+            to.id.input as u32,
+        ) {
             log::error!("{}", e);
             return;
         }
@@ -211,18 +213,18 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
-        if ui.button("Sum (mono, 4 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::SumMono4Ins);
+        if ui.button("Mix (mono, 4 ins)").clicked() {
+            let node = self.audio_system.add_node(NodeType::MixMono4Ins);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
-        if ui.button("Sum (stereo, 2 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::SumStereo2Ins);
+        if ui.button("Mix (stereo, 2 ins)").clicked() {
+            let node = self.audio_system.add_node(NodeType::MixStereo2Ins);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
-        if ui.button("Sum (stereo, 4 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::SumStereo4Ins);
+        if ui.button("Mix (stereo, 4 ins)").clicked() {
+            let node = self.audio_system.add_node(NodeType::MixStereo4Ins);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
@@ -324,9 +326,7 @@ pub struct DemoApp {
 }
 
 impl DemoApp {
-    pub fn new(cx: &CreationContext) -> Self {
-        cx.egui_ctx.style_mut(|style| style.animation_time *= 10.0);
-
+    pub fn new() -> Self {
         let mut snarl = Snarl::new();
         let style = SnarlStyle::new();
 
@@ -347,7 +347,7 @@ impl App for DemoApp {
             egui::menu::bar(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    ui.menu_button("File", |ui| {
+                    ui.menu_button("Menu", |ui| {
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
@@ -355,7 +355,7 @@ impl App for DemoApp {
                     ui.add_space(16.0);
                 }
 
-                egui::widgets::global_dark_light_mode_switch(ui);
+                egui::widgets::global_theme_preference_switch(ui);
 
                 if ui.button("Clear All").clicked() {
                     self.audio_system.reset();

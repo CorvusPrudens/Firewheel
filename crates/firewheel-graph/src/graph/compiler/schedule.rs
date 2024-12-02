@@ -521,7 +521,7 @@ mod tests {
 
     use crate::{
         basic_nodes::dummy::DummyAudioNode,
-        graph::{AddEdgeError, AudioGraph, EdgeID, InPortIdx, OutPortIdx},
+        graph::{AddEdgeError, AudioGraph, EdgeID},
         FirewheelConfig,
     };
 
@@ -546,7 +546,7 @@ mod tests {
         let node0 = graph.graph_in_node();
         let node1 = graph.graph_out_node();
 
-        let edge0 = graph.connect(node0, 0, node1, 0, false).unwrap();
+        let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -608,17 +608,22 @@ mod tests {
             .unwrap();
         let node6 = graph.graph_out_node();
 
-        let edge0 = graph.connect(node0, 0, node1, 0, false).unwrap();
-        let edge1 = graph.connect(node0, 1, node2, 0, false).unwrap();
-        let edge2 = graph.connect(node1, 0, node3, 0, false).unwrap();
-        let edge3 = graph.connect(node1, 1, node4, 1, false).unwrap();
-        let edge4 = graph.connect(node3, 0, node5, 0, false).unwrap();
-        let edge5 = graph.connect(node3, 1, node5, 1, false).unwrap();
-        let edge6 = graph.connect(node4, 0, node5, 2, false).unwrap();
-        let edge7 = graph.connect(node4, 1, node5, 3, false).unwrap();
-        let edge8 = graph.connect(node2, 0, node5, 4, false).unwrap();
-        let edge9 = graph.connect(node5, 0, node6, 0, false).unwrap();
-        let edge10 = graph.connect(node5, 1, node6, 1, false).unwrap();
+        let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
+        let edge1 = graph.connect(node0, node2, &[(1, 0)], false).unwrap()[0];
+        let edge2 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
+        let edge3 = graph.connect(node1, node4, &[(1, 1)], false).unwrap()[0];
+        let edge4 = graph.connect(node3, node5, &[(0, 0)], false).unwrap()[0];
+        let edge5 = graph.connect(node3, node5, &[(1, 1)], false).unwrap()[0];
+        let edge6 = graph.connect(node4, node5, &[(0, 2)], false).unwrap()[0];
+        let edge7 = graph.connect(node4, node5, &[(1, 3)], false).unwrap()[0];
+        let edge8 = graph.connect(node2, node5, &[(0, 4)], false).unwrap()[0];
+
+        // Test adding multiple edges at once.
+        let edges = graph
+            .connect(node5, node6, &[(0, 0), (1, 1)], false)
+            .unwrap();
+        let edge9 = edges[0];
+        let edge10 = edges[1];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -669,17 +674,17 @@ mod tests {
 
     // Graph compile test 2:
     //
-    //          ┌───┐  ┌───┐
-    //     ┌────►   ┼──►   │
-    //   ┌─┼─┐  ┼ 2 ┼  ┼   │  ┌───┐
-    //   |   │  └───┘  │   ┼──►   │
-    //   │ 0 │  ┌───┐  │ 4 ┼  ┼ 5 │
-    //   └─┬─┘  ┼   ┼  ┼   │  └───┘
-    //     └────► 3 ┼──►   │  ┌───┐
-    //          └───┘  │   ┼──► 6 ┼
-    //   ┌───┐         │   │  └───┘
-    //   ┼ 1 ┼─────────►   ┼
-    //   └───┘         └───┘
+    //           ┌───┐  ┌───┐
+    //     ┌─────►   ┼──►   │
+    //   ┌─┼─┐   ┼ 2 ┼  ┼   │  ┌───┐
+    //   |   │   └───┘  │   ┼──►   │
+    //   │ 0 │   ┌───┐  │ 4 ┼  ┼ 5 │
+    //   └─┬─┘ ┌─►   ┼  ┼   │  └───┘
+    //     └─────► 3 ┼──►   │  ┌───┐
+    //         │ └───┘  │   ┼──► 6 ┼
+    //   ┌───┐ │        │   │  └───┘
+    //   ┼ 1 ┼─●────────►   ┼
+    //   └───┘          └───┘
     #[test]
     fn graph_compile_test_2() {
         let mut graph = AudioGraph::new(&FirewheelConfig {
@@ -709,13 +714,14 @@ mod tests {
             .add_node(DummyAudioNode.into(), Some((1, 1).into()))
             .unwrap();
 
-        let edge0 = graph.connect(node0, 0, node2, 0, false).unwrap();
-        let edge1 = graph.connect(node0, 0, node3, 1, false).unwrap();
-        let edge2 = graph.connect(node2, 0, node4, 0, false).unwrap();
-        let edge3 = graph.connect(node3, 1, node4, 3, false).unwrap();
-        let edge4 = graph.connect(node1, 0, node4, 4, false).unwrap();
-        let edge5 = graph.connect(node4, 0, node5, 0, false).unwrap();
-        let edge6 = graph.connect(node4, 2, node6, 0, false).unwrap();
+        let edge0 = graph.connect(node0, node2, &[(0, 0)], false).unwrap()[0];
+        let edge1 = graph.connect(node0, node3, &[(0, 1)], false).unwrap()[0];
+        let edge2 = graph.connect(node2, node4, &[(0, 0)], false).unwrap()[0];
+        let edge3 = graph.connect(node3, node4, &[(1, 3)], false).unwrap()[0];
+        let edge4 = graph.connect(node1, node4, &[(0, 4)], false).unwrap()[0];
+        let edge5 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
+        let edge6 = graph.connect(node4, node5, &[(0, 0)], false).unwrap()[0];
+        let edge7 = graph.connect(node4, node6, &[(2, 0)], false).unwrap()[0];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -725,7 +731,7 @@ mod tests {
         // Node 4 needs at-least 8 buffers
         assert!(schedule.buffers.len() > 7);
 
-        // First two nodes must be 1 and 2
+        // First two nodes must be 0 and 1
         assert!(schedule.schedule[0].id == node0 || schedule.schedule[0].id == node1);
         assert!(schedule.schedule[1].id == node0 || schedule.schedule[1].id == node1);
         // Next two nodes must be 2 and 3
@@ -744,11 +750,12 @@ mod tests {
         verify_edge(edge4, &graph, &schedule);
         verify_edge(edge5, &graph, &schedule);
         verify_edge(edge6, &graph, &schedule);
+        verify_edge(edge7, &graph, &schedule);
 
         verify_node(node0, &[], &schedule, &graph);
         verify_node(node1, &[true], &schedule, &graph);
         verify_node(node2, &[false, true], &schedule, &graph);
-        verify_node(node3, &[true, false], &schedule, &graph);
+        verify_node(node3, &[false, false], &schedule, &graph);
         verify_node(node4, &[false, true, true, false, false], &schedule, &graph);
         verify_node(node5, &[false, true], &schedule, &graph);
         verify_node(node6, &[false], &schedule, &graph);
@@ -798,12 +805,12 @@ mod tests {
         let mut dst_buffer_idx = None;
         for node in schedule.schedule.iter() {
             if node.id == edge.src_node {
-                src_buffer_idx = Some(node.output_buffers[edge.src_port.0 as usize].buffer_index);
+                src_buffer_idx = Some(node.output_buffers[edge.src_port as usize].buffer_index);
                 if dst_buffer_idx.is_some() {
                     break;
                 }
             } else if node.id == edge.dst_node {
-                dst_buffer_idx = Some(node.input_buffers[edge.dst_port.0 as usize].buffer_index);
+                dst_buffer_idx = Some(node.input_buffers[edge.dst_port as usize].buffer_index);
                 if src_buffer_idx.is_some() {
                     break;
                 }
@@ -830,13 +837,13 @@ mod tests {
         let node1 = graph.graph_in_node();
         let node2 = graph.graph_out_node();
 
-        graph.connect(node1, 0, node2, 0, false).unwrap();
+        graph.connect(node1, node2, &[(0, 0)], false).unwrap();
 
         if let Err(AddEdgeError::InputPortAlreadyConnected(node_id, port_id)) =
-            graph.connect(node1, OutPortIdx(1), node2, InPortIdx(0), false)
+            graph.connect(node1, node2, &[(1, 0)], false)
         {
             assert_eq!(node_id, node2);
-            assert_eq!(port_id, InPortIdx(0));
+            assert_eq!(port_id, 0);
         } else {
             panic!("expected error");
         }
@@ -863,9 +870,9 @@ mod tests {
             .add_node(DummyAudioNode.into(), Some((1, 1).into()))
             .unwrap();
 
-        graph.connect(node1, 0, node2, 0, false).unwrap();
-        graph.connect(node2, 0, node3, 0, false).unwrap();
-        let edge3 = graph.connect(node3, 0, node1, 0, false).unwrap();
+        graph.connect(node1, node2, &[(0, 0)], false).unwrap();
+        graph.connect(node2, node3, &[(0, 0)], false).unwrap();
+        let edge3 = graph.connect(node3, node1, &[(0, 0)], false).unwrap()[0];
 
         assert!(graph.cycle_detected());
 
@@ -873,7 +880,7 @@ mod tests {
 
         assert!(!graph.cycle_detected());
 
-        graph.connect(node3, 0, node2, 1, false).unwrap();
+        graph.connect(node3, node2, &[(0, 1)], false).unwrap();
 
         assert!(graph.cycle_detected());
     }

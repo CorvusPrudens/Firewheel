@@ -16,7 +16,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * Key built-in nodes:
     * [x] volume (minimum value mutes)
     * [ ] stereo panning
-    * [x] sum
+    * [x] mix (sum)
     * [x] mono to stereo
     * [x] stereo to mono
     * [ ] decibel (peak) meter
@@ -197,7 +197,7 @@ This node simply changes the volume. It can also accept anything that implements
 
 This node pans a stereo stream left/right. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
 
-### SumNode
+### MixNode
 
 This node sums streams together into a single stream.
 

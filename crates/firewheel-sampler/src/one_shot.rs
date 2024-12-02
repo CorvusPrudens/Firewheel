@@ -174,7 +174,7 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
         if let Some(&voice_i) = self.active_voices.first() {
             let voice = &mut self.voices[voice_i];
 
-            num_filled_channels = if (voice.paused || !voice.is_playing) && !voice.is_declicking {
+            num_filled_channels = if (voice.paused || voice.stopped) && !voice.is_declicking {
                 0
             } else {
                 voice.process(
@@ -187,21 +187,21 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
                 )
             };
 
-            if voice.is_playing {
-                if !voice.paused && voice.playhead >= voice.len_samples {
-                    // Voice has finished playing, so remove it.
-                    voice.sample = None;
-                    self.voices_free_slots.push(voice_i);
-                } else {
-                    self.tmp_active_voices.push(voice_i);
-                }
-            } else {
+            if voice.stopped {
                 if voice.is_declicking {
                     self.tmp_active_voices.push(voice_i);
                 } else {
                     // Voice has finished being stopped, so remove it.
                     voice.sample = None;
                     self.voices_free_slots.push(voice_i);
+                }
+            } else {
+                if !voice.paused && voice.playhead >= voice.len_samples {
+                    // Voice has finished playing, so remove it.
+                    voice.sample = None;
+                    self.voices_free_slots.push(voice_i);
+                } else {
+                    self.tmp_active_voices.push(voice_i);
                 }
             }
         }
@@ -222,34 +222,32 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
             for &voice_i in self.active_voices.iter().skip(1) {
                 let voice = &mut self.voices[voice_i];
 
-                if (voice.paused || !voice.is_playing) && !voice.is_declicking {
-                    continue;
+                if !((voice.paused || voice.stopped) && !voice.is_declicking) {
+                    num_filled_channels = num_filled_channels.max(voice.process(
+                        outputs,
+                        Some(&mut tmp_buffer),
+                        &mut self.tmp_declick_buffer,
+                        proc_info.samples,
+                        self.mono_to_stereo,
+                        self.declick_filter_coeff,
+                    ));
                 }
 
-                num_filled_channels = num_filled_channels.max(voice.process(
-                    outputs,
-                    Some(&mut tmp_buffer),
-                    &mut self.tmp_declick_buffer,
-                    proc_info.samples,
-                    self.mono_to_stereo,
-                    self.declick_filter_coeff,
-                ));
-
-                if voice.is_playing {
-                    if !voice.paused && voice.playhead >= voice.len_samples {
-                        // Voice has finished playing, so remove it.
-                        voice.sample = None;
-                        self.voices_free_slots.push(voice_i);
-                    } else {
-                        self.tmp_active_voices.push(voice_i);
-                    }
-                } else {
+                if voice.stopped {
                     if voice.is_declicking {
                         self.tmp_active_voices.push(voice_i);
                     } else {
                         // Voice has finished being stopped, so remove it.
                         voice.sample = None;
                         self.voices_free_slots.push(voice_i);
+                    }
+                } else {
+                    if !voice.paused && voice.playhead >= voice.len_samples {
+                        // Voice has finished playing, so remove it.
+                        voice.sample = None;
+                        self.voices_free_slots.push(voice_i);
+                    } else {
+                        self.tmp_active_voices.push(voice_i);
                     }
                 }
             }
@@ -278,7 +276,7 @@ struct Voice {
     len_samples: u64,
     num_channels: NonZeroUsize,
     gain: f32,
-    is_playing: bool,
+    stopped: bool,
     paused: bool,
     is_declicking: bool,
     declick_filter_state: f32,
@@ -294,7 +292,7 @@ impl Voice {
             len_samples: 0,
             num_channels: NonZeroUsize::MIN,
             gain: 1.0,
-            is_playing: false,
+            stopped: false,
             paused: false,
             is_declicking: false,
             declick_filter_state: 1.0,
@@ -307,7 +305,7 @@ impl Voice {
         self.num_channels = sample.num_channels();
         self.sample = Some(Arc::clone(&sample));
         self.gain = gain;
-        self.is_playing = true;
+        self.stopped = false;
         self.paused = false;
         self.playhead = 0;
         self.paused_playhead = 0;
@@ -317,7 +315,7 @@ impl Voice {
     }
 
     fn pause(&mut self) {
-        if !self.is_playing || self.paused {
+        if self.stopped || self.paused {
             return;
         }
 
@@ -334,7 +332,7 @@ impl Voice {
     }
 
     fn resume(&mut self) {
-        if !self.is_playing || !self.paused {
+        if self.stopped || !self.paused {
             return;
         }
 
@@ -351,12 +349,12 @@ impl Voice {
     }
 
     fn stop(&mut self) {
-        if !self.is_playing {
+        if self.stopped {
             return;
         }
 
         self.pause();
-        self.is_playing = false;
+        self.stopped = true;
     }
 
     fn process(
@@ -368,9 +366,12 @@ impl Voice {
         mono_to_stereo: bool,
         declick_filter_coeff: smoothing_filter::Coeff,
     ) -> usize {
-        let Some(sample) = self.sample.as_ref() else {
+        if self.sample.is_none() || self.playhead >= self.len_samples {
+            self.is_declicking = false;
+            self.declick_filter_state = self.declick_filter_target;
             return 0;
-        };
+        }
+        let sample = self.sample.as_ref().unwrap();
 
         let copy_samples = block_samples.min((self.len_samples - self.playhead) as usize);
 
@@ -385,11 +386,11 @@ impl Voice {
         if copy_samples < block_samples {
             if let Some(tmp_buffer) = &mut tmp_buffer {
                 for (_, b) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
-                    b[copy_samples..].fill(0.0);
+                    b[copy_samples..block_samples].fill(0.0);
                 }
             } else {
                 for (_, b) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    b[copy_samples..].fill(0.0);
+                    b[copy_samples..block_samples].fill(0.0);
                 }
             }
         }
@@ -405,20 +406,31 @@ impl Voice {
             );
 
             if let Some(tmp_buffer) = &mut tmp_buffer {
+                for (_, buf) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
+                    for (s, &g) in buf[..block_samples]
+                        .iter_mut()
+                        .zip(tmp_declick_buffer[..block_samples].iter())
+                    {
+                        *s *= self.gain * g;
+                    }
+                }
+
                 for (_, (out_buf, in_buf)) in
                     (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
                 {
-                    for ((os, &ts), &g) in out_buf
+                    for (os, &ts) in out_buf[..block_samples]
                         .iter_mut()
-                        .zip(in_buf.iter())
-                        .zip(tmp_declick_buffer.iter())
+                        .zip(in_buf[..block_samples].iter())
                     {
-                        *os += ts * self.gain * g;
+                        *os += ts;
                     }
                 }
             } else {
                 for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    for (os, &g) in out_buf.iter_mut().zip(tmp_declick_buffer.iter()) {
+                    for (os, &g) in out_buf[..block_samples]
+                        .iter_mut()
+                        .zip(tmp_declick_buffer[..block_samples].iter())
+                    {
                         *os *= self.gain * g;
                     }
                 }
@@ -434,16 +446,27 @@ impl Voice {
             }
         } else {
             if let Some(tmp_buffer) = &mut tmp_buffer {
+                if self.gain != 1.0 {
+                    for (_, buf) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
+                        for s in buf[..block_samples].iter_mut() {
+                            *s *= self.gain;
+                        }
+                    }
+                }
+
                 for (_, (out_buf, in_buf)) in
                     (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
                 {
-                    for (os, &is) in out_buf.iter_mut().zip(in_buf.iter()) {
-                        *os += is * self.gain;
+                    for (os, &ts) in out_buf[..block_samples]
+                        .iter_mut()
+                        .zip(in_buf[..block_samples].iter())
+                    {
+                        *os += ts;
                     }
                 }
             } else if self.gain != 1.0 {
                 for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    for s in out_buf.iter_mut() {
+                    for s in out_buf[..block_samples].iter_mut() {
                         *s *= self.gain;
                     }
                 }
@@ -452,12 +475,15 @@ impl Voice {
 
         if outputs.len() > 1 && num_filled_channels == 1 && mono_to_stereo {
             if let Some(tmp_buffer) = &mut tmp_buffer {
-                for (os, &is) in outputs[1].iter_mut().zip(tmp_buffer[0].iter()) {
+                for (os, &is) in outputs[1][..block_samples]
+                    .iter_mut()
+                    .zip(tmp_buffer[0][..block_samples].iter())
+                {
                     *os += is;
                 }
             } else {
                 let (b1, b2) = outputs.split_first_mut().unwrap();
-                b2[0].copy_from_slice(b1);
+                b2[0][..block_samples].copy_from_slice(&b1[..block_samples]);
             }
 
             num_filled_channels = 2;

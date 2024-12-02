@@ -30,6 +30,7 @@ members = [
     "crates/firewheel-spatial",
     "crates/firewheel-extra",
     "examples/beep_test",
+    "examples/one_shot_sampler",
     "examples/play_sample",
     "examples/visual_node_graph",
 ]

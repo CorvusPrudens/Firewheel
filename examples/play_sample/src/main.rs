@@ -45,10 +45,12 @@ fn main() {
         )
         .unwrap();
     graph
-        .connect(sampler_node, 0, graph.graph_out_node(), 0, false)
-        .unwrap();
-    graph
-        .connect(sampler_node, 1, graph.graph_out_node(), 1, false)
+        .connect(
+            sampler_node,
+            graph.graph_out_node(),
+            &[(0, 0), (1, 1)],
+            false,
+        )
         .unwrap();
 
     graph.queue_event(NodeEvent {

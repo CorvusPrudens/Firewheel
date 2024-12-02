@@ -36,25 +36,8 @@ impl<N> NodeEntry<N> {
     }
 }
 
-/// The index for an input port on a particular [Node].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InPortIdx(pub u32);
-
-impl From<usize> for InPortIdx {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
-
-/// The index for an output port on a particular [Node].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct OutPortIdx(pub u32);
-
-impl From<usize> for OutPortIdx {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
+/// The index of an input/output port on a particular [Node].
+pub type PortIdx = u32;
 
 /// A globally unique identifier for an [Edge].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,11 +51,11 @@ pub struct Edge {
     /// The ID of the source node used by this edge.
     pub src_node: NodeID,
     /// The ID of the source port used by this edge.
-    pub src_port: OutPortIdx,
+    pub src_port: PortIdx,
     /// The ID of the destination node used by this edge.
     pub dst_node: NodeID,
     /// The ID of the destination port used by this edge.
-    pub dst_port: InPortIdx,
+    pub dst_port: PortIdx,
 }
 
 /// A reference to an abstract buffer during buffer allocation.
@@ -318,8 +301,6 @@ impl<'a, N> GraphIR<'a, N> {
             entry.output_buffers.reserve_exact(num_outputs);
 
             for port_idx in 0..num_inputs as u32 {
-                let port_idx = InPortIdx(port_idx);
-
                 let edges: SmallVec<[&Edge; 4]> = node_entry
                     .incoming
                     .iter()
@@ -356,8 +337,6 @@ impl<'a, N> GraphIR<'a, N> {
             }
 
             for port_idx in 0..num_outputs as u32 {
-                let port_idx = OutPortIdx(port_idx);
-
                 let edges: SmallVec<[&Edge; 4]> = node_entry
                     .outgoing
                     .iter()

@@ -9,7 +9,7 @@ use firewheel_core::{
     ChannelConfig, ChannelCount,
 };
 
-use crate::graph::{Edge, EdgeID, InPortIdx, OutPortIdx};
+use crate::graph::{Edge, EdgeID, PortIdx};
 
 /// An error occurred while attempting to add an edge to the graph.
 #[derive(Debug, Clone)]
@@ -21,19 +21,19 @@ pub enum AddEdgeError {
     /// The given input port index is out of range.
     InPortOutOfRange {
         node: NodeID,
-        port_idx: InPortIdx,
+        port_idx: PortIdx,
         num_in_ports: ChannelCount,
     },
     /// The given output port index is out of range.
     OutPortOutOfRange {
         node: NodeID,
-        port_idx: OutPortIdx,
+        port_idx: PortIdx,
         num_out_ports: ChannelCount,
     },
     /// The edge already exists in the graph.
     EdgeAlreadyExists,
     /// The input port is already connected.
-    InputPortAlreadyConnected(NodeID, InPortIdx),
+    InputPortAlreadyConnected(NodeID, PortIdx),
     /// This edge would have created a cycle in the graph.
     CycleDetected,
 }
@@ -110,7 +110,7 @@ pub enum CompileGraphError {
     /// The input data contained multiple edges with the same ID.
     EdgeIDNotUnique(EdgeID),
     /// The input port has more than one connection.
-    ManyToOneError(NodeID, InPortIdx),
+    ManyToOneError(NodeID, PortIdx),
     /// The message channel is full.
     MessageChannelFull,
 }

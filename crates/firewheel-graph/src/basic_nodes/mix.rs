@@ -3,11 +3,11 @@ use firewheel_core::{
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
-pub struct SumNode;
+pub struct MixNode;
 
-impl AudioNode for SumNode {
+impl AudioNode for MixNode {
     fn debug_name(&self) -> &'static str {
-        "sum"
+        "mix"
     }
 
     fn info(&self) -> AudioNodeInfo {
@@ -31,7 +31,7 @@ impl AudioNode for SumNode {
         channel_config: ChannelConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if channel_config.num_inputs.get() % channel_config.num_outputs.get() != 0 {
-            Err(format!("The number of inputs on a SumNode must be a multiple of the number of outputs. Got config: {:?}", channel_config).into())
+            Err(format!("The number of inputs on a MixNode must be a multiple of the number of outputs. Got config: {:?}", channel_config).into())
         } else {
             Ok(())
         }
@@ -44,18 +44,18 @@ impl AudioNode for SumNode {
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
         assert!(channel_config.num_inputs.get() % channel_config.num_outputs.get() == 0);
 
-        Ok(Box::new(SumNodeProcessor {
+        Ok(Box::new(MixNodeProcessor {
             num_in_ports: (channel_config.num_inputs.get() / channel_config.num_outputs.get())
                 as usize,
         }))
     }
 }
 
-struct SumNodeProcessor {
+struct MixNodeProcessor {
     num_in_ports: usize,
 }
 
-impl AudioNodeProcessor for SumNodeProcessor {
+impl AudioNodeProcessor for MixNodeProcessor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
@@ -154,7 +154,7 @@ impl AudioNodeProcessor for SumNodeProcessor {
     }
 }
 
-impl Into<Box<dyn AudioNode>> for SumNode {
+impl Into<Box<dyn AudioNode>> for MixNode {
     fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }

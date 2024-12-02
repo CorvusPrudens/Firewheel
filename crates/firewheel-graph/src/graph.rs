@@ -8,6 +8,7 @@ use std::time::Instant;
 use ahash::{AHashMap, AHashSet};
 use firewheel_core::clock::ClockSeconds;
 use firewheel_core::{ChannelConfig, ChannelCount, StreamInfo};
+use smallvec::SmallVec;
 use thunderdome::Arena;
 
 use crate::basic_nodes::dummy::DummyAudioNode;
@@ -17,7 +18,7 @@ use firewheel_core::node::{AudioNode, NodeEvent, NodeID};
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
-pub use self::compiler::{Edge, EdgeID, InPortIdx, NodeEntry, OutPortIdx};
+pub use self::compiler::{Edge, EdgeID, NodeEntry, PortIdx};
 
 pub struct NodeWeight {
     pub node: Box<dyn AudioNode>,
@@ -28,9 +29,9 @@ pub struct NodeWeight {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 struct EdgeHash {
     pub src_node: NodeID,
-    pub src_port: OutPortIdx,
     pub dst_node: NodeID,
-    pub dst_port: InPortIdx,
+    pub src_port: PortIdx,
+    pub dst_port: PortIdx,
 }
 
 struct ActiveState {
@@ -45,7 +46,7 @@ struct ActiveState {
 pub struct AudioGraph {
     nodes: Arena<NodeEntry<NodeWeight>>,
     edges: Arena<Edge>,
-    connected_input_ports: AHashSet<(NodeID, InPortIdx)>,
+    connected_input_ports: AHashSet<(NodeID, PortIdx)>,
     existing_edges: AHashMap<EdgeHash, EdgeID>,
 
     graph_in_id: NodeID,
@@ -175,12 +176,12 @@ impl AudioGraph {
     ///
     /// This will return the globally unique ID assigned to this node.
     ///
-    /// * `channel_config` - The channel configuration to use for this node. Set
-    /// this to `None` to use the default configuration.
+    /// * `custom_channel_config` - A custom channel configuration to use for
+    /// this node. Set this to `None` to use the default configuration.
     pub fn add_node(
         &mut self,
         mut node: Box<dyn AudioNode>,
-        channel_config: Option<ChannelConfig>,
+        custom_channel_config: Option<ChannelConfig>,
     ) -> Result<NodeID, NodeError> {
         let stream_info = &self.active_state.as_ref().unwrap().stream_info;
 
@@ -191,7 +192,7 @@ impl AudioGraph {
         assert!(info.num_min_supported_inputs <= info.num_max_supported_inputs);
         assert!(info.num_min_supported_outputs <= info.num_max_supported_outputs);
 
-        let channel_config = channel_config.unwrap_or(info.default_channel_config);
+        let channel_config = custom_channel_config.unwrap_or(info.default_channel_config);
 
         if channel_config.num_inputs < info.num_min_supported_inputs
             || channel_config.num_inputs > info.num_max_supported_inputs
@@ -306,17 +307,14 @@ impl AudioGraph {
         let mut removed_edges: Vec<EdgeID> = Vec::new();
 
         for port_idx in 0..node_entry.channel_config.num_inputs.get() {
-            removed_edges
-                .append(&mut self.remove_edges_with_input_port(node_id, InPortIdx(port_idx)));
+            removed_edges.append(&mut self.remove_edges_with_input_port(node_id, port_idx));
         }
         for port_idx in 0..node_entry.channel_config.num_outputs.get() {
-            removed_edges
-                .append(&mut self.remove_edges_with_output_port(node_id, OutPortIdx(port_idx)));
+            removed_edges.append(&mut self.remove_edges_with_output_port(node_id, port_idx));
         }
 
         for port_idx in 0..node_entry.channel_config.num_inputs.get() {
-            self.connected_input_ports
-                .remove(&(node_id, InPortIdx(port_idx)));
+            self.connected_input_ports.remove(&(node_id, port_idx));
         }
 
         self.nodes_to_remove_from_schedule.push(node_id);
@@ -356,8 +354,7 @@ impl AudioGraph {
             if channel_config.num_inputs < old_num_inputs {
                 for port_idx in channel_config.num_inputs.get()..old_num_inputs.get() {
                     removed_edges.append(
-                        &mut self
-                            .remove_edges_with_output_port(self.graph_in_id, OutPortIdx(port_idx)),
+                        &mut self.remove_edges_with_output_port(self.graph_in_id, port_idx),
                     );
                 }
             }
@@ -374,11 +371,10 @@ impl AudioGraph {
             if channel_config.num_outputs < old_num_outputs {
                 for port_idx in channel_config.num_outputs.get()..old_num_outputs.get() {
                     removed_edges.append(
-                        &mut self
-                            .remove_edges_with_input_port(self.graph_out_id, InPortIdx(port_idx)),
+                        &mut self.remove_edges_with_input_port(self.graph_out_id, port_idx),
                     );
                     self.connected_input_ports
-                        .remove(&(self.graph_out_id, InPortIdx(port_idx)));
+                        .remove(&(self.graph_out_id, port_idx));
                 }
             }
 
@@ -388,36 +384,30 @@ impl AudioGraph {
         Ok(removed_edges)
     }
 
-    /// Add a connection (edge) to the graph.
+    /// Add connections (edges) between two nodes to the graph.
     ///
-    /// * `src_node_id` - The ID of the source node.
-    /// * `src_port_idx` - The index of the source port. This must be an output
-    /// port on the source node.
-    /// * `dst_node_id` - The ID of the destination node.
-    /// * `dst_port_idx` - The index of the destination port. This must be an
-    /// input port on the destination node.
+    /// * `src_node` - The ID of the source node.
+    /// * `dst_node` - The ID of the destination node.
+    /// * `ports_src_dst` - The port indices for each connection to make,
+    /// where the first value in a tuple is the output port on `src_node`,
+    /// and the second value in that tuple is the input port on `dst_node`.
     /// * `check_for_cycles` - If `true`, then this will run a check to
-    /// see if adding this edge will create a cycle in the graph, and
+    /// see if adding these edges will create a cycle in the graph, and
     /// return an error if it does. Note, checking for cycles can be quite
     /// expensive, so avoid enabling this when calling this method many times
     /// in a row.
     ///
-    /// If successful, this returns the globally unique identifier assigned
-    /// to this edge.
+    /// If successful, then this returns a list of edge IDs in order.
     ///
     /// If this returns an error, then the audio graph has not been
     /// modified.
     pub fn connect(
         &mut self,
         src_node: NodeID,
-        src_port: impl Into<OutPortIdx>,
         dst_node: NodeID,
-        dst_port: impl Into<InPortIdx>,
+        ports_src_dst: &[(PortIdx, PortIdx)],
         check_for_cycles: bool,
-    ) -> Result<EdgeID, AddEdgeError> {
-        let src_port: OutPortIdx = src_port.into();
-        let dst_port: InPortIdx = dst_port.into();
-
+    ) -> Result<SmallVec<[EdgeID; 8]>, AddEdgeError> {
         let src_node_entry = self
             .nodes
             .get(src_node.idx)
@@ -427,59 +417,79 @@ impl AudioGraph {
             .get(dst_node.idx)
             .ok_or(AddEdgeError::DstNodeNotFound(dst_node))?;
 
-        if src_port.0 >= src_node_entry.channel_config.num_outputs.get() {
-            return Err(AddEdgeError::OutPortOutOfRange {
-                node: src_node,
-                port_idx: src_port,
-                num_out_ports: src_node_entry.channel_config.num_outputs,
-            });
-        }
-        if dst_port.0 >= dst_node_entry.channel_config.num_inputs.get() {
-            return Err(AddEdgeError::InPortOutOfRange {
-                node: dst_node,
-                port_idx: dst_port,
-                num_in_ports: dst_node_entry.channel_config.num_inputs,
-            });
-        }
-
         if src_node.idx == dst_node.idx {
             return Err(AddEdgeError::CycleDetected);
         }
 
-        if self.existing_edges.contains_key(&EdgeHash {
-            src_node,
-            src_port,
-            dst_node,
-            dst_port,
-        }) {
-            return Err(AddEdgeError::EdgeAlreadyExists);
-        }
+        for (src_port, dst_port) in ports_src_dst.iter().copied() {
+            if src_port >= src_node_entry.channel_config.num_outputs.get() {
+                return Err(AddEdgeError::OutPortOutOfRange {
+                    node: src_node,
+                    port_idx: src_port,
+                    num_out_ports: src_node_entry.channel_config.num_outputs,
+                });
+            }
+            if dst_port >= dst_node_entry.channel_config.num_inputs.get() {
+                return Err(AddEdgeError::InPortOutOfRange {
+                    node: dst_node,
+                    port_idx: dst_port,
+                    num_in_ports: dst_node_entry.channel_config.num_inputs,
+                });
+            }
 
-        if !self.connected_input_ports.insert((dst_node, dst_port)) {
-            return Err(AddEdgeError::InputPortAlreadyConnected(dst_node, dst_port));
-        }
-
-        let new_edge_id = EdgeID(self.edges.insert(Edge {
-            id: EdgeID(thunderdome::Index::DANGLING),
-            src_node,
-            src_port,
-            dst_node,
-            dst_port,
-        }));
-        self.edges[new_edge_id.0].id = new_edge_id;
-        self.existing_edges.insert(
-            EdgeHash {
+            if self.existing_edges.contains_key(&EdgeHash {
                 src_node,
                 src_port,
                 dst_node,
                 dst_port,
-            },
-            new_edge_id,
-        );
+            }) {
+                return Err(AddEdgeError::EdgeAlreadyExists);
+            }
+
+            if self.connected_input_ports.contains(&(dst_node, dst_port)) {
+                return Err(AddEdgeError::InputPortAlreadyConnected(dst_node, dst_port));
+            }
+        }
+
+        let mut edge_ids = SmallVec::new();
+
+        for (src_port, dst_port) in ports_src_dst.iter().copied() {
+            if self.existing_edges.contains_key(&EdgeHash {
+                src_node,
+                src_port,
+                dst_node,
+                dst_port,
+            }) {
+                // The caller gave us more than one of the same edge.
+                continue;
+            }
+
+            self.connected_input_ports.insert((dst_node, dst_port));
+
+            let new_edge_id = EdgeID(self.edges.insert(Edge {
+                id: EdgeID(thunderdome::Index::DANGLING),
+                src_node,
+                src_port,
+                dst_node,
+                dst_port,
+            }));
+            self.edges[new_edge_id.0].id = new_edge_id;
+            self.existing_edges.insert(
+                EdgeHash {
+                    src_node,
+                    src_port,
+                    dst_node,
+                    dst_port,
+                },
+                new_edge_id,
+            );
+
+            edge_ids.push(new_edge_id);
+        }
 
         if check_for_cycles {
             if self.cycle_detected() {
-                self.edges.remove(new_edge_id.0);
+                self.disconnect(src_node, dst_node, ports_src_dst);
 
                 return Err(AddEdgeError::CycleDetected);
             }
@@ -487,37 +497,45 @@ impl AudioGraph {
 
         self.needs_compile = true;
 
-        Ok(new_edge_id)
+        Ok(edge_ids)
     }
 
-    /// Remove a connection (edge) from the graph.
+    /// Remove connections (edges) between two nodes from the graph.
     ///
-    /// If the edge did not exist in the graph, then `false` will be
+    /// * `src_node` - The ID of the source node.
+    /// * `dst_node` - The ID of the destination node.
+    /// * `ports_src_dst` - The port indices for each connection to make,
+    /// where the first value in a tuple is the output port on `src_node`,
+    /// and the second value in that tuple is the input port on `dst_node`.
+    ///
+    /// If none of the edges existed in the graph, then `false` will be
     /// returned.
     pub fn disconnect(
         &mut self,
         src_node: NodeID,
-        src_port: impl Into<OutPortIdx>,
         dst_node: NodeID,
-        dst_port: impl Into<InPortIdx>,
+        ports_src_dst: &[(PortIdx, PortIdx)],
     ) -> bool {
-        if let Some(edge_id) = self.existing_edges.remove(&EdgeHash {
-            src_node,
-            src_port: src_port.into(),
-            dst_node,
-            dst_port: dst_port.into(),
-        }) {
-            self.disconnect_by_edge_id(edge_id);
-            true
-        } else {
-            false
+        let mut any_removed = false;
+
+        for (src_port, dst_port) in ports_src_dst.iter().copied() {
+            if let Some(edge_id) = self.existing_edges.remove(&EdgeHash {
+                src_node,
+                src_port: src_port.into(),
+                dst_node,
+                dst_port: dst_port.into(),
+            }) {
+                self.disconnect_by_edge_id(edge_id);
+                any_removed = true;
+            }
         }
+
+        any_removed
     }
 
-    /// Remove a connection (edge) from the graph by the [EdgeID].
+    /// Remove a connection (edge) via the edge's unique ID.
     ///
-    /// If the edge did not exist in the graph, then `false` will be
-    /// returned.
+    /// If the edge did not exist in this graph, then `false` will be returned.
     pub fn disconnect_by_edge_id(&mut self, edge_id: EdgeID) -> bool {
         if let Some(edge) = self.edges.remove(edge_id.0) {
             self.existing_edges.remove(&EdgeHash {
@@ -542,11 +560,7 @@ impl AudioGraph {
         self.edges.get(edge_id.0)
     }
 
-    fn remove_edges_with_input_port(
-        &mut self,
-        node_id: NodeID,
-        port_idx: InPortIdx,
-    ) -> Vec<EdgeID> {
+    fn remove_edges_with_input_port(&mut self, node_id: NodeID, port_idx: PortIdx) -> Vec<EdgeID> {
         let mut edges_to_remove: Vec<EdgeID> = Vec::new();
 
         // Remove all existing edges which have this port.
@@ -563,11 +577,7 @@ impl AudioGraph {
         edges_to_remove
     }
 
-    fn remove_edges_with_output_port(
-        &mut self,
-        node_id: NodeID,
-        port_idx: OutPortIdx,
-    ) -> Vec<EdgeID> {
+    fn remove_edges_with_output_port(&mut self, node_id: NodeID, port_idx: PortIdx) -> Vec<EdgeID> {
         let mut edges_to_remove: Vec<EdgeID> = Vec::new();
 
         // Remove all existing edges which have this port.
