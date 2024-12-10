@@ -6,8 +6,10 @@ use thunderdome::Arena;
 use crate::graph::{NodeHeapData, ScheduleHeapData};
 use firewheel_core::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
+    dsp::declick::DeclickValues,
     node::{
-        AudioNodeProcessor, NodeEvent, NodeEventType, NodeID, ProcInfo, ProcessStatus, StreamStatus,
+        AudioNodeProcessor, NodeEvent, NodeEventType, NodeID, ProcInfo, ProcessStatus,
+        StreamStatus, NUM_SCRATCH_BUFFERS,
     },
     ChannelCount, SilenceMask, StreamInfo,
 };
@@ -44,6 +46,9 @@ pub struct FirewheelProcessor {
     sample_rate: f64,
     sample_rate_recip: f64,
     hard_clip_outputs: bool,
+
+    scratch_buffers: Vec<f32>,
+    declick_values: DeclickValues,
 }
 
 impl FirewheelProcessor {
@@ -54,9 +59,17 @@ impl FirewheelProcessor {
         node_capacity: usize,
         stream_info: StreamInfo,
         hard_clip_outputs: bool,
+        declick_seconds: f32,
     ) -> Self {
         let sample_rate = f64::from(stream_info.sample_rate);
         let sample_rate_recip = sample_rate.recip();
+
+        let mut scratch_buffers = Vec::new();
+        scratch_buffers.reserve_exact(NUM_SCRATCH_BUFFERS * stream_info.max_block_samples as usize);
+        scratch_buffers.resize(
+            NUM_SCRATCH_BUFFERS * stream_info.max_block_samples as usize,
+            0.0,
+        );
 
         Self {
             nodes: Arena::with_capacity(node_capacity * 2),
@@ -71,6 +84,8 @@ impl FirewheelProcessor {
             sample_rate,
             sample_rate_recip,
             hard_clip_outputs,
+            scratch_buffers,
+            declick_values: DeclickValues::new(declick_seconds, stream_info.sample_rate),
         }
     }
 
@@ -402,6 +417,26 @@ impl FirewheelProcessor {
             }
         }
 
+        // Prepare scratch buffers.
+        let mut scratch_buffers: [&mut [f32]; NUM_SCRATCH_BUFFERS] = std::array::from_fn(|i| {
+            // SAFETY:
+            //
+            // * `self.scratch_buffers` was initialized with a length of
+            // `NUM_SCRATCH_BUFFERS * max_block_samples` in the constructor.
+            // * The resulting slices do not overlap.
+            // * `self.scratch_buffers` is never written to or read from, so
+            // it is safe to write to these slices.
+            unsafe {
+                std::slice::from_raw_parts_mut(
+                    self.scratch_buffers
+                        .as_ptr()
+                        .add(i * self.stream_info.max_block_samples as usize)
+                        as *mut f32,
+                    self.stream_info.max_block_samples as usize,
+                )
+            }
+        });
+
         schedule_data.schedule.process(
             block_samples,
             |node_id: NodeID,
@@ -417,6 +452,8 @@ impl FirewheelProcessor {
                     out_silence_mask,
                     inputs,
                     outputs,
+                    &mut scratch_buffers,
+                    &self.declick_values,
                     block_samples,
                     clock_samples,
                     clock_seconds.start,
@@ -434,9 +471,13 @@ impl Drop for FirewheelProcessor {
         let mut nodes = Arena::new();
         std::mem::swap(&mut nodes, &mut self.nodes);
 
+        let mut s = Vec::new();
+        std::mem::swap(&mut s, &mut self.scratch_buffers);
+
         let _ = self.to_graph_tx.push(ProcessorToContextMsg::Dropped {
             nodes,
             _schedule_data: self.schedule_data.take(),
+            _scratch_buffers: s,
         });
     }
 }
@@ -455,6 +496,7 @@ pub(crate) enum ProcessorToContextMsg {
     Dropped {
         nodes: Arena<NodeEntry>,
         _schedule_data: Option<Box<ScheduleHeapData>>,
+        _scratch_buffers: Vec<f32>,
     },
 }
 
@@ -465,6 +507,8 @@ fn process_node(
     out_silence_mask: SilenceMask,
     inputs: &[&[f32]],
     outputs: &mut [&mut [f32]],
+    scratch_buffers: &mut [&mut [f32]; 16],
+    declick_values: &DeclickValues,
     block_samples: usize,
     clock_samples: ClockSamples,
     clock_seconds: ClockSeconds,
@@ -494,6 +538,8 @@ fn process_node(
                 clock_samples,
                 clock_seconds,
                 stream_status,
+                scratch_buffers,
+                declick_values,
             },
         );
 
@@ -514,6 +560,8 @@ fn process_node(
             out_silence_mask,
             inputs,
             outputs,
+            scratch_buffers,
+            declick_values,
             block_samples,
             clock_samples,
             clock_seconds,
@@ -532,6 +580,8 @@ fn process_node_sub_blocks(
     out_silence_mask: SilenceMask,
     inputs: &[&[f32]],
     outputs: &mut [&mut [f32]],
+    scratch_buffers: &mut [&mut [f32]; 16],
+    declick_values: &DeclickValues,
     block_samples: usize,
     clock_samples: ClockSamples,
     clock_seconds: ClockSeconds,
@@ -564,6 +614,8 @@ fn process_node_sub_blocks(
                 clock_seconds: clock_seconds
                     + ClockSeconds(samples_processed as f64 * sample_rate_recip),
                 stream_status,
+                scratch_buffers,
+                declick_values,
             },
         );
 

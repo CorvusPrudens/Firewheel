@@ -233,9 +233,13 @@ impl CompiledSchedule {
         num_buffers: usize,
         max_block_samples: usize,
     ) -> Self {
+        let mut buffers = Vec::new();
+        buffers.reserve_exact(num_buffers * max_block_samples);
+        buffers.resize(num_buffers * max_block_samples, 0.0);
+
         Self {
             schedule,
-            buffers: vec![0.0; num_buffers * max_block_samples],
+            buffers,
             buffer_silence_flags: vec![false; num_buffers],
             num_buffers,
             max_block_samples,

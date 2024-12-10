@@ -7,7 +7,7 @@ use clap::Parser;
 use firewheel::{
     clock::EventDelay,
     node::{NodeEvent, NodeEventType},
-    sampler::one_shot::{OneShotSamplerNode, DEFAULT_MAX_VOICES},
+    sampler::one_shot::OneShotSamplerNode,
     FirewheelCpalCtx, UpdateStatus,
 };
 use symphonium::SymphoniumLoader;
@@ -39,10 +39,7 @@ fn main() {
 
     let graph = cx.graph_mut().unwrap();
     let sampler_node = graph
-        .add_node(
-            OneShotSamplerNode::<DEFAULT_MAX_VOICES>::new(Default::default()).into(),
-            None,
-        )
+        .add_node(OneShotSamplerNode::new(Default::default()).into(), None)
         .unwrap();
     graph
         .connect(

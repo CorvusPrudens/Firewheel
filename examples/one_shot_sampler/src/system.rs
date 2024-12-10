@@ -6,7 +6,7 @@ use firewheel::{
     graph::AudioGraph,
     node::{NodeEvent, NodeEventType, NodeID},
     sample_resource::SampleResource,
-    sampler::one_shot::{OneShotSamplerNode, DEFAULT_MAX_VOICES},
+    sampler::one_shot::OneShotSamplerNode,
     ChannelConfig, FirewheelCpalCtx, UpdateStatus,
 };
 use symphonium::SymphoniumLoader;
@@ -116,12 +116,7 @@ impl AudioSystem {
                         .unwrap();
 
                 let node_id = graph
-                    .add_node(
-                        Box::new(OneShotSamplerNode::<DEFAULT_MAX_VOICES>::new(
-                            Default::default(),
-                        )),
-                        None,
-                    )
+                    .add_node(Box::new(OneShotSamplerNode::new(Default::default())), None)
                     .unwrap();
                 graph
                     .connect(

@@ -1,22 +1,22 @@
-use std::{num::NonZeroUsize, sync::Arc};
+use std::num::NonZeroU32;
 
-use arrayvec::ArrayVec;
 use firewheel_core::{
-    dsp::{decibel::normalized_volume_to_raw_gain, smoothing_filter},
+    dsp::decibel::normalized_volume_to_raw_gain,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
     },
-    sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
+use smallvec::SmallVec;
 
-pub const DEFAULT_MAX_VOICES: usize = 8;
+use crate::{voice::SamplerVoice, MAX_OUT_CHANNELS};
 
-const MAX_OUT_CHANNELS: usize = 8;
+pub const STATIC_ALLOC_VOICES: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OneShotSamplerConfig {
+    pub max_voices: NonZeroU32,
     pub declick_duration_seconds: f32,
     pub mono_to_stereo: bool,
 }
@@ -24,23 +24,24 @@ pub struct OneShotSamplerConfig {
 impl Default for OneShotSamplerConfig {
     fn default() -> Self {
         Self {
-            declick_duration_seconds: smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+            max_voices: NonZeroU32::new(STATIC_ALLOC_VOICES as u32).unwrap(),
+            declick_duration_seconds: 3.0 / 1_000.0,
             mono_to_stereo: true,
         }
     }
 }
 
-pub struct OneShotSamplerNode<const MAX_VOICES: usize> {
+pub struct OneShotSamplerNode {
     config: OneShotSamplerConfig,
 }
 
-impl<const MAX_VOICES: usize> OneShotSamplerNode<MAX_VOICES> {
+impl OneShotSamplerNode {
     pub fn new(config: OneShotSamplerConfig) -> Self {
         Self { config }
     }
 }
 
-impl<const MAX_VOICES: usize> AudioNode for OneShotSamplerNode<MAX_VOICES> {
+impl AudioNode for OneShotSamplerNode {
     fn debug_name(&self) -> &'static str {
         "one_shot_sampler"
     }
@@ -66,44 +67,48 @@ impl<const MAX_VOICES: usize> AudioNode for OneShotSamplerNode<MAX_VOICES> {
         stream_info: &StreamInfo,
         channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        Ok(Box::new(OneShotSamplerProcessor::<MAX_VOICES> {
-            declick_filter_coeff: smoothing_filter::Coeff::new(
-                stream_info.sample_rate,
-                self.config.declick_duration_seconds,
-            ),
-            voices: std::array::from_fn(|_| Voice::new()),
-            voices_free_slots: (0..MAX_VOICES).collect(),
-            active_voices: ArrayVec::new(),
-            tmp_active_voices: ArrayVec::new(),
-            mono_to_stereo: self.config.mono_to_stereo,
-            tmp_buffer: (0..channel_config.num_outputs.get())
-                .map(|_| vec![0.0; stream_info.max_block_samples as usize])
-                .collect(),
-            tmp_declick_buffer: vec![0.0; stream_info.max_block_samples as usize],
-        }))
+        Ok(Box::new(OneShotSamplerProcessor::new(
+            stream_info,
+            channel_config.num_outputs.get() as usize,
+            &self.config,
+        )))
     }
 }
 
-impl<const MAX_VOICES: usize> Into<Box<dyn AudioNode>> for OneShotSamplerNode<MAX_VOICES> {
+impl Into<Box<dyn AudioNode>> for OneShotSamplerNode {
     fn into(self) -> Box<dyn AudioNode> {
         Box::new(self)
     }
 }
 
-struct OneShotSamplerProcessor<const MAX_VOICES: usize> {
-    voices: [Voice; MAX_VOICES],
-    voices_free_slots: ArrayVec<usize, MAX_VOICES>,
-    active_voices: ArrayVec<usize, MAX_VOICES>,
-    tmp_active_voices: ArrayVec<usize, MAX_VOICES>,
+struct OneShotSamplerProcessor {
+    voices: SmallVec<[OneShotVoiceState; STATIC_ALLOC_VOICES]>,
+    voices_free_slots: SmallVec<[usize; STATIC_ALLOC_VOICES]>,
+    active_voices: SmallVec<[usize; STATIC_ALLOC_VOICES]>,
+    tmp_active_voices: SmallVec<[usize; STATIC_ALLOC_VOICES]>,
 
-    declick_filter_coeff: smoothing_filter::Coeff,
     mono_to_stereo: bool,
-
-    tmp_buffer: Vec<Vec<f32>>,
-    tmp_declick_buffer: Vec<f32>,
 }
 
-impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX_VOICES> {
+impl OneShotSamplerProcessor {
+    fn new(
+        _stream_info: &StreamInfo,
+        _num_out_channels: usize,
+        config: &OneShotSamplerConfig,
+    ) -> Self {
+        let max_voices = config.max_voices.get() as usize;
+
+        Self {
+            voices: (0..max_voices).map(|_| OneShotVoiceState::new()).collect(),
+            voices_free_slots: (0..max_voices).collect(),
+            active_voices: SmallVec::with_capacity(max_voices),
+            tmp_active_voices: SmallVec::with_capacity(max_voices),
+            mono_to_stereo: config.mono_to_stereo,
+        }
+    }
+}
+
+impl AudioNodeProcessor for OneShotSamplerProcessor {
     fn process(
         &mut self,
         _inputs: &[&[f32]],
@@ -115,17 +120,17 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
             match msg {
                 NodeEventType::Pause => {
                     for &voice_i in self.active_voices.iter() {
-                        self.voices[voice_i].pause();
+                        self.voices[voice_i].voice.pause(proc_info.declick_values);
                     }
                 }
                 NodeEventType::Resume => {
                     for &voice_i in self.active_voices.iter() {
-                        self.voices[voice_i].resume();
+                        self.voices[voice_i].voice.resume(proc_info.declick_values);
                     }
                 }
                 NodeEventType::Stop => {
                     for &voice_i in self.active_voices.iter() {
-                        self.voices[voice_i].stop();
+                        self.voices[voice_i].voice.stop(proc_info.declick_values);
                     }
                 }
                 NodeEventType::PlaySample {
@@ -135,7 +140,7 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
                 } => {
                     if *stop_other_voices {
                         for &voice_i in self.active_voices.iter() {
-                            self.voices[voice_i].stop();
+                            self.voices[voice_i].voice.stop(proc_info.declick_values);
                         }
                     }
 
@@ -154,11 +159,13 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
                         // Steal the oldest voice.
                         self.voices
                             .iter_mut()
-                            .max_by(|a, b| a.playhead.cmp(&b.playhead))
+                            .max_by(|a, b| a.voice.playhead().cmp(&b.voice.playhead()))
                             .unwrap()
                     };
 
-                    voice.start(sample, gain);
+                    voice.gain = gain;
+                    voice.voice.init_with_sample(sample, 0);
+                    voice.voice.resume(proc_info.declick_values);
                 }
                 _ => {}
             }
@@ -174,86 +181,82 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
         if let Some(&voice_i) = self.active_voices.first() {
             let voice = &mut self.voices[voice_i];
 
-            num_filled_channels = if (voice.paused || voice.stopped) && !voice.is_declicking {
-                0
-            } else {
-                voice.process(
-                    outputs,
-                    None,
-                    &mut self.tmp_declick_buffer,
-                    proc_info.samples,
-                    self.mono_to_stereo,
-                    self.declick_filter_coeff,
-                )
-            };
+            num_filled_channels = voice.voice.process(
+                outputs,
+                proc_info.samples,
+                false,
+                proc_info.declick_values,
+            );
 
-            if voice.stopped {
-                if voice.is_declicking {
-                    self.tmp_active_voices.push(voice_i);
-                } else {
-                    // Voice has finished being stopped, so remove it.
-                    voice.sample = None;
-                    self.voices_free_slots.push(voice_i);
+            if voice.gain != 1.0 {
+                for b in outputs[..num_filled_channels].iter_mut() {
+                    for s in b[..proc_info.samples].iter_mut() {
+                        *s *= voice.gain;
+                    }
                 }
+            }
+
+            if self.mono_to_stereo && outputs.len() > 1 && num_filled_channels == 1 {
+                let (b1, b2) = outputs.split_first_mut().unwrap();
+                b2[0][..proc_info.samples].copy_from_slice(&b1[..proc_info.samples]);
+                num_filled_channels = 2;
+            }
+
+            if voice.voice.is_finished() {
+                voice.voice.clear_sample();
+                self.voices_free_slots.push(voice_i);
             } else {
-                if !voice.paused && voice.playhead >= voice.len_samples {
-                    // Voice has finished playing, so remove it.
-                    voice.sample = None;
-                    self.voices_free_slots.push(voice_i);
-                } else {
-                    self.tmp_active_voices.push(voice_i);
-                }
+                self.tmp_active_voices.push(voice_i);
             }
         }
 
         for (i, out_buf) in outputs.iter_mut().enumerate().skip(num_filled_channels) {
             if !proc_info.out_silence_mask.is_channel_silent(i) {
-                out_buf.fill(0.0);
+                out_buf[..proc_info.samples].fill(0.0);
             }
         }
 
         if self.active_voices.len() > 1 {
-            let mut tmp_buffer: ArrayVec<&mut [f32], MAX_OUT_CHANNELS> = self
-                .tmp_buffer
-                .iter_mut()
-                .map(|b| b.as_mut_slice())
-                .collect();
-
             for &voice_i in self.active_voices.iter().skip(1) {
                 let voice = &mut self.voices[voice_i];
 
-                if !((voice.paused || voice.stopped) && !voice.is_declicking) {
-                    num_filled_channels = num_filled_channels.max(voice.process(
-                        outputs,
-                        Some(&mut tmp_buffer),
-                        &mut self.tmp_declick_buffer,
-                        proc_info.samples,
-                        self.mono_to_stereo,
-                        self.declick_filter_coeff,
-                    ));
+                let mut n_channels = voice.voice.process(
+                    &mut proc_info.scratch_buffers[..outputs.len()],
+                    proc_info.samples,
+                    false,
+                    proc_info.declick_values,
+                );
+
+                if self.mono_to_stereo && outputs.len() > 1 && n_channels == 1 {
+                    let (b1, b2) = proc_info.scratch_buffers.split_first_mut().unwrap();
+                    b2[0][..proc_info.samples].copy_from_slice(&b1[..proc_info.samples]);
+                    n_channels = 2;
                 }
 
-                if voice.stopped {
-                    if voice.is_declicking {
-                        self.tmp_active_voices.push(voice_i);
-                    } else {
-                        // Voice has finished being stopped, so remove it.
-                        voice.sample = None;
-                        self.voices_free_slots.push(voice_i);
+                for (out_buf, s_buf) in outputs[..n_channels]
+                    .iter_mut()
+                    .zip(proc_info.scratch_buffers[..n_channels].iter())
+                {
+                    for (os, &ss) in out_buf[..proc_info.samples]
+                        .iter_mut()
+                        .zip(s_buf[..proc_info.samples].iter())
+                    {
+                        *os += ss * voice.gain;
                     }
+                }
+
+                num_filled_channels = num_filled_channels.max(n_channels);
+
+                if voice.voice.is_finished() {
+                    voice.voice.clear_sample();
+                    self.voices_free_slots.push(voice_i);
                 } else {
-                    if !voice.paused && voice.playhead >= voice.len_samples {
-                        // Voice has finished playing, so remove it.
-                        voice.sample = None;
-                        self.voices_free_slots.push(voice_i);
-                    } else {
-                        self.tmp_active_voices.push(voice_i);
-                    }
+                    self.tmp_active_voices.push(voice_i);
                 }
             }
         }
 
-        self.active_voices = self.tmp_active_voices.clone();
+        std::mem::swap(&mut self.active_voices, &mut self.tmp_active_voices);
 
         let out_silence_mask = if num_filled_channels >= outputs.len() {
             SilenceMask::NONE_SILENT
@@ -269,226 +272,16 @@ impl<const MAX_VOICES: usize> AudioNodeProcessor for OneShotSamplerProcessor<MAX
     }
 }
 
-struct Voice {
-    sample: Option<Arc<dyn SampleResource>>,
-    playhead: u64,
-    paused_playhead: u64,
-    len_samples: u64,
-    num_channels: NonZeroUsize,
+struct OneShotVoiceState {
+    voice: SamplerVoice,
     gain: f32,
-    stopped: bool,
-    paused: bool,
-    is_declicking: bool,
-    declick_filter_state: f32,
-    declick_filter_target: f32,
 }
 
-impl Voice {
+impl OneShotVoiceState {
     fn new() -> Self {
         Self {
-            sample: None,
-            playhead: 0,
-            paused_playhead: 0,
-            len_samples: 0,
-            num_channels: NonZeroUsize::MIN,
+            voice: SamplerVoice::new(),
             gain: 1.0,
-            stopped: false,
-            paused: false,
-            is_declicking: false,
-            declick_filter_state: 1.0,
-            declick_filter_target: 1.0,
         }
-    }
-
-    fn start(&mut self, sample: &Arc<dyn SampleResource>, gain: f32) {
-        self.len_samples = sample.len_samples();
-        self.num_channels = sample.num_channels();
-        self.sample = Some(Arc::clone(&sample));
-        self.gain = gain;
-        self.stopped = false;
-        self.paused = false;
-        self.playhead = 0;
-        self.paused_playhead = 0;
-        self.is_declicking = false;
-        self.declick_filter_state = 1.0;
-        self.declick_filter_target = 1.0;
-    }
-
-    fn pause(&mut self) {
-        if self.stopped || self.paused {
-            return;
-        }
-
-        self.paused = true;
-        self.paused_playhead = self.playhead;
-        self.declick_filter_target = 0.0;
-
-        if self.playhead == 0 {
-            // The sample hasn't event begun playing yet, so no need to declick.
-            self.declick_filter_state = 0.0;
-        }
-
-        self.is_declicking = self.declick_filter_state != self.declick_filter_target;
-    }
-
-    fn resume(&mut self) {
-        if self.stopped || !self.paused {
-            return;
-        }
-
-        self.paused = false;
-        self.playhead = self.paused_playhead;
-        self.declick_filter_target = 1.0;
-
-        if self.playhead == 0 {
-            // The sample hasn't event begun playing yet, so no need to declick.
-            self.declick_filter_state = 1.0;
-        }
-
-        self.is_declicking = self.declick_filter_state != self.declick_filter_target;
-    }
-
-    fn stop(&mut self) {
-        if self.stopped {
-            return;
-        }
-
-        self.pause();
-        self.stopped = true;
-    }
-
-    fn process(
-        &mut self,
-        outputs: &mut [&mut [f32]],
-        mut tmp_buffer: Option<&mut [&mut [f32]]>,
-        tmp_declick_buffer: &mut [f32],
-        block_samples: usize,
-        mono_to_stereo: bool,
-        declick_filter_coeff: smoothing_filter::Coeff,
-    ) -> usize {
-        if self.sample.is_none() || self.playhead >= self.len_samples {
-            self.is_declicking = false;
-            self.declick_filter_state = self.declick_filter_target;
-            return 0;
-        }
-        let sample = self.sample.as_ref().unwrap();
-
-        let copy_samples = block_samples.min((self.len_samples - self.playhead) as usize);
-
-        if let Some(tmp_buffer) = &mut tmp_buffer {
-            sample.fill_buffers(tmp_buffer, 0..copy_samples, self.playhead);
-        } else {
-            sample.fill_buffers(outputs, 0..copy_samples, self.playhead);
-        }
-
-        let mut num_filled_channels = self.num_channels.get().min(outputs.len());
-
-        if copy_samples < block_samples {
-            if let Some(tmp_buffer) = &mut tmp_buffer {
-                for (_, b) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
-                    b[copy_samples..block_samples].fill(0.0);
-                }
-            } else {
-                for (_, b) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    b[copy_samples..block_samples].fill(0.0);
-                }
-            }
-        }
-
-        self.playhead += block_samples as u64;
-
-        if self.is_declicking {
-            self.declick_filter_state = smoothing_filter::process_into_buffer(
-                &mut tmp_declick_buffer[..block_samples],
-                self.declick_filter_state,
-                self.declick_filter_target,
-                declick_filter_coeff,
-            );
-
-            if let Some(tmp_buffer) = &mut tmp_buffer {
-                for (_, buf) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
-                    for (s, &g) in buf[..block_samples]
-                        .iter_mut()
-                        .zip(tmp_declick_buffer[..block_samples].iter())
-                    {
-                        *s *= self.gain * g;
-                    }
-                }
-
-                for (_, (out_buf, in_buf)) in
-                    (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
-                {
-                    for (os, &ts) in out_buf[..block_samples]
-                        .iter_mut()
-                        .zip(in_buf[..block_samples].iter())
-                    {
-                        *os += ts;
-                    }
-                }
-            } else {
-                for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    for (os, &g) in out_buf[..block_samples]
-                        .iter_mut()
-                        .zip(tmp_declick_buffer[..block_samples].iter())
-                    {
-                        *os *= self.gain * g;
-                    }
-                }
-            }
-
-            if smoothing_filter::has_settled(
-                self.declick_filter_state,
-                self.declick_filter_target,
-                smoothing_filter::DEFAULT_SETTLE_EPSILON,
-            ) {
-                self.declick_filter_state = self.declick_filter_target;
-                self.is_declicking = false;
-            }
-        } else {
-            if let Some(tmp_buffer) = &mut tmp_buffer {
-                if self.gain != 1.0 {
-                    for (_, buf) in (0..num_filled_channels).zip(tmp_buffer.iter_mut()) {
-                        for s in buf[..block_samples].iter_mut() {
-                            *s *= self.gain;
-                        }
-                    }
-                }
-
-                for (_, (out_buf, in_buf)) in
-                    (0..num_filled_channels).zip(outputs.iter_mut().zip(tmp_buffer.iter()))
-                {
-                    for (os, &ts) in out_buf[..block_samples]
-                        .iter_mut()
-                        .zip(in_buf[..block_samples].iter())
-                    {
-                        *os += ts;
-                    }
-                }
-            } else if self.gain != 1.0 {
-                for (_, out_buf) in (0..num_filled_channels).zip(outputs.iter_mut()) {
-                    for s in out_buf[..block_samples].iter_mut() {
-                        *s *= self.gain;
-                    }
-                }
-            }
-        }
-
-        if outputs.len() > 1 && num_filled_channels == 1 && mono_to_stereo {
-            if let Some(tmp_buffer) = &mut tmp_buffer {
-                for (os, &is) in outputs[1][..block_samples]
-                    .iter_mut()
-                    .zip(tmp_buffer[0][..block_samples].iter())
-                {
-                    *os += is;
-                }
-            } else {
-                let (b1, b2) = outputs.split_first_mut().unwrap();
-                b2[0][..block_samples].copy_from_slice(&b1[..block_samples]);
-            }
-
-            num_filled_channels = 2;
-        }
-
-        num_filled_channels
     }
 }

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use firewheel_core::{ChannelCount, StreamInfo};
+use firewheel_core::{dsp::declick::DeclickValues, ChannelCount, StreamInfo};
 use rtrb::PushError;
 
 use crate::{
@@ -51,6 +51,11 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to `128`.
     pub event_queue_capacity: u32,
+    /// The amount of time in seconds to fade in/out when pausing/resuming
+    /// to avoid clicks and pops.
+    ///
+    /// By default this is set to `3.0 / 1_000.0`.
+    pub declick_seconds: f32,
 }
 
 impl Default for FirewheelConfig {
@@ -64,6 +69,7 @@ impl Default for FirewheelConfig {
             initial_event_group_capacity: 128,
             channel_capacity: 64,
             event_queue_capacity: 128,
+            declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
         }
     }
 }
@@ -160,6 +166,7 @@ impl FirewheelGraphCtx {
             self.graph.current_node_capacity(),
             stream_info,
             self.config.hard_clip_outputs,
+            self.config.declick_seconds,
         ))
     }
 

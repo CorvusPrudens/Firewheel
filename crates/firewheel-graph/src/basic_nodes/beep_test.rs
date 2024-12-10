@@ -51,7 +51,7 @@ impl BeepTestNode {
     /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.25`.
     pub fn set_volume(&mut self, normalized_volume: f32) -> NodeEventType {
         self.normalized_volume = normalized_volume;
-        NodeEventType::FloatParam {
+        NodeEventType::F32Param {
             id: Self::PARAM_VOLUME,
             value: normalized_volume,
             smoothing: false,
@@ -70,7 +70,7 @@ impl BeepTestNode {
     /// A good value for testing is `440` (middle C).
     pub fn set_freq_hz(&mut self, freq_hz: f32) -> NodeEventType {
         self.freq_hz = freq_hz;
-        NodeEventType::FloatParam {
+        NodeEventType::F32Param {
             id: Self::PARAM_FREQUENCY,
             value: freq_hz,
             smoothing: false,
@@ -146,7 +146,7 @@ impl AudioNodeProcessor for BeepTestProcessor {
                 NodeEventType::SetEnabled(enabled) => {
                     self.enabled = *enabled;
                 }
-                NodeEventType::FloatParam { id, value, .. } => match *id {
+                NodeEventType::F32Param { id, value, .. } => match *id {
                     BeepTestNode::PARAM_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
                     BeepTestNode::PARAM_FREQUENCY => {
                         self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip

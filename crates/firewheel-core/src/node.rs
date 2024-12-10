@@ -3,6 +3,7 @@ use std::{any::Any, error::Error, fmt::Debug, hash::Hash, sync::Arc};
 
 use crate::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
+    dsp::declick::DeclickValues,
     sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
@@ -218,10 +219,12 @@ pub trait AudioNodeProcessor: 'static + Send {
     ) -> ProcessStatus;
 }
 
+pub const NUM_SCRATCH_BUFFERS: usize = 16;
+
 /// Additional information for processing audio
-#[derive(Debug, Clone)]
-pub struct ProcInfo {
-    /// The number of samples in this processing block.
+pub struct ProcInfo<'a, 'b> {
+    /// The number of samples (in a single channel of audio) in this
+    /// processing block.
     pub samples: usize,
 
     /// An optional optimization hint on which input channels contain
@@ -254,6 +257,21 @@ pub struct ProcInfo {
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
+
+    /// A list of extra scratch buffers that can be used for processing.
+    /// This removes the need for nodes to allocate their own scratch
+    /// buffers.
+    ///
+    /// Each buffer has a length of [`StreamInfo::max_block_samples`].
+    ///
+    /// These buffers are shared across all nodes, so assume that they
+    /// contain junk data.
+    pub scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
+
+    /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
+    /// which can be used to implement efficient declicking when
+    /// pausing/resuming/stopping.
+    pub declick_values: &'a DeclickValues,
 }
 
 bitflags::bitflags! {
@@ -337,7 +355,7 @@ pub enum NodeEventType {
     /// effect.
     SetEnabled(bool),
     /// Set the value of an `f32` parameter.
-    FloatParam {
+    F32Param {
         /// The unique ID of the paramater.
         id: u32,
         /// The parameter value.
@@ -348,7 +366,7 @@ pub enum NodeEventType {
         smoothing: bool,
     },
     /// Set the value of an `f64` parameter.
-    FloatParamF64 {
+    F64Param {
         /// The unique ID of the paramater.
         id: u32,
         /// The parameter value.
@@ -359,7 +377,7 @@ pub enum NodeEventType {
         smoothing: bool,
     },
     /// Set the value of an `i32` parameter.
-    IntParam {
+    I32Param {
         /// The unique ID of the paramater.
         id: u32,
         /// The parameter value.
@@ -369,12 +387,12 @@ pub enum NodeEventType {
         /// clicking or stair-stepping artifacts).
         smoothing: bool,
     },
-    /// Set the value of an `i64` parameter.
-    IntParamI64 {
+    /// Set the value of an `u64` parameter.
+    U64Param {
         /// The unique ID of the paramater.
         id: u32,
         /// The parameter value.
-        value: i64,
+        value: u64,
         /// Set this to `false` to request the node to immediately jump
         /// to this new value without smoothing (may cause audible
         /// clicking or stair-stepping artifacts).

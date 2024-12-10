@@ -38,7 +38,7 @@ impl VolumeNode {
     /// can be useful to preserve transients when playing a new sound at a different volume.
     pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> NodeEventType {
         self.normalized_volume = normalized_volume.max(0.0);
-        NodeEventType::FloatParam {
+        NodeEventType::F32Param {
             id: Self::PARAM_VOLUME,
             value: normalized_volume,
             smoothing,
@@ -100,7 +100,7 @@ impl AudioNodeProcessor for VolumeProcessor {
         let samples = proc_info.samples;
 
         for msg in events {
-            if let NodeEventType::FloatParam {
+            if let NodeEventType::F32Param {
                 id,
                 value,
                 smoothing,
