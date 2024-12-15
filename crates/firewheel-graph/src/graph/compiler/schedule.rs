@@ -520,8 +520,9 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
+    use atomic_float::AtomicF64;
     use firewheel_core::{ChannelCount, StreamInfo};
-    use std::time::Instant;
+    use std::sync::{atomic::AtomicU64, Arc};
 
     use crate::{
         basic_nodes::dummy::DummyAudioNode,
@@ -544,7 +545,11 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(StreamInfo::default(), Instant::now())
+            .activate(
+                StreamInfo::default(),
+                Arc::new(AtomicF64::new(0.0)),
+                Arc::new(AtomicU64::new(0)),
+            )
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -591,7 +596,11 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(StreamInfo::default(), Instant::now())
+            .activate(
+                StreamInfo::default(),
+                Arc::new(AtomicF64::new(0.0)),
+                Arc::new(AtomicU64::new(0)),
+            )
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -697,7 +706,11 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(StreamInfo::default(), Instant::now())
+            .activate(
+                StreamInfo::default(),
+                Arc::new(AtomicF64::new(0.0)),
+                Arc::new(AtomicU64::new(0)),
+            )
             .unwrap();
 
         let node0 = graph.graph_in_node();
@@ -835,7 +848,11 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(StreamInfo::default(), Instant::now())
+            .activate(
+                StreamInfo::default(),
+                Arc::new(AtomicF64::new(0.0)),
+                Arc::new(AtomicU64::new(0)),
+            )
             .unwrap();
 
         let node1 = graph.graph_in_node();
@@ -861,7 +878,11 @@ mod tests {
             ..Default::default()
         });
         graph
-            .activate(StreamInfo::default(), Instant::now())
+            .activate(
+                StreamInfo::default(),
+                Arc::new(AtomicF64::new(0.0)),
+                Arc::new(AtomicU64::new(0)),
+            )
             .unwrap();
 
         let node1 = graph

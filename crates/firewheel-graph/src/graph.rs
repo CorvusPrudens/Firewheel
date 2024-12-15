@@ -3,10 +3,12 @@ mod compiler;
 use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use ahash::{AHashMap, AHashSet};
-use firewheel_core::clock::ClockSeconds;
+use atomic_float::AtomicF64;
+use firewheel_core::clock::{ClockSamples, ClockSeconds};
 use firewheel_core::{ChannelConfig, ChannelCount, StreamInfo};
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -36,7 +38,8 @@ struct EdgeHash {
 
 struct ActiveState {
     stream_info: StreamInfo,
-    main_thread_clock_start_instant: Instant,
+    clock_seconds_shared: Arc<AtomicF64>,
+    clock_samples_shared: Arc<AtomicU64>,
 }
 
 /// An audio graph implementation.
@@ -598,13 +601,23 @@ impl AudioGraph {
     /// was started.
     pub fn clock_now(&self) -> ClockSeconds {
         ClockSeconds(
-            (Instant::now()
-                - self
-                    .active_state
-                    .as_ref()
-                    .unwrap()
-                    .main_thread_clock_start_instant)
-                .as_secs_f64(),
+            self.active_state
+                .as_ref()
+                .unwrap()
+                .clock_seconds_shared
+                .load(Ordering::Relaxed),
+        )
+    }
+
+    /// The current time of the sample clock in the number of samples that have
+    /// been processed since the beginning of the stream.
+    pub fn clock_samples(&self) -> ClockSamples {
+        ClockSamples(
+            self.active_state
+                .as_ref()
+                .unwrap()
+                .clock_samples_shared
+                .load(Ordering::Relaxed),
         )
     }
 
@@ -705,7 +718,8 @@ impl AudioGraph {
     pub(crate) fn activate(
         &mut self,
         stream_info: StreamInfo,
-        main_thread_clock_start_instant: Instant,
+        clock_seconds_shared: Arc<AtomicF64>,
+        clock_samples_shared: Arc<AtomicU64>,
     ) -> Result<(), NodeError> {
         let mut error = None;
 
@@ -743,7 +757,8 @@ impl AudioGraph {
         } else {
             self.active_state = Some(ActiveState {
                 stream_info,
-                main_thread_clock_start_instant,
+                clock_seconds_shared,
+                clock_samples_shared,
             });
             self.needs_compile = true;
             Ok(())

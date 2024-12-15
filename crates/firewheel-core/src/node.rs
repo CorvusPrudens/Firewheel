@@ -240,8 +240,7 @@ pub struct ProcInfo<'a, 'b> {
     /// The current time of the internal clock in units of seconds.
     ///
     /// This uses the clock from the OS's audio API so it should be quite
-    /// accurate. This value has also been adjusted to match the clock in
-    /// the main thread.
+    /// accurate.
     ///
     /// This value correctly accounts for any output underflows that may
     /// occur.

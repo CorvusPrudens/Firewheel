@@ -129,11 +129,7 @@ Usage of the clock works like this:
 2. For any event type that accepts an `EventDelay` parameter, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(AudioGraph::clock_now() + desired_amount_of_delay)`.
 3. When the engine processor receives the event, it waits for the event to elapse. Once reached, it then sends the event to the node at the resulting sample offset.
 
-### Sample Clock
-
-This clock provides sample-accurate timing of audio events, which could be useful for some games such as rhythm games. The drawback is that this clock does *NOT* account for any output underflows that may occur, and thus may become desynced with the seconds clock. Only use this clock if you are synchronizing your game to this sample clock (or if you are not concerned about output underflows occurring).
-
-Usage of this clock works like this:
+### Musical Clock
 
 *TODO*
 

@@ -1,8 +1,10 @@
 use std::{
     error::Error,
+    sync::{atomic::AtomicU64, Arc},
     time::{Duration, Instant},
 };
 
+use atomic_float::AtomicF64;
 use firewheel_core::{dsp::declick::DeclickValues, ChannelCount, StreamInfo};
 use rtrb::PushError;
 
@@ -138,12 +140,14 @@ impl FirewheelGraphCtx {
             return Err(ActivateCtxError::AlreadyActivated);
         }
 
-        let main_thread_clock_start_instant = Instant::now();
+        let clock_seconds_shared = Arc::new(AtomicF64::new(0.0));
+        let clock_samples_shared = Arc::new(AtomicU64::new(0));
 
-        if let Err(e) = self
-            .graph
-            .activate(stream_info, main_thread_clock_start_instant)
-        {
+        if let Err(e) = self.graph.activate(
+            stream_info,
+            Arc::clone(&clock_seconds_shared),
+            Arc::clone(&clock_samples_shared),
+        ) {
             return Err(ActivateCtxError::NodeFailedToActived(e));
         }
 
@@ -162,7 +166,8 @@ impl FirewheelGraphCtx {
         Ok(FirewheelProcessor::new(
             from_graph_rx,
             to_graph_tx,
-            main_thread_clock_start_instant,
+            clock_seconds_shared,
+            clock_samples_shared,
             self.graph.current_node_capacity(),
             stream_info,
             self.config.hard_clip_outputs,

@@ -1,6 +1,15 @@
-use std::{any::Any, collections::VecDeque, ops::Range, time::Instant};
+use std::{
+    any::Any,
+    collections::VecDeque,
+    ops::Range,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use arrayvec::ArrayVec;
+use atomic_float::AtomicF64;
 use thunderdome::Arena;
 
 use crate::graph::{NodeHeapData, ScheduleHeapData};
@@ -38,8 +47,8 @@ pub struct FirewheelProcessor {
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
 
     clock_samples: ClockSamples,
-    main_thread_clock_start_instant: Instant,
-    main_to_internal_clock_offset: Option<ClockSeconds>,
+    clock_seconds_shared: Arc<AtomicF64>,
+    clock_samples_shared: Arc<AtomicU64>,
 
     running: bool,
     stream_info: StreamInfo,
@@ -55,7 +64,8 @@ impl FirewheelProcessor {
     pub(crate) fn new(
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
-        main_thread_clock_start_instant: Instant,
+        clock_seconds_shared: Arc<AtomicF64>,
+        clock_samples_shared: Arc<AtomicU64>,
         node_capacity: usize,
         stream_info: StreamInfo,
         hard_clip_outputs: bool,
@@ -77,8 +87,8 @@ impl FirewheelProcessor {
             from_graph_rx,
             to_graph_tx,
             clock_samples: ClockSamples(0),
-            main_thread_clock_start_instant,
-            main_to_internal_clock_offset: None,
+            clock_seconds_shared,
+            clock_samples_shared,
             running: true,
             stream_info,
             sample_rate,
@@ -102,29 +112,20 @@ impl FirewheelProcessor {
         num_in_channels: usize,
         num_out_channels: usize,
         samples: usize,
-        internal_clock_seconds: ClockSeconds,
+        mut clock_seconds: ClockSeconds,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
+        self.poll_messages(clock_seconds);
+
         let mut clock_samples = self.clock_samples;
         self.clock_samples += ClockSamples(samples as u64);
 
-        // If this is the first block, calculate the offset between the the main thread's
-        // clock and the internal realtime clock.
-        //
-        // main_thread_clock_seconds - internal_clock_seconds =
-        //    (first_block_instant - main_thread_clock_start_instant)
-        //    - first_block_internal_clock_seconds
-        let main_to_internal_clock_offset =
-            *self.main_to_internal_clock_offset.get_or_insert_with(|| {
-                ClockSeconds(
-                    (Instant::now() - self.main_thread_clock_start_instant).as_secs_f64()
-                        - internal_clock_seconds.0,
-                )
-            });
-        // Offset the internal clock so it matches the main thread clock.
-        let mut clock_seconds = internal_clock_seconds + main_to_internal_clock_offset;
-
-        self.poll_messages(clock_seconds);
+        self.clock_samples_shared
+            .store(self.clock_samples.0, Ordering::Relaxed);
+        self.clock_seconds_shared.store(
+            clock_seconds.0 + (samples as f64 * self.sample_rate_recip),
+            Ordering::Relaxed,
+        );
 
         if !self.running {
             output.fill(0.0);

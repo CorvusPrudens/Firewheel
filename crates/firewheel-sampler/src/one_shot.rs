@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::{atomic::{AtomicU32, Ordering}, Arc}};
 
 use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
@@ -33,11 +33,24 @@ impl Default for OneShotSamplerConfig {
 
 pub struct OneShotSamplerNode {
     config: OneShotSamplerConfig,
+    num_active_voices: Arc<AtomicU32>,
 }
 
 impl OneShotSamplerNode {
     pub fn new(config: OneShotSamplerConfig) -> Self {
-        Self { config }
+        assert!(config.max_voices.get() <= 64);
+
+        Self { config, num_active_voices: Arc::new(AtomicU32::new(0)) }
+    }
+
+    /// Returns the current number of active voices in this node.
+    pub fn num_active_voices(&self) -> u32 {
+        self.num_active_voices.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` if this node contains any active voices.
+    pub fn any_voices_active(&self) -> bool {
+        self.num_active_voices() != 0
     }
 }
 
@@ -71,7 +84,12 @@ impl AudioNode for OneShotSamplerNode {
             stream_info,
             channel_config.num_outputs.get() as usize,
             &self.config,
+            Arc::clone(&self.num_active_voices),
         )))
+    }
+
+    fn deactivate(&mut self, _processor: Option<Box<dyn AudioNodeProcessor>>) {
+        self.num_active_voices.store(0, Ordering::Relaxed);
     }
 }
 
@@ -88,6 +106,7 @@ struct OneShotSamplerProcessor {
     tmp_active_voices: SmallVec<[usize; STATIC_ALLOC_VOICES]>,
 
     mono_to_stereo: bool,
+    num_active_voices: Arc<AtomicU32>,
 }
 
 impl OneShotSamplerProcessor {
@@ -95,6 +114,7 @@ impl OneShotSamplerProcessor {
         _stream_info: &StreamInfo,
         _num_out_channels: usize,
         config: &OneShotSamplerConfig,
+        num_active_voices: Arc<AtomicU32>,
     ) -> Self {
         let max_voices = config.max_voices.get() as usize;
 
@@ -104,6 +124,7 @@ impl OneShotSamplerProcessor {
             active_voices: SmallVec::with_capacity(max_voices),
             tmp_active_voices: SmallVec::with_capacity(max_voices),
             mono_to_stereo: config.mono_to_stereo,
+            num_active_voices,
         }
     }
 }
@@ -181,12 +202,10 @@ impl AudioNodeProcessor for OneShotSamplerProcessor {
         if let Some(&voice_i) = self.active_voices.first() {
             let voice = &mut self.voices[voice_i];
 
-            num_filled_channels = voice.voice.process(
-                outputs,
-                proc_info.samples,
-                false,
-                proc_info.declick_values,
-            );
+            num_filled_channels =
+                voice
+                    .voice
+                    .process(outputs, proc_info.samples, false, proc_info.declick_values);
 
             if voice.gain != 1.0 {
                 for b in outputs[..num_filled_channels].iter_mut() {
@@ -257,6 +276,8 @@ impl AudioNodeProcessor for OneShotSamplerProcessor {
         }
 
         std::mem::swap(&mut self.active_voices, &mut self.tmp_active_voices);
+
+        self.num_active_voices.store(self.active_voices.len() as u32, Ordering::Relaxed);
 
         let out_silence_mask = if num_filled_channels >= outputs.len() {
             SilenceMask::NONE_SILENT
