@@ -1,11 +1,12 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::Arc};
 
 use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EventData, NodeEventIter, ProcInfo,
         ProcessStatus,
     },
+    sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
 use smallvec::SmallVec;
@@ -13,6 +14,13 @@ use smallvec::SmallVec;
 use crate::{voice::SamplerVoice, MAX_OUT_CHANNELS};
 
 pub const STATIC_ALLOC_VOICES: usize = 8;
+
+#[derive(Clone)]
+pub struct Sample {
+    pub sample: Arc<dyn SampleResource + 'static>,
+    pub normalized_volume: f32,
+    pub stop_other_voices: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OneShotSamplerConfig {
@@ -118,26 +126,31 @@ impl AudioNodeProcessor for OneShotSamplerProcessor {
     ) -> ProcessStatus {
         for msg in events {
             match msg {
-                NodeEventType::Pause => {
+                EventData::Pause => {
                     for &voice_i in self.active_voices.iter() {
                         self.voices[voice_i].voice.pause(proc_info.declick_values);
                     }
                 }
-                NodeEventType::Resume => {
+                EventData::Resume => {
                     for &voice_i in self.active_voices.iter() {
                         self.voices[voice_i].voice.resume(proc_info.declick_values);
                     }
                 }
-                NodeEventType::Stop => {
+                EventData::Stop => {
                     for &voice_i in self.active_voices.iter() {
                         self.voices[voice_i].voice.stop(proc_info.declick_values);
                     }
                 }
-                NodeEventType::PlaySample {
-                    sample,
-                    normalized_volume,
-                    stop_other_voices,
-                } => {
+                EventData::Custom(sample) => {
+                    let Some(Sample {
+                        sample,
+                        normalized_volume,
+                        stop_other_voices,
+                    }) = sample.downcast_ref()
+                    else {
+                        continue;
+                    };
+
                     if *stop_other_voices {
                         for &voice_i in self.active_voices.iter() {
                             self.voices[voice_i].voice.stop(proc_info.declick_values);
@@ -181,12 +194,10 @@ impl AudioNodeProcessor for OneShotSamplerProcessor {
         if let Some(&voice_i) = self.active_voices.first() {
             let voice = &mut self.voices[voice_i];
 
-            num_filled_channels = voice.voice.process(
-                outputs,
-                proc_info.samples,
-                false,
-                proc_info.declick_values,
-            );
+            num_filled_channels =
+                voice
+                    .voice
+                    .process(outputs, proc_info.samples, false, proc_info.declick_values);
 
             if voice.gain != 1.0 {
                 for b in outputs[..num_filled_channels].iter_mut() {

@@ -1,8 +1,8 @@
 use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ContinuousEvent, EventData, NodeEventIter,
+        ParamData, ParamEvent, ParamPath, ProcInfo, ProcessStatus,
     },
     ChannelConfig, ChannelCount, StreamInfo,
 };
@@ -44,19 +44,19 @@ impl BeepTestNode {
         self.normalized_volume
     }
 
-    /// Return an event type to set the volume parameter.
-    ///
-    /// * `normalized_volume` - The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    ///
-    /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.25`.
-    pub fn set_volume(&mut self, normalized_volume: f32) -> NodeEventType {
-        self.normalized_volume = normalized_volume;
-        NodeEventType::F32Param {
-            id: Self::PARAM_VOLUME,
-            value: normalized_volume,
-            smoothing: false,
-        }
-    }
+    ///// Return an event type to set the volume parameter.
+    /////
+    ///// * `normalized_volume` - The normalized volume where `0.0` is mute and `1.0` is unity gain.
+    /////
+    ///// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.25`.
+    //pub fn set_volume(&mut self, normalized_volume: f32) -> EventData {
+    //    self.normalized_volume = normalized_volume;
+    //    EventData::F32Param {
+    //        id: Self::PARAM_VOLUME,
+    //        value: normalized_volume,
+    //        smoothing: false,
+    //    }
+    //}
 
     /// Get the frequency of the sine wave in the range `[20.0, 20_000.0]`
     pub fn freq_hz(&self) -> f32 {
@@ -68,13 +68,12 @@ impl BeepTestNode {
     /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`.
     ///
     /// A good value for testing is `440` (middle C).
-    pub fn set_freq_hz(&mut self, freq_hz: f32) -> NodeEventType {
+    pub fn set_freq_hz(&mut self, freq_hz: f32) -> EventData {
         self.freq_hz = freq_hz;
-        NodeEventType::F32Param {
-            id: Self::PARAM_FREQUENCY,
-            value: freq_hz,
-            smoothing: false,
-        }
+        EventData::Parameter(ParamEvent {
+            data: ParamData::F32(ContinuousEvent::Immediate(freq_hz)),
+            path: ParamPath::default().with(0),
+        })
     }
 
     /// Get whether or not this node is currently enabled.
@@ -83,9 +82,9 @@ impl BeepTestNode {
     }
 
     /// Return an event type to enable/disable the node.
-    pub fn set_enabled(&mut self, enabled: bool) -> NodeEventType {
+    pub fn set_enabled(&mut self, enabled: bool) -> EventData {
         self.enabled = enabled;
-        NodeEventType::SetEnabled(enabled)
+        EventData::SetEnabled(enabled)
     }
 }
 
@@ -143,10 +142,10 @@ impl AudioNodeProcessor for BeepTestProcessor {
 
         for event in events {
             match event {
-                NodeEventType::SetEnabled(enabled) => {
+                EventData::SetEnabled(enabled) => {
                     self.enabled = *enabled;
                 }
-                NodeEventType::F32Param { id, value, .. } => match *id {
+                EventData::F32Param { id, value, .. } => match *id {
                     BeepTestNode::PARAM_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
                     BeepTestNode::PARAM_FREQUENCY => {
                         self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip

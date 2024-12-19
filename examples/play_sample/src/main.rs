@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use firewheel::{
     clock::EventDelay,
-    node::{NodeEvent, NodeEventType},
+    node::{EventData, NodeEvent},
     sampler::one_shot::OneShotSamplerNode,
     FirewheelCpalCtx, UpdateStatus,
 };
@@ -53,7 +53,7 @@ fn main() {
     graph.queue_event(NodeEvent {
         node_id: sampler_node,
         delay: EventDelay::Immediate,
-        event: NodeEventType::PlaySample {
+        event: EventData::PlaySample {
             sample: Arc::new(sample),
             normalized_volume: 1.0,
             stop_other_voices: false,

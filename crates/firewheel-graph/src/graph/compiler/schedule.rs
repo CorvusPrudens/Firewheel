@@ -4,7 +4,7 @@ use std::{collections::VecDeque, fmt::Debug};
 
 use firewheel_core::{
     clock::ClockSeconds,
-    node::{AudioNodeProcessor, NodeEventType, ProcessStatus},
+    node::{AudioNodeProcessor, EventData, ProcessStatus},
     SilenceMask,
 };
 
@@ -132,8 +132,8 @@ pub(super) struct OutBufferAssignment {
 pub struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
-    pub immediate_event_queue: VecDeque<NodeEventType>,
-    pub delayed_event_queue: VecDeque<(ClockSeconds, NodeEventType)>,
+    pub immediate_event_queue: VecDeque<EventData>,
+    pub delayed_event_queue: VecDeque<(ClockSeconds, EventData)>,
 }
 
 impl NodeHeapData {

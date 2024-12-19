@@ -4,7 +4,7 @@ use firewheel::{
     basic_nodes::MixNode,
     clock::EventDelay,
     graph::AudioGraph,
-    node::{NodeEvent, NodeEventType, NodeID},
+    node::{EventData, NodeEvent, NodeID},
     sample_resource::SampleResource,
     sampler::one_shot::OneShotSamplerNode,
     ChannelConfig, FirewheelCpalCtx, UpdateStatus,
@@ -31,8 +31,7 @@ impl Sampler {
         if !self.paused {
             graph.queue_event(NodeEvent {
                 node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::PlaySample {
+                event: EventData::PlaySample {
                     sample: Arc::clone(&self.sample),
                     normalized_volume: self.volume / 100.0,
                     stop_other_voices: self.stop_other_voices,
@@ -47,8 +46,7 @@ impl Sampler {
 
             graph.queue_event(NodeEvent {
                 node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::Pause,
+                event: EventData::Pause,
             });
         }
     }
@@ -59,8 +57,7 @@ impl Sampler {
 
             graph.queue_event(NodeEvent {
                 node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::Resume,
+                event: EventData::Resume,
             });
         }
     }
@@ -70,8 +67,7 @@ impl Sampler {
 
         graph.queue_event(NodeEvent {
             node_id: self.node_id,
-            delay: EventDelay::Immediate,
-            event: NodeEventType::Stop,
+            event: EventData::Stop,
         });
     }
 }

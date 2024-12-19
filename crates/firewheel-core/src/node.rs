@@ -1,10 +1,16 @@
+use arrayvec::ArrayVec;
+use bevy_math::{
+    curve::{Ease, EaseFunction},
+    prelude::EasingCurve,
+    Curve,
+};
 use downcast_rs::Downcast;
-use std::{any::Any, error::Error, fmt::Debug, hash::Hash, sync::Arc};
+use smallvec::SmallVec;
+use std::{any::Any, error::Error, fmt::Debug, hash::Hash};
 
 use crate::{
-    clock::{ClockSamples, ClockSeconds, EventDelay},
+    clock::{ClockSamples, ClockSeconds},
     dsp::declick::DeclickValues,
-    sample_resource::SampleResource,
     ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
 };
 
@@ -227,6 +233,10 @@ pub struct ProcInfo<'a, 'b> {
     /// processing block.
     pub samples: usize,
 
+    /// The reciprocal of the sample rate, or the
+    /// duration in seconds of each frame.
+    pub sample_rate_recip: f64,
+
     /// An optional optimization hint on which input channels contain
     /// all zeros (silence). The first bit (`0b1`) is the first channel,
     /// the second bit is the second channel, and so on.
@@ -319,129 +329,593 @@ impl ProcessStatus {
     }
 }
 
-/// An event sent to an [`AudioNode`].
-pub struct NodeEvent {
-    /// The ID of the node that should receive the event.
-    pub node_id: NodeID,
-    /// The delay of this event.
-    ///
-    /// Note the following event types will ignore this value and execute
-    /// the event immediately instead:
-    /// * [`NodeEventType::Pause`]
-    /// * [`NodeEventType::Resume`]
-    /// * [`NodeEventType::Stop`]
-    pub delay: EventDelay,
-    /// The type of event.
-    pub event: NodeEventType,
+#[derive(Debug, Clone)]
+pub enum ContinuousEvent<T> {
+    Immediate(T),
+    Deferred {
+        value: T,
+        time: ClockSeconds,
+    },
+    Curve {
+        curve: EasingCurve<T>,
+        start: ClockSeconds,
+        end: ClockSeconds,
+    },
 }
 
-/// An event type associated with an [`AudioNode`].
-pub enum NodeEventType {
+impl<T> ContinuousEvent<T> {
+    pub fn start_time(&self) -> Option<ClockSeconds> {
+        match self {
+            Self::Deferred { time, .. } => Some(*time),
+            Self::Curve { start, .. } => Some(*start),
+            _ => None,
+        }
+    }
+
+    pub fn end_time(&self) -> Option<ClockSeconds> {
+        match self {
+            Self::Deferred { time, .. } => Some(*time),
+            Self::Curve { end, .. } => Some(*end),
+            _ => None,
+        }
+    }
+
+    pub fn contains(&self, time: ClockSeconds) -> bool {
+        match self {
+            Self::Deferred { time: t, .. } => *t == time,
+            Self::Curve { start, end, .. } => (*start..=*end).contains(&time),
+            _ => false,
+        }
+    }
+
+    pub fn overlaps(&self, time: ClockSeconds) -> bool {
+        match self {
+            Self::Curve { start, end, .. } => time > *start && time < *end,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Ease + Clone> ContinuousEvent<T> {
+    pub fn get(&self, time: ClockSeconds) -> T {
+        match self {
+            Self::Immediate(i) => i.clone(),
+            Self::Deferred { value, .. } => value.clone(),
+            Self::Curve { curve, start, end } => {
+                let range = end.0 - start.0;
+                let progress = time.0 - start.0;
+
+                curve.sample((progress / range) as f32).unwrap()
+            }
+        }
+    }
+
+    pub fn start_value(&self) -> T {
+        match self {
+            Self::Immediate(i) => i.clone(),
+            Self::Deferred { value, .. } => value.clone(),
+            Self::Curve { curve, .. } => curve.sample(0.).unwrap(),
+        }
+    }
+
+    pub fn end_value(&self) -> T {
+        match self {
+            Self::Immediate(i) => i.clone(),
+            Self::Deferred { value, .. } => value.clone(),
+            Self::Curve { curve, .. } => curve.sample(1.).unwrap(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Continuous<T> {
+    value: T,
+    events: ArrayVec<ContinuousEvent<T>, 4>,
+    /// The total number of events consumed.
+    consumed: usize,
+}
+
+impl<T> Continuous<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            events: Default::default(),
+            consumed: 0,
+        }
+    }
+
+    pub fn push(&mut self, event: ContinuousEvent<T>) -> Result<(), ContinuousError> {
+        // scan the events to ensure the event doesn't overlap any ranges
+        match event {
+            ContinuousEvent::Deferred { time, .. } => {
+                if self.events.iter().any(|e| e.overlaps(time)) {
+                    return Err(ContinuousError::OverlappingRanges);
+                }
+            }
+            ContinuousEvent::Curve { start, end, .. } => {
+                if self
+                    .events
+                    .iter()
+                    .any(|e| e.overlaps(start) || e.overlaps(end))
+                {
+                    return Err(ContinuousError::OverlappingRanges);
+                }
+            }
+            ContinuousEvent::Immediate(_) => {}
+        }
+
+        if self.events.remaining_capacity() == 0 {
+            self.events.pop_at(0);
+        }
+
+        self.events.push(event);
+        self.consumed += 1;
+
+        Ok(())
+    }
+
+    pub fn is_active(&self, time: ClockSeconds) -> bool {
+        self.events
+            .iter()
+            .any(|e| e.contains(time) && matches!(e, ContinuousEvent::Curve { .. }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ContinuousError {
+    OverlappingRanges,
+}
+
+impl<T: Ease + Clone> Continuous<T> {
+    pub fn push_curve(
+        &mut self,
+        end_value: T,
+        start: ClockSeconds,
+        end: ClockSeconds,
+        curve: EaseFunction,
+    ) -> Result<(), ContinuousError> {
+        let start_value = self.value_at(start);
+        let curve = EasingCurve::new(start_value, end_value, curve);
+
+        self.push(ContinuousEvent::Curve { curve, start, end })
+    }
+
+    /// Get the value at a point in time.
+    pub fn value_at(&self, time: ClockSeconds) -> T {
+        if let Some(bounded) = self.events.iter().find(|e| e.contains(time)) {
+            return bounded.get(time);
+        }
+
+        let mut recent_time = core::f64::MAX;
+        let mut recent_value = None;
+
+        for event in &self.events {
+            if let Some(end) = event.end_time() {
+                let delta = time.0 - end.0;
+
+                if delta >= 0. && delta < recent_time {
+                    recent_time = delta;
+                    recent_value = Some(event.end_value());
+                }
+            }
+        }
+
+        recent_value.unwrap_or(self.value.clone())
+    }
+
+    pub fn get(&self) -> T {
+        self.value.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DeferredEvent<T> {
+    Immediate(T),
+    Deferred { value: T, time: ClockSeconds },
+}
+
+#[derive(Debug, Clone)]
+pub struct Deferred<T> {
+    value: T,
+    events: ArrayVec<DeferredEvent<T>, 4>,
+    consumed: usize,
+}
+
+pub enum ParamData {
+    F32(ContinuousEvent<f32>),
+    F64(ContinuousEvent<f64>),
+    I32(ContinuousEvent<i32>),
+    I64(ContinuousEvent<i64>),
+    Bool(DeferredEvent<bool>),
+    Any(Box<dyn Any + Sync + Send>),
+}
+
+pub struct ParamEvent {
+    pub data: ParamData,
+    pub path: ParamPath,
+}
+
+#[derive(Default)]
+pub struct ParamEvents(Vec<ParamEvent>);
+
+impl ParamEvents {
+    pub const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn push(&mut self, message: ParamEvent) {
+        self.0.push(message);
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ParamPath(SmallVec<[u16; 8]>);
+
+impl core::ops::Deref for ParamPath {
+    type Target = [u16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ParamPath {
+    pub fn with(&self, index: u16) -> Self {
+        let mut new = self.0.clone();
+        new.push(index);
+        Self(new)
+    }
+}
+
+pub enum PatchError {
+    InvalidPath,
+    InvalidData,
+}
+
+pub use firewheel_macros::AudioParam;
+
+pub trait AudioParam: Sized {
+    fn to_messages(&self, cmp: &Self, writer: impl FnMut(ParamEvent), path: ParamPath);
+
+    fn patch(&mut self, data: &mut ParamData, path: &[u16]) -> Result<(), PatchError>;
+
+    fn tick(&mut self, time: ClockSeconds);
+}
+
+impl AudioParam for () {
+    fn to_messages(&self, _cmp: &Self, _writer: impl FnMut(ParamEvent), _path: ParamPath) {}
+
+    fn patch(&mut self, _data: &mut ParamData, _path: &[u16]) -> Result<(), PatchError> {
+        Ok(())
+    }
+
+    fn tick(&mut self, _time: ClockSeconds) {}
+}
+
+impl AudioParam for f32 {
+    fn to_messages(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        if self != cmp {
+            writer(ParamEvent {
+                data: ParamData::F32(ContinuousEvent::Immediate(*self)),
+                path: path.clone(),
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &mut ParamData, _: &[u16]) -> Result<(), PatchError> {
+        match data {
+            ParamData::F32(ContinuousEvent::Immediate(value)) => {
+                *self = *value;
+
+                Ok(())
+            }
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn tick(&mut self, _time: ClockSeconds) {}
+}
+
+impl AudioParam for bool {
+    fn to_messages(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        if self != cmp {
+            writer(ParamEvent {
+                data: ParamData::Bool(DeferredEvent::Immediate(*self)),
+                path: path.clone(),
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &mut ParamData, _: &[u16]) -> Result<(), PatchError> {
+        match data {
+            ParamData::Bool(DeferredEvent::Immediate(value)) => {
+                *self = *value;
+
+                Ok(())
+            }
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn tick(&mut self, _time: ClockSeconds) {}
+}
+
+impl AudioParam for Continuous<f32> {
+    fn to_messages(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        let newly_consumed = self.consumed.saturating_sub(cmp.consumed);
+
+        if newly_consumed == 0 {
+            return;
+        }
+
+        // If more items were added than the buffer can hold, we only have the most recent self.events.len() items.
+        let clamped_newly_consumed = newly_consumed.min(self.events.len());
+
+        // Start index for the new items. They are the last 'clamped_newly_consumed' items in the buffer.
+        let start = self.events.len() - clamped_newly_consumed;
+        let new_items = &self.events[start..];
+
+        for event in new_items.iter() {
+            writer(ParamEvent {
+                data: ParamData::F32(event.clone()),
+                path: path.clone(),
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &mut ParamData, _: &[u16]) -> Result<(), PatchError> {
+        match data {
+            ParamData::F32(message) => {
+                self.events.push(message.clone());
+
+                Ok(())
+            }
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn tick(&mut self, time: ClockSeconds) {
+        self.value = self.value_at(time);
+    }
+}
+
+pub enum EventData {
     /// Pause this node and all of its queued delayed events.
-    ///
-    /// Note this event type cannot be delayed.
     Pause,
     /// Resume this node and all of its queued delayed events.
-    ///
-    /// Note this event type cannot be delayed.
     Resume,
     /// Stop this node and discard all of its queued delayed events.
-    ///
-    /// Note this event type cannot be delayed.
     Stop,
     /// Enable/disable this node.
     ///
     /// Note the node must implement this event type for this to take
     /// effect.
     SetEnabled(bool),
-    /// Set the value of an `f32` parameter.
-    F32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f32,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `f64` parameter.
-    F64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f64,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `i32` parameter.
-    I32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: i32,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `u64` parameter.
-    U64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u64,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of a `bool` parameter.
-    BoolParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: bool,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of a parameter containing three
-    /// `f32` elements.
-    Vector3DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 3],
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Play a sample to completion.
+    /// A parameter event.
     ///
-    /// (Even though this event is only used by the `OneShotSamplerNode`,
-    /// because it is so common, define it here so the event doesn't have
-    /// to be allocated every time.)
-    PlaySample {
-        /// The sample resource to play.
-        sample: Arc<dyn SampleResource>,
-        /// The normalized volume to play this sample at (where `0.0` is mute
-        /// and `1.0` is unity gain.)
-        ///
-        /// Note, this value cannot be changed while the sample is playing.
-        /// Use a `VolumeNode` for that instead.
-        normalized_volume: f32,
-        /// If `true`, then all other voices currently being played in this
-        /// node will be stopped.
-        stop_other_voices: bool,
-    },
-    /// Custom event type.
-    Custom(Box<dyn Any + Send>),
-    // TODO: Animation (automation) event types.
+    /// Each node can freely interpret the data according to its parameters.
+    Parameter(ParamEvent),
+    /// A custom event.
+    ///
+    /// This is useful for one-shot events like playing samples.
+    Custom(Box<dyn Any + Sync + Send>),
 }
 
-pub type NodeEventIter<'a> = std::collections::vec_deque::IterMut<'a, NodeEventType>;
+/// An event sent to an [`AudioNode`].
+pub struct NodeEvent {
+    /// The ID of the node that should receive the event.
+    pub node_id: NodeID,
+    /// The type of event.
+    pub event: EventData,
+}
+
+///// An event type associated with an [`AudioNode`].
+//pub enum NodeEventType {
+//    /// Pause this node and all of its queued delayed events.
+//    ///
+//    /// Note this event type cannot be delayed.
+//    Pause,
+//    /// Resume this node and all of its queued delayed events.
+//    ///
+//    /// Note this event type cannot be delayed.
+//    Resume,
+//    /// Stop this node and discard all of its queued delayed events.
+//    ///
+//    /// Note this event type cannot be delayed.
+//    Stop,
+//    /// Enable/disable this node.
+//    ///
+//    /// Note the node must implement this event type for this to take
+//    /// effect.
+//    SetEnabled(bool),
+//    /// Set the value of an `f32` parameter.
+//    F32Param {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: f32,
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Set the value of an `f64` parameter.
+//    F64Param {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: f64,
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Set the value of an `i32` parameter.
+//    I32Param {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: i32,
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Set the value of an `u64` parameter.
+//    U64Param {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: u64,
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Set the value of a `bool` parameter.
+//    BoolParam {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: bool,
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Set the value of a parameter containing three
+//    /// `f32` elements.
+//    Vector3DParam {
+//        /// The unique ID of the paramater.
+//        id: u32,
+//        /// The parameter value.
+//        value: [f32; 3],
+//        /// Set this to `false` to request the node to immediately jump
+//        /// to this new value without smoothing (may cause audible
+//        /// clicking or stair-stepping artifacts).
+//        smoothing: bool,
+//    },
+//    /// Play a sample to completion.
+//    ///
+//    /// (Even though this event is only used by the `OneShotSamplerNode`,
+//    /// because it is so common, define it here so the event doesn't have
+//    /// to be allocated every time.)
+//    PlaySample {
+//        /// The sample resource to play.
+//        sample: Arc<dyn SampleResource>,
+//        /// The normalized volume to play this sample at (where `0.0` is mute
+//        /// and `1.0` is unity gain.)
+//        ///
+//        /// Note, this value cannot be changed while the sample is playing.
+//        /// Use a `VolumeNode` for that instead.
+//        normalized_volume: f32,
+//        /// If `true`, then all other voices currently being played in this
+//        /// node will be stopped.
+//        stop_other_voices: bool,
+//    },
+//    /// Custom event type.
+//    Custom(Box<dyn Any + Send>),
+//    // TODO: Animation (automation) event types.
+//}
+
+pub type NodeEventIter<'a> = std::collections::vec_deque::IterMut<'a, EventData>;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_continuous_diff() {
+        let a = Continuous::new(0f32);
+        let mut b = a.clone();
+
+        b.push_curve(
+            2f32,
+            ClockSeconds(1.),
+            ClockSeconds(2.),
+            EaseFunction::Linear,
+        )
+        .unwrap();
+
+        let mut events = ParamEvents::new();
+        b.to_messages(&a, &mut events, Default::default());
+
+        assert!(
+            matches!(&events.0.as_slice(), &[ParamEvent { data, .. }] if matches!(data, ParamData::F32(_)))
+        )
+    }
+
+    #[test]
+    fn test_full_diff() {
+        let mut a = Continuous::new(0f32);
+
+        for _ in 0..8 {
+            a.push_curve(
+                2f32,
+                ClockSeconds(1.),
+                ClockSeconds(2.),
+                EaseFunction::Linear,
+            )
+            .unwrap();
+        }
+
+        let mut b = a.clone();
+
+        b.push_curve(
+            1f32,
+            ClockSeconds(1.),
+            ClockSeconds(2.),
+            EaseFunction::Linear,
+        )
+        .unwrap();
+
+        let mut events = ParamEvents::new();
+        b.to_messages(&a, &mut events, Default::default());
+
+        assert!(
+            matches!(&events.0.as_slice(), &[ParamEvent { data, .. }] if matches!(data, ParamData::F32(d) if d.end_value() == 1.))
+        )
+    }
+
+    #[test]
+    fn test_linear_curve() {
+        let mut value = Continuous::new(0f32);
+
+        value
+            .push_curve(
+                1f32,
+                ClockSeconds(0.),
+                ClockSeconds(1.),
+                EaseFunction::Linear,
+            )
+            .unwrap();
+
+        value
+            .push_curve(
+                2f32,
+                ClockSeconds(1.),
+                ClockSeconds(2.),
+                EaseFunction::Linear,
+            )
+            .unwrap();
+
+        value
+            .push(ContinuousEvent::Deferred {
+                value: 3.0,
+                time: ClockSeconds(2.5),
+            })
+            .unwrap();
+
+        assert_eq!(value.value_at(ClockSeconds(0.)), 0.);
+        assert_eq!(value.value_at(ClockSeconds(0.5)), 0.5);
+        assert_eq!(value.value_at(ClockSeconds(1.0)), 1.0);
+
+        assert_eq!(value.value_at(ClockSeconds(1.)), 1.);
+        assert_eq!(value.value_at(ClockSeconds(1.5)), 1.5);
+        assert_eq!(value.value_at(ClockSeconds(2.0)), 2.0);
+
+        assert_eq!(value.value_at(ClockSeconds(2.25)), 2.0);
+
+        assert_eq!(value.value_at(ClockSeconds(2.5)), 3.0);
+    }
+}

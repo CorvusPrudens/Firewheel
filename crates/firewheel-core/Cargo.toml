@@ -15,6 +15,9 @@ resampler = ["symphonium?/resampler"]
 [dependencies]
 arrayvec.workspace = true
 bitflags.workspace = true
+firewheel-macros = { path = "../firewheel-macros" }
 downcast-rs.workspace = true
 thunderdome.workspace = true
 symphonium = { version = "0.2", default-features = false, optional = true }
+bevy_math = "0.15"
+smallvec = "1.13"

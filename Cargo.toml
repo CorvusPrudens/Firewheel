@@ -29,6 +29,7 @@ members = [
     "crates/firewheel-sampler",
     "crates/firewheel-spatial",
     "crates/firewheel-extra",
+    "crates/firewheel-macros",
     "examples/beep_test",
     "examples/one_shot_sampler",
     "examples/play_sample",
@@ -44,6 +45,7 @@ symphonium = ["firewheel-core/symphonium"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.1" }
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.1" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.1" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.1", optional = true }
 firewheel-sampler = { path = "crates/firewheel-sampler", version = "0.1", optional = true }

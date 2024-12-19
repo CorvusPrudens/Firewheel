@@ -1,49 +1,58 @@
 use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, AudioParam, Continuous, EventData,
+        NodeEventIter, ProcInfo, ProcessStatus,
     },
     param::smoother::ParamSmoother,
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
+#[derive(AudioParam, Clone)]
+pub struct VolumeParams {
+    pub gain: Continuous<f32>,
+}
+
 pub struct VolumeNode {
-    normalized_volume: f32,
+    params: VolumeParams,
 }
 
 impl VolumeNode {
-    /// The ID of the volume parameter.
-    pub const PARAM_VOLUME: u32 = 0;
+    ///// The ID of the volume parameter.
+    //pub const PARAM_VOLUME: u32 = 0;
 
-    /// Create a new volume node.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn new(normalized_volume: f32) -> Self {
-        let normalized_volume = normalized_volume.max(0.0);
-
-        Self { normalized_volume }
+    pub fn new(params: VolumeParams) -> Self {
+        VolumeNode { params }
     }
 
-    /// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
-    }
+    ///// Create a new volume node.
+    /////
+    ///// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
+    //pub fn new(normalized_volume: f32) -> Self {
+    //    let normalized_volume = normalized_volume.max(0.0);
+    //
+    //    Self { normalized_volume }
+    //}
 
-    /// Return an event type to set the volume parameter.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    /// * `smoothing` - Set this to `false` to have the node immediately jump to this new
-    /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
-    /// can be useful to preserve transients when playing a new sound at a different volume.
-    pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> NodeEventType {
-        self.normalized_volume = normalized_volume.max(0.0);
-        NodeEventType::F32Param {
-            id: Self::PARAM_VOLUME,
-            value: normalized_volume,
-            smoothing,
-        }
-    }
+    ///// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
+    //pub fn normalized_volume(&self) -> f32 {
+    //    self.normalized_volume
+    //}
+
+    ///// Return an event type to set the volume parameter.
+    /////
+    ///// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
+    ///// * `smoothing` - Set this to `false` to have the node immediately jump to this new
+    ///// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
+    ///// can be useful to preserve transients when playing a new sound at a different volume.
+    //pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> EventData {
+    //    self.normalized_volume = normalized_volume.max(0.0);
+    //    EventData::F32Param {
+    //        id: Self::PARAM_VOLUME,
+    //        value: normalized_volume,
+    //        smoothing,
+    //    }
+    //}
 }
 
 impl AudioNode for VolumeNode {
@@ -72,21 +81,22 @@ impl AudioNode for VolumeNode {
         stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
+        // let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
         Ok(Box::new(VolumeProcessor {
-            gain_smoother: ParamSmoother::new(
-                raw_gain,
-                stream_info.sample_rate,
-                stream_info.max_block_samples,
-                Default::default(),
-            ),
+            params: self.params.clone(),
+            // gain_smoother: ParamSmoother::new(
+            //     raw_gain,
+            //     stream_info.sample_rate,
+            //     stream_info.max_block_samples,
+            //     Default::default(),
+            // ),
         }))
     }
 }
 
 struct VolumeProcessor {
-    gain_smoother: ParamSmoother,
+    params: VolumeParams,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -100,42 +110,35 @@ impl AudioNodeProcessor for VolumeProcessor {
         let samples = proc_info.samples;
 
         for msg in events {
-            if let NodeEventType::F32Param {
-                id,
-                value,
-                smoothing,
-            } = msg
-            {
-                if *id != VolumeNode::PARAM_VOLUME {
-                    continue;
-                }
-                let raw_gain = normalized_volume_to_raw_gain(*value);
-                self.gain_smoother.set_with_smoothing(raw_gain, *smoothing);
+            if let EventData::Parameter(param) = msg {
+                let _ = self.params.patch(&mut param.data, &param.path);
             }
         }
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
-            self.gain_smoother.reset(self.gain_smoother.target_value());
+            // self.gain_smoother.reset(self.gain_smoother.target_value());
 
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let gain = self.gain_smoother.process(samples);
+        let seconds = proc_info.clock_seconds;
+        let gain = self.params.gain.value_at(seconds);
+        let is_active = self.params.gain.is_active(seconds);
 
-        if !gain.is_smoothing() {
-            if gain.values[0] < 0.00001 {
+        if !is_active {
+            if gain < 0.00001 {
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
-            } else if gain.values[0] > 0.99999 && gain.values[0] < 1.00001 {
+            } else if gain > 0.99999 && gain < 1.00001 {
                 // Unity gain, there is no need to process.
                 return ProcessStatus::Bypass;
             }
         }
 
-        // Hint to the compiler to optimize loop.
-        let samples = samples.min(gain.values.len());
+        // // Hint to the compiler to optimize loop.
+        // let samples = samples.min(gain.values.len());
 
         // Provide an optimized loop for stereo.
         if inputs.len() == 2 && outputs.len() == 2 {
@@ -146,9 +149,15 @@ impl AudioNodeProcessor for VolumeProcessor {
                 .min(inputs[0].len())
                 .min(inputs[1].len());
 
-            for i in 0..samples {
-                outputs[0][i] = inputs[0][i] * gain[i];
-                outputs[1][i] = inputs[1][i] * gain[i];
+            for i in 0..inputs[0].len() {
+                let seconds = seconds
+                    + firewheel_core::clock::ClockSeconds(i as f64 * proc_info.sample_rate_recip);
+                self.params.tick(seconds);
+
+                let gain = self.params.gain.get();
+
+                outputs[0][i] = inputs[0][i] * gain;
+                outputs[1][i] = inputs[1][i] * gain;
             }
 
             return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
@@ -166,7 +175,13 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
 
             for i in 0..samples {
-                output[i] = input[i] * gain[i];
+                let seconds = seconds
+                    + firewheel_core::clock::ClockSeconds(i as f64 * proc_info.sample_rate_recip);
+                self.params.tick(seconds);
+
+                let gain = self.params.gain.get();
+
+                output[i] = input[i] * gain;
             }
         }
 

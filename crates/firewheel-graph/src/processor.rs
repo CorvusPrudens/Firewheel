@@ -8,7 +8,7 @@ use firewheel_core::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::declick::DeclickValues,
     node::{
-        AudioNodeProcessor, NodeEvent, NodeEventType, NodeID, ProcInfo, ProcessStatus,
+        AudioNodeProcessor, EventData, NodeEvent, NodeID, ParamEvent, ProcInfo, ProcessStatus,
         StreamStatus, NUM_SCRATCH_BUFFERS,
     },
     ChannelCount, SilenceMask, StreamInfo,
@@ -23,8 +23,8 @@ pub enum FirewheelProcessorStatus {
 
 pub(crate) struct NodeEntry {
     pub processor: Box<dyn AudioNodeProcessor>,
-    immediate_event_queue: VecDeque<NodeEventType>,
-    delayed_event_queue: VecDeque<(ClockSeconds, NodeEventType)>,
+    immediate_event_queue: VecDeque<EventData>,
+    delayed_event_queue: VecDeque<(ClockSeconds, EventData)>,
     num_delayed_events_this_block: u32,
     num_delayed_events_this_block_first_sample: u32,
     paused_at_seconds: Option<ClockSeconds>,
@@ -288,16 +288,14 @@ impl FirewheelProcessor {
 
     fn queue_new_event(&mut self, event: NodeEvent, clock_seconds: ClockSeconds) {
         let Some(node_entry) = self.nodes.get_mut(event.node_id.idx) else {
-            if let NodeEventType::Custom(event) = event.event {
-                let _ = self
-                    .to_graph_tx
-                    .push(ProcessorToContextMsg::ReturnCustomEvent(event));
-            }
+            let _ = self
+                .to_graph_tx
+                .push(ProcessorToContextMsg::ReturnEvent(event.event));
             return;
         };
 
         match &event.event {
-            NodeEventType::Pause => {
+            EventData::Pause => {
                 if node_entry.paused_at_seconds.is_none() {
                     node_entry.paused_at_seconds = Some(clock_seconds);
                 }
@@ -306,7 +304,7 @@ impl FirewheelProcessor {
 
                 return;
             }
-            NodeEventType::Resume => {
+            EventData::Resume => {
                 if let Some(paused_seconds) = node_entry.paused_at_seconds.take() {
                     let offset = clock_seconds - paused_seconds;
 
@@ -319,13 +317,11 @@ impl FirewheelProcessor {
 
                 return;
             }
-            NodeEventType::Stop => {
+            EventData::Stop => {
                 for (_, event) in node_entry.delayed_event_queue.drain(..) {
-                    if let NodeEventType::Custom(event) = event {
-                        let _ = self
-                            .to_graph_tx
-                            .push(ProcessorToContextMsg::ReturnCustomEvent(event));
-                    }
+                    let _ = self
+                        .to_graph_tx
+                        .push(ProcessorToContextMsg::ReturnEvent(event));
                 }
 
                 node_entry.immediate_event_queue.push_back(event.event);
@@ -335,41 +331,42 @@ impl FirewheelProcessor {
             _ => {}
         }
 
-        match event.delay {
-            EventDelay::Immediate => {
-                node_entry.immediate_event_queue.push_back(event.event);
-            }
-            EventDelay::DelayUntilSeconds(seconds) => {
-                if seconds <= clock_seconds {
-                    // Assume that delayed events should happen before immediate
-                    // events.
-                    node_entry.immediate_event_queue.push_front(event.event);
-                } else if node_entry.delayed_event_queue.is_empty() {
-                    node_entry
-                        .delayed_event_queue
-                        .push_back((seconds, event.event));
-                } else if seconds >= node_entry.delayed_event_queue.back().unwrap().0 {
-                    node_entry
-                        .delayed_event_queue
-                        .push_back((seconds, event.event));
-                } else if seconds <= node_entry.delayed_event_queue.front().unwrap().0 {
-                    node_entry
-                        .delayed_event_queue
-                        .push_front((seconds, event.event));
-                } else {
-                    let i = node_entry
-                        .delayed_event_queue
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, (s, _))| if seconds <= *s { Some(i) } else { None })
-                        .unwrap();
-
-                    node_entry
-                        .delayed_event_queue
-                        .insert(i, (seconds, event.event));
-                }
-            }
-        }
+        node_entry.immediate_event_queue.push_back(event.event);
+        // match event.delay {
+        //     EventDelay::Immediate => {
+        //         node_entry.immediate_event_queue.push_back(event.event);
+        //     }
+        //     EventDelay::DelayUntilSeconds(seconds) => {
+        //         if seconds <= clock_seconds {
+        //             // Assume that delayed events should happen before immediate
+        //             // events.
+        //             node_entry.immediate_event_queue.push_front(event.event);
+        //         } else if node_entry.delayed_event_queue.is_empty() {
+        //             node_entry
+        //                 .delayed_event_queue
+        //                 .push_back((seconds, event.event));
+        //         } else if seconds >= node_entry.delayed_event_queue.back().unwrap().0 {
+        //             node_entry
+        //                 .delayed_event_queue
+        //                 .push_back((seconds, event.event));
+        //         } else if seconds <= node_entry.delayed_event_queue.front().unwrap().0 {
+        //             node_entry
+        //                 .delayed_event_queue
+        //                 .push_front((seconds, event.event));
+        //         } else {
+        //             let i = node_entry
+        //                 .delayed_event_queue
+        //                 .iter()
+        //                 .enumerate()
+        //                 .find_map(|(i, (s, _))| if seconds <= *s { Some(i) } else { None })
+        //                 .unwrap();
+        //
+        //             node_entry
+        //                 .delayed_event_queue
+        //                 .insert(i, (seconds, event.event));
+        //         }
+        //     }
+        // }
     }
 
     fn process_block(
@@ -490,7 +487,7 @@ pub(crate) enum ContextToProcessorMsg {
 }
 
 pub(crate) enum ProcessorToContextMsg {
-    ReturnCustomEvent(Box<dyn Any + Send>),
+    ReturnEvent(EventData),
     ReturnEventGroup(Vec<NodeEvent>),
     ReturnSchedule(Box<ScheduleHeapData>),
     Dropped {
@@ -533,6 +530,7 @@ fn process_node(
             node.immediate_event_queue.iter_mut(),
             ProcInfo {
                 samples: block_samples,
+                sample_rate_recip,
                 in_silence_mask,
                 out_silence_mask,
                 clock_samples,
@@ -545,9 +543,7 @@ fn process_node(
 
         // Cleanup events
         for event in node.immediate_event_queue.drain(..) {
-            if let NodeEventType::Custom(event) = event {
-                let _ = to_graph_tx.push(ProcessorToContextMsg::ReturnCustomEvent(event));
-            }
+            let _ = to_graph_tx.push(ProcessorToContextMsg::ReturnEvent(event));
         }
 
         status
@@ -608,6 +604,7 @@ fn process_node_sub_blocks(
             node.immediate_event_queue.iter_mut(),
             ProcInfo {
                 samples: sub_block_samples,
+                sample_rate_recip,
                 in_silence_mask,
                 out_silence_mask,
                 clock_samples: clock_samples + ClockSamples(samples_processed as u64),
@@ -660,9 +657,7 @@ fn process_node_sub_blocks(
 
         // Cleanup events
         for event in node.immediate_event_queue.drain(..) {
-            if let NodeEventType::Custom(event) = event {
-                let _ = to_graph_tx.push(ProcessorToContextMsg::ReturnCustomEvent(event));
-            }
+            let _ = to_graph_tx.push(ProcessorToContextMsg::ReturnEvent(event));
         }
     };
 

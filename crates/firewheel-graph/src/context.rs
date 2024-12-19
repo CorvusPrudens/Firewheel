@@ -367,7 +367,7 @@ impl FirewheelGraphCtx {
 
         while let Ok(msg) = state.from_executor_rx.pop() {
             match msg {
-                ProcessorToContextMsg::ReturnCustomEvent(event) => {
+                ProcessorToContextMsg::ReturnEvent(event) => {
                     let _ = event;
                 }
                 ProcessorToContextMsg::ReturnEventGroup(event_group) => {
