@@ -8,9 +8,10 @@ use firewheel_core::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::declick::DeclickValues,
     node::{
-        AudioNodeProcessor, EventData, NodeEvent, NodeID, ParamEvent, ProcInfo, ProcessStatus,
-        StreamStatus, NUM_SCRATCH_BUFFERS,
+        AudioNodeProcessor, EventData, NodeEvent, NodeID, ProcInfo, ProcessStatus, StreamStatus,
+        NUM_SCRATCH_BUFFERS,
     },
+    param::ParamEvent,
     ChannelCount, SilenceMask, StreamInfo,
 };
 

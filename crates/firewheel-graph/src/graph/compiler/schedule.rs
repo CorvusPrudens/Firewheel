@@ -472,6 +472,7 @@ impl CompiledSchedule {
 }
 
 #[inline]
+#[allow(clippy::mut_from_ref)]
 fn buffer_slice_mut<'a>(
     buffers: &'a Vec<f32>,
     buffer_index: usize,

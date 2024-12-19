@@ -1,58 +1,20 @@
 use firewheel_core::{
-    dsp::decibel::normalized_volume_to_raw_gain,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, AudioParam, Continuous, EventData,
-        NodeEventIter, ProcInfo, ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EventData, NodeEventIter, ProcInfo,
+        ProcessStatus,
     },
-    param::smoother::ParamSmoother,
+    param::{AudioParam, Continuous},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
 #[derive(AudioParam, Clone)]
-pub struct VolumeParams {
-    pub gain: Continuous<f32>,
-}
-
-pub struct VolumeNode {
-    params: VolumeParams,
-}
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct VolumeNode(pub Continuous<f32>);
 
 impl VolumeNode {
-    ///// The ID of the volume parameter.
-    //pub const PARAM_VOLUME: u32 = 0;
-
-    pub fn new(params: VolumeParams) -> Self {
-        VolumeNode { params }
+    pub fn new(level: f32) -> Self {
+        Self(Continuous::new(level))
     }
-
-    ///// Create a new volume node.
-    /////
-    ///// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    //pub fn new(normalized_volume: f32) -> Self {
-    //    let normalized_volume = normalized_volume.max(0.0);
-    //
-    //    Self { normalized_volume }
-    //}
-
-    ///// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
-    //pub fn normalized_volume(&self) -> f32 {
-    //    self.normalized_volume
-    //}
-
-    ///// Return an event type to set the volume parameter.
-    /////
-    ///// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    ///// * `smoothing` - Set this to `false` to have the node immediately jump to this new
-    ///// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
-    ///// can be useful to preserve transients when playing a new sound at a different volume.
-    //pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> EventData {
-    //    self.normalized_volume = normalized_volume.max(0.0);
-    //    EventData::F32Param {
-    //        id: Self::PARAM_VOLUME,
-    //        value: normalized_volume,
-    //        smoothing,
-    //    }
-    //}
 }
 
 impl AudioNode for VolumeNode {
@@ -78,25 +40,17 @@ impl AudioNode for VolumeNode {
 
     fn activate(
         &mut self,
-        stream_info: &StreamInfo,
+        _stream_info: &StreamInfo,
         _channel_config: ChannelConfig,
     ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        // let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
-
         Ok(Box::new(VolumeProcessor {
-            params: self.params.clone(),
-            // gain_smoother: ParamSmoother::new(
-            //     raw_gain,
-            //     stream_info.sample_rate,
-            //     stream_info.max_block_samples,
-            //     Default::default(),
-            // ),
+            params: self.clone(),
         }))
     }
 }
 
 struct VolumeProcessor {
-    params: VolumeParams,
+    params: VolumeNode,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -124,8 +78,8 @@ impl AudioNodeProcessor for VolumeProcessor {
         }
 
         let seconds = proc_info.clock_seconds;
-        let gain = self.params.gain.value_at(seconds);
-        let is_active = self.params.gain.is_active(seconds);
+        let gain = self.params.0.value_at(seconds);
+        let is_active = self.params.0.is_active(seconds);
 
         if !is_active {
             if gain < 0.00001 {
@@ -154,7 +108,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                     + firewheel_core::clock::ClockSeconds(i as f64 * proc_info.sample_rate_recip);
                 self.params.tick(seconds);
 
-                let gain = self.params.gain.get();
+                let gain = self.params.0.get();
 
                 outputs[0][i] = inputs[0][i] * gain;
                 outputs[1][i] = inputs[1][i] * gain;
@@ -179,7 +133,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                     + firewheel_core::clock::ClockSeconds(i as f64 * proc_info.sample_rate_recip);
                 self.params.tick(seconds);
 
-                let gain = self.params.gain.get();
+                let gain = self.params.0.get();
 
                 output[i] = input[i] * gain;
             }

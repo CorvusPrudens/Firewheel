@@ -6,4 +6,4 @@ mod volume;
 
 pub use mix::MixNode;
 pub use stereo_to_mono::StereoToMonoNode;
-pub use volume::{VolumeNode, VolumeParams};
+pub use volume::VolumeNode;
