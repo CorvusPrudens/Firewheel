@@ -57,7 +57,7 @@ pub struct FirewheelConfig {
     /// The amount of time in seconds to fade in/out when pausing/resuming
     /// to avoid clicks and pops.
     ///
-    /// By default this is set to `5.0 / 1_000.0`.
+    /// By default this is set to `10.0 / 1_000.0`.
     pub declick_seconds: f32,
 }
 
