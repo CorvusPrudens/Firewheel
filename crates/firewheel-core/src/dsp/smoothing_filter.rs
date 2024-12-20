@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 pub const DEFAULT_SMOOTH_SECONDS: f32 = 5.0 / 1_000.0;
 pub const DEFAULT_SETTLE_EPSILON: f32 = 0.00001f32;
 
@@ -11,8 +13,10 @@ pub struct Coeff {
 }
 
 impl Coeff {
-    pub fn new(sample_rate: u32, smooth_secs: f32) -> Self {
-        let b = (-1.0f32 / (smooth_secs * sample_rate as f32)).exp();
+    pub fn new(sample_rate: NonZeroU32, smooth_secs: f32) -> Self {
+        assert!(smooth_secs > 0.0);
+
+        let b = (-1.0f32 / (smooth_secs * sample_rate.get() as f32)).exp();
         let a = 1.0f32 - b;
 
         Self { a, b }

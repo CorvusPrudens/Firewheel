@@ -58,7 +58,7 @@ impl Into<f64> for ClockSeconds {
     }
 }
 
-/// An absolute clock time in units of samples.
+/// An absolute clock time in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClockSamples(pub u64);

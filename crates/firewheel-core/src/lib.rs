@@ -5,26 +5,33 @@ pub mod param;
 pub mod sample_resource;
 mod silence_mask;
 
+use std::num::NonZeroU32;
+
 pub use silence_mask::SilenceMask;
 
 /// Information about a running audio stream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StreamInfo {
-    pub sample_rate: u32,
-    pub max_block_samples: u32,
+    pub sample_rate: NonZeroU32,
+    /// The reciprocal of the sample rate.
+    pub sample_rate_recip: f64,
+    pub max_block_frames: NonZeroU32,
     pub num_stream_in_channels: u32,
     pub num_stream_out_channels: u32,
-    pub stream_latency_samples: Option<u32>,
+    pub stream_latency_frames: Option<u32>,
+    pub declick_frames: NonZeroU32,
 }
 
 impl Default for StreamInfo {
     fn default() -> Self {
         Self {
-            sample_rate: 44100,
-            max_block_samples: 1024,
-            stream_latency_samples: None,
+            sample_rate: NonZeroU32::new(44100).unwrap(),
+            sample_rate_recip: 44100.0f64.recip(),
+            max_block_frames: NonZeroU32::new(1024).unwrap(),
+            stream_latency_frames: None,
             num_stream_in_channels: 0,
             num_stream_out_channels: 2,
+            declick_frames: NonZeroU32::MIN,
         }
     }
 }

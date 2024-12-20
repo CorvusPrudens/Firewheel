@@ -205,7 +205,7 @@ pub struct CompiledSchedule {
     buffers: Vec<f32>,
     buffer_silence_flags: Vec<bool>,
     num_buffers: usize,
-    max_block_samples: usize,
+    max_block_frames: usize,
 }
 
 impl Debug for CompiledSchedule {
@@ -221,7 +221,7 @@ impl Debug for CompiledSchedule {
         writeln!(f, "    }}")?;
 
         writeln!(f, "    num_buffers: {}", self.num_buffers)?;
-        writeln!(f, "    max_block_samples: {}", self.max_block_samples)?;
+        writeln!(f, "    max_block_frames: {}", self.max_block_frames)?;
 
         writeln!(f, "}}")
     }
@@ -231,32 +231,32 @@ impl CompiledSchedule {
     pub(super) fn new(
         schedule: Vec<ScheduledNode>,
         num_buffers: usize,
-        max_block_samples: usize,
+        max_block_frames: usize,
     ) -> Self {
         let mut buffers = Vec::new();
-        buffers.reserve_exact(num_buffers * max_block_samples);
-        buffers.resize(num_buffers * max_block_samples, 0.0);
+        buffers.reserve_exact(num_buffers * max_block_frames);
+        buffers.resize(num_buffers * max_block_frames, 0.0);
 
         Self {
             schedule,
             buffers,
             buffer_silence_flags: vec![false; num_buffers],
             num_buffers,
-            max_block_samples,
+            max_block_frames,
         }
     }
 
-    pub fn max_block_samples(&self) -> usize {
-        self.max_block_samples
+    pub fn max_block_frames(&self) -> usize {
+        self.max_block_frames
     }
 
     pub fn prepare_graph_inputs(
         &mut self,
-        samples: usize,
+        frames: usize,
         num_stream_inputs: usize,
         fill_inputs: impl FnOnce(&mut [&mut [f32]]) -> SilenceMask,
     ) {
-        let samples = samples.min(self.max_block_samples);
+        let frames = frames.min(self.max_block_frames);
 
         let graph_in_node = self.schedule.first().unwrap();
 
@@ -268,8 +268,8 @@ impl CompiledSchedule {
             inputs.push(buffer_slice_mut(
                 &self.buffers,
                 graph_in_node.output_buffers[i].buffer_index,
-                self.max_block_samples,
-                samples,
+                self.max_block_frames,
+                frames,
             ));
         }
 
@@ -283,12 +283,8 @@ impl CompiledSchedule {
 
         if fill_input_len < graph_in_node.output_buffers.len() {
             for b in graph_in_node.output_buffers.iter().skip(fill_input_len) {
-                let buf_slice = buffer_slice_mut(
-                    &self.buffers,
-                    b.buffer_index,
-                    self.max_block_samples,
-                    samples,
-                );
+                let buf_slice =
+                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 buf_slice.fill(0.0);
 
                 *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) = true;
@@ -298,11 +294,11 @@ impl CompiledSchedule {
 
     pub fn read_graph_outputs(
         &mut self,
-        samples: usize,
+        frames: usize,
         num_stream_outputs: usize,
         read_outputs: impl FnOnce(&[&[f32]], SilenceMask),
     ) {
-        let samples = samples.min(self.max_block_samples);
+        let frames = frames.min(self.max_block_frames);
 
         let graph_out_node = self.schedule.last().unwrap();
 
@@ -322,8 +318,8 @@ impl CompiledSchedule {
             outputs.push(buffer_slice_mut(
                 &self.buffers,
                 buffer_index,
-                self.max_block_samples,
-                samples,
+                self.max_block_frames,
+                frames,
             ));
         }
 
@@ -332,7 +328,7 @@ impl CompiledSchedule {
 
     pub fn process(
         &mut self,
-        samples: usize,
+        frames: usize,
         mut process: impl FnMut(
             NodeID,
             SilenceMask,
@@ -341,7 +337,7 @@ impl CompiledSchedule {
             &mut [&mut [f32]],
         ) -> ProcessStatus,
     ) {
-        let samples = samples.min(self.max_block_samples);
+        let frames = frames.min(self.max_block_frames);
 
         let mut inputs: ArrayVec<&[f32], 64> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
@@ -354,16 +350,12 @@ impl CompiledSchedule {
             outputs.clear();
 
             for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
-                let buf = buffer_slice_mut(
-                    &self.buffers,
-                    b.buffer_index,
-                    self.max_block_samples,
-                    samples,
-                );
+                let buf =
+                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if b.should_clear {
-                    buf[..samples].fill(0.0);
+                    buf[..frames].fill(0.0);
                     *s = true;
                 }
 
@@ -375,12 +367,8 @@ impl CompiledSchedule {
             }
 
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                let buf = buffer_slice_mut(
-                    &self.buffers,
-                    b.buffer_index,
-                    self.max_block_samples,
-                    samples,
-                );
+                let buf =
+                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if *s {
@@ -400,7 +388,7 @@ impl CompiledSchedule {
 
             let clear_buffer = |buffer_index: usize, silence_flag: &mut bool| {
                 if !*silence_flag {
-                    buffer_slice_mut(&self.buffers, buffer_index, self.max_block_samples, samples)
+                    buffer_slice_mut(&self.buffers, buffer_index, self.max_block_frames, frames)
                         .fill(0.0);
                     *silence_flag = true;
                 }
@@ -432,14 +420,14 @@ impl CompiledSchedule {
                             let in_buf_slice = buffer_slice_mut(
                                 &self.buffers,
                                 in_buf.buffer_index,
-                                self.max_block_samples,
-                                samples,
+                                self.max_block_frames,
+                                frames,
                             );
                             let out_buf_slice = buffer_slice_mut(
                                 &self.buffers,
                                 out_buf.buffer_index,
-                                self.max_block_samples,
-                                samples,
+                                self.max_block_frames,
+                                frames,
                             );
 
                             out_buf_slice.copy_from_slice(in_buf_slice);
@@ -475,8 +463,8 @@ impl CompiledSchedule {
 fn buffer_slice_mut<'a>(
     buffers: &'a Vec<f32>,
     buffer_index: usize,
-    max_block_samples: usize,
-    samples: usize,
+    max_block_frames: usize,
+    frames: usize,
 ) -> &'a mut [f32] {
     // SAFETY
     //
@@ -485,8 +473,8 @@ fn buffer_slice_mut<'a>(
     // `b.buffer_index` is gauranteed to be less than the value of
     // `num_buffers` that was passed into [`CompiledSchedule::new`].
     //
-    // The methods calling this function make sure that `samples <= max_block_samples`,
-    // and `buffers` was initialized with a length of `num_buffers * max_block_samples`
+    // The methods calling this function make sure that `frames <= max_block_frames`,
+    // and `buffers` was initialized with a length of `num_buffers * max_block_frames`
     // in the constructor. And because `buffer_index` is gauranteed to be less than
     // `num_buffers`, this slice will always point to a valid range.
     //
@@ -500,8 +488,8 @@ fn buffer_slice_mut<'a>(
     // still borrowed.
     unsafe {
         std::slice::from_raw_parts_mut(
-            (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_samples),
-            samples,
+            (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_frames),
+            frames,
         )
     }
 }

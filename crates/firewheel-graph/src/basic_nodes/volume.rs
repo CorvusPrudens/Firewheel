@@ -78,7 +78,7 @@ impl AudioNode for VolumeNode {
             gain_smoother: ParamSmoother::new(
                 raw_gain,
                 stream_info.sample_rate,
-                stream_info.max_block_samples,
+                stream_info.max_block_frames,
                 Default::default(),
             ),
         }))
@@ -97,7 +97,7 @@ impl AudioNodeProcessor for VolumeProcessor {
         events: NodeEventIter,
         proc_info: ProcInfo,
     ) -> ProcessStatus {
-        let samples = proc_info.samples;
+        let samples = proc_info.frames;
 
         for msg in events {
             if let NodeEventType::F32Param {

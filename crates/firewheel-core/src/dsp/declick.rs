@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{num::NonZeroU32, ops::Range};
 
 /// A struct when can be used to linearly ramp up/down between `0.0`
 /// and `1.0` to declick audio streams.
@@ -29,14 +29,14 @@ impl Declicker {
         match self {
             Self::SettledAt1 => {
                 *self = Self::FadingTo0 {
-                    samples_left: declick_values.fade_samples(),
+                    samples_left: declick_values.frames(),
                 }
             }
             Self::FadingTo1 { samples_left } => {
-                let samples_left = if *samples_left <= declick_values.fade_samples() {
-                    declick_values.fade_samples() - *samples_left
+                let samples_left = if *samples_left <= declick_values.frames() {
+                    declick_values.frames() - *samples_left
                 } else {
-                    declick_values.fade_samples()
+                    declick_values.frames()
                 };
 
                 *self = Self::FadingTo0 { samples_left }
@@ -49,17 +49,17 @@ impl Declicker {
         match self {
             Self::SettledAt0 => {
                 *self = Self::FadingTo1 {
-                    samples_left: declick_values.fade_samples(),
+                    samples_left: declick_values.frames(),
                 }
             }
             Self::FadingTo0 { samples_left } => {
-                let samples_left = if *samples_left <= declick_values.fade_samples() {
-                    declick_values.fade_samples() - *samples_left
+                let samples_left = if *samples_left <= declick_values.frames() {
+                    declick_values.frames() - *samples_left
                 } else {
-                    declick_values.fade_samples()
+                    declick_values.frames()
                 };
 
-                *self = Self::FadingTo0 { samples_left }
+                *self = Self::FadingTo1 { samples_left }
             }
             _ => {}
         }
@@ -70,28 +70,44 @@ impl Declicker {
     }
 
     pub fn reset_to_1(&mut self) {
-        *self = Self::SettledAt0;
+        *self = Self::SettledAt1;
     }
 
     pub fn process<V: AsMut<[f32]>>(
         &mut self,
         buffers: &mut [V],
-        buffer_range: Range<usize>,
+        range_in_buffer: Range<usize>,
         declick_values: &DeclickValues,
+        gain: f32,
     ) {
         let mut fade_buffers = |declick_samples_left: &mut usize, values: &[f32]| -> usize {
-            let buffer_samples = buffer_range.end - buffer_range.start;
+            let buffer_samples = range_in_buffer.end - range_in_buffer.start;
             let process_samples = buffer_samples.min(*declick_samples_left);
             let start_frame = values.len() - *declick_samples_left;
 
-            for b in buffers.iter_mut() {
-                let b = &mut b.as_mut()[buffer_range.clone()];
+            if gain == 1.0 {
+                for b in buffers.iter_mut() {
+                    let b = &mut b.as_mut()
+                        [range_in_buffer.start..range_in_buffer.start + process_samples];
 
-                for (s, &g) in b[..process_samples]
-                    .iter_mut()
-                    .zip(values[start_frame..start_frame + process_samples].iter())
-                {
-                    *s *= g;
+                    for (s, &g) in b
+                        .iter_mut()
+                        .zip(values[start_frame..start_frame + process_samples].iter())
+                    {
+                        *s *= g;
+                    }
+                }
+            } else {
+                for b in buffers.iter_mut() {
+                    let b = &mut b.as_mut()
+                        [range_in_buffer.start..range_in_buffer.start + process_samples];
+
+                    for (s, &g) in b
+                        .iter_mut()
+                        .zip(values[start_frame..start_frame + process_samples].iter())
+                    {
+                        *s *= g * gain;
+                    }
                 }
             }
 
@@ -104,18 +120,18 @@ impl Declicker {
             Self::SettledAt0 => {
                 for b in buffers.iter_mut() {
                     let b = &mut b.as_mut();
-                    b[buffer_range.clone()].fill(0.0);
+                    b[range_in_buffer.clone()].fill(0.0);
                 }
             }
             Self::FadingTo0 { samples_left } => {
                 let samples_processed =
                     fade_buffers(samples_left, &declick_values.fade_1_to_0_values);
 
-                if samples_processed < buffer_range.end - buffer_range.start {
+                if samples_processed < range_in_buffer.end - range_in_buffer.start {
                     for b in buffers.iter_mut() {
-                        let b = &mut b.as_mut()[buffer_range.clone()];
-
-                        b[samples_processed..].fill(0.0);
+                        let b = &mut b.as_mut()
+                            [range_in_buffer.start + samples_processed..range_in_buffer.end];
+                        b.fill(0.0);
                     }
                 }
 
@@ -124,7 +140,18 @@ impl Declicker {
                 }
             }
             Self::FadingTo1 { samples_left } => {
-                fade_buffers(samples_left, &declick_values.fade_0_to_1_values);
+                let samples_processed =
+                    fade_buffers(samples_left, &declick_values.fade_0_to_1_values);
+
+                if samples_processed < range_in_buffer.end - range_in_buffer.start && gain != 1.0 {
+                    for b in buffers.iter_mut() {
+                        let b = &mut b.as_mut()
+                            [range_in_buffer.start + samples_processed..range_in_buffer.end];
+                        for s in b.iter_mut() {
+                            *s *= gain;
+                        }
+                    }
+                }
 
                 if *samples_left == 0 {
                     *self = Self::SettledAt1;
@@ -145,25 +172,20 @@ pub struct DeclickValues {
 }
 
 impl DeclickValues {
-    pub const DEFAULT_FADE_SECONDS: f32 = 3.0 / 1_000.0;
+    pub const DEFAULT_FADE_SECONDS: f32 = 5.0 / 1_000.0;
 
-    pub fn new(fade_seconds: f32, sample_rate: u32) -> Self {
-        let fade_samples = (fade_seconds * sample_rate as f32).round() as usize;
-        let fade_samples_recip = (fade_samples as f32).recip();
+    pub fn new(frames: NonZeroU32) -> Self {
+        let frames = frames.get() as usize;
+        let frames_recip = (frames as f32).recip();
 
         let mut fade_0_to_1_values = Vec::new();
         let mut fade_1_to_0_values = Vec::new();
 
-        fade_0_to_1_values.reserve_exact(fade_samples);
-        fade_1_to_0_values.reserve_exact(fade_samples);
+        fade_0_to_1_values.reserve_exact(frames);
+        fade_1_to_0_values.reserve_exact(frames);
 
-        fade_0_to_1_values = (0..fade_samples)
-            .map(|i| i as f32 * fade_samples_recip)
-            .collect();
-        fade_1_to_0_values = (0..fade_samples)
-            .rev()
-            .map(|i| i as f32 * fade_samples_recip)
-            .collect();
+        fade_0_to_1_values = (0..frames).map(|i| i as f32 * frames_recip).collect();
+        fade_1_to_0_values = (0..frames).rev().map(|i| i as f32 * frames_recip).collect();
 
         Self {
             fade_0_to_1_values,
@@ -171,7 +193,7 @@ impl DeclickValues {
         }
     }
 
-    pub fn fade_samples(&self) -> usize {
+    pub fn frames(&self) -> usize {
         self.fade_0_to_1_values.len()
     }
 }

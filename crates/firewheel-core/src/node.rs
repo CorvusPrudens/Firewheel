@@ -225,7 +225,9 @@ pub const NUM_SCRATCH_BUFFERS: usize = 16;
 pub struct ProcInfo<'a, 'b> {
     /// The number of samples (in a single channel of audio) in this
     /// processing block.
-    pub samples: usize,
+    ///
+    /// Not to be confused with video frames.
+    pub frames: usize,
 
     /// An optional optimization hint on which input channels contain
     /// all zeros (silence). The first bit (`0b1`) is the first channel,
@@ -246,8 +248,8 @@ pub struct ProcInfo<'a, 'b> {
     /// occur.
     pub clock_seconds: ClockSeconds,
 
-    /// The total number of samples that have been processed since the
-    /// start of the audio stream.
+    /// The total number of samples (in a single channel of audio) that
+    /// have been processed since the start of the audio stream.
     ///
     /// This value can be used for more accurate timing than
     /// [`ProcInfo::clock_secs`], but note it does *NOT* account for any
@@ -336,23 +338,33 @@ pub struct NodeEvent {
 
 /// An event type associated with an [`AudioNode`].
 pub enum NodeEventType {
-    /// Pause this node and all of its queued delayed events.
+    /// Pause this node and all of its pending delayed events.
     ///
     /// Note this event type cannot be delayed.
     Pause,
-    /// Resume this node and all of its queued delayed events.
+    /// Resume this node and all of its pending delayed events.
     ///
     /// Note this event type cannot be delayed.
     Resume,
-    /// Stop this node and discard all of its queued delayed events.
+    /// Stop this node and discard all of its pending delayed events.
     ///
     /// Note this event type cannot be delayed.
     Stop,
+    /// Tell the node to start/restart its playback sequencue.
+    ///
+    /// Note the node must implement this event type for this to take
+    /// effect.
+    StartOrRestart,
     /// Enable/disable this node.
     ///
     /// Note the node must implement this event type for this to take
     /// effect.
     SetEnabled(bool),
+    /// Tell the node to discard any stored data (like samples).
+    ///
+    /// Note the node must implement this event type for this to take
+    /// effect.
+    DiscardData,
     /// Set the value of an `f32` parameter.
     F32Param {
         /// The unique ID of the paramater.
@@ -420,23 +432,26 @@ pub enum NodeEventType {
         /// clicking or stair-stepping artifacts).
         smoothing: bool,
     },
-    /// Play a sample to completion.
+    /// Use the given sample. This will stop any currently playing samples
+    /// and reset the playhead to the beginning. Send a `StartOrRestart`
+    /// event to begin playback.
     ///
-    /// (Even though this event is only used by the `OneShotSamplerNode`,
-    /// because it is so common, define it here so the event doesn't have
-    /// to be allocated every time.)
-    PlaySample {
-        /// The sample resource to play.
+    /// (Even though this event is only used by the `SamplerNode`, because it
+    /// is so common, define it here so that the event doesn't have to be
+    /// allocated every time.)
+    NewSample {
+        /// The sample resource.
         sample: Arc<dyn SampleResource>,
         /// The normalized volume to play this sample at (where `0.0` is mute
         /// and `1.0` is unity gain.)
         ///
         /// Note, this value cannot be changed while the sample is playing.
-        /// Use a `VolumeNode` for that instead.
+        /// Use a `VolumeNode` or a `StereoVolumePanNOde` node for that
+        /// instead.
         normalized_volume: f32,
-        /// If `true`, then all other voices currently being played in this
-        /// node will be stopped.
-        stop_other_voices: bool,
+        /// How many times this sample should be repeated for each
+        /// `StartOrRestart` command.
+        repeat_mode: RepeatMode,
     },
     /// Custom event type.
     Custom(Box<dyn Any + Send>),
@@ -444,3 +459,27 @@ pub enum NodeEventType {
 }
 
 pub type NodeEventIter<'a> = std::collections::vec_deque::IterMut<'a, NodeEventType>;
+
+/// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatMode {
+    /// Play the sample/sequence once and then stop.
+    #[default]
+    PlayOnce,
+    /// Repeat the sample/sequence the given number of times.
+    RepeatMultiple { num_times_to_repeat: u16 },
+    /// Repeat the sample/sequence endlessly.
+    RepeatEndlessly,
+}
+
+impl RepeatMode {
+    pub fn do_loop(&self, num_times_looped_back: u64) -> bool {
+        match self {
+            Self::PlayOnce => false,
+            &Self::RepeatMultiple {
+                num_times_to_repeat,
+            } => num_times_looped_back < num_times_to_repeat as u64,
+            Self::RepeatEndlessly => true,
+        }
+    }
+}

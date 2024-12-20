@@ -53,7 +53,6 @@ pub struct FirewheelProcessor {
     running: bool,
     stream_info: StreamInfo,
     sample_rate: f64,
-    sample_rate_recip: f64,
     hard_clip_outputs: bool,
 
     scratch_buffers: Vec<f32>,
@@ -69,15 +68,14 @@ impl FirewheelProcessor {
         node_capacity: usize,
         stream_info: StreamInfo,
         hard_clip_outputs: bool,
-        declick_seconds: f32,
     ) -> Self {
-        let sample_rate = f64::from(stream_info.sample_rate);
-        let sample_rate_recip = sample_rate.recip();
+        let sample_rate = f64::from(stream_info.sample_rate.get());
 
         let mut scratch_buffers = Vec::new();
-        scratch_buffers.reserve_exact(NUM_SCRATCH_BUFFERS * stream_info.max_block_samples as usize);
+        scratch_buffers
+            .reserve_exact(NUM_SCRATCH_BUFFERS * stream_info.max_block_frames.get() as usize);
         scratch_buffers.resize(
-            NUM_SCRATCH_BUFFERS * stream_info.max_block_samples as usize,
+            NUM_SCRATCH_BUFFERS * stream_info.max_block_frames.get() as usize,
             0.0,
         );
 
@@ -92,10 +90,9 @@ impl FirewheelProcessor {
             running: true,
             stream_info,
             sample_rate,
-            sample_rate_recip,
             hard_clip_outputs,
             scratch_buffers,
-            declick_values: DeclickValues::new(declick_seconds, stream_info.sample_rate),
+            declick_values: DeclickValues::new(stream_info.declick_frames),
         }
     }
 
@@ -111,19 +108,19 @@ impl FirewheelProcessor {
         output: &mut [f32],
         num_in_channels: usize,
         num_out_channels: usize,
-        samples: usize,
+        frames: usize,
         mut clock_seconds: ClockSeconds,
         stream_status: StreamStatus,
     ) -> FirewheelProcessorStatus {
         self.poll_messages(clock_seconds);
 
         let mut clock_samples = self.clock_samples;
-        self.clock_samples += ClockSamples(samples as u64);
+        self.clock_samples += ClockSamples(frames as u64);
 
         self.clock_samples_shared
             .store(self.clock_samples.0, Ordering::Relaxed);
         self.clock_seconds_shared.store(
-            clock_seconds.0 + (samples as f64 * self.sample_rate_recip),
+            clock_seconds.0 + (frames as f64 * self.stream_info.sample_rate_recip),
             Ordering::Relaxed,
         );
 
@@ -132,18 +129,18 @@ impl FirewheelProcessor {
             return FirewheelProcessorStatus::DropProcessor;
         }
 
-        if self.schedule_data.is_none() || samples == 0 {
+        if self.schedule_data.is_none() || frames == 0 {
             output.fill(0.0);
             return FirewheelProcessorStatus::Ok;
         };
 
-        assert_eq!(input.len(), samples * num_in_channels);
-        assert_eq!(output.len(), samples * num_out_channels);
+        assert_eq!(input.len(), frames * num_in_channels);
+        assert_eq!(output.len(), frames * num_out_channels);
 
-        let mut samples_processed = 0;
-        while samples_processed < samples {
-            let block_samples =
-                (samples - samples_processed).min(self.stream_info.max_block_samples as usize);
+        let mut frames_processed = 0;
+        while frames_processed < frames {
+            let block_frames =
+                (frames - frames_processed).min(self.stream_info.max_block_frames.get() as usize);
 
             // Prepare graph input buffers.
             self.schedule_data
@@ -151,24 +148,24 @@ impl FirewheelProcessor {
                 .unwrap()
                 .schedule
                 .prepare_graph_inputs(
-                    block_samples,
+                    block_frames,
                     num_in_channels,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         firewheel_core::dsp::interleave::deinterleave(
                             channels,
-                            &input[samples_processed * num_in_channels
-                                ..(samples_processed + block_samples) * num_in_channels],
+                            &input[frames_processed * num_in_channels
+                                ..(frames_processed + block_frames) * num_in_channels],
                             num_in_channels,
                             true,
                         )
                     },
                 );
 
-            let next_clock_seconds =
-                clock_seconds + ClockSeconds(block_samples as f64 * self.sample_rate_recip);
+            let next_clock_seconds = clock_seconds
+                + ClockSeconds(block_frames as f64 * self.stream_info.sample_rate_recip);
 
             self.process_block(
-                block_samples,
+                block_frames,
                 clock_samples,
                 clock_seconds..next_clock_seconds,
                 stream_status,
@@ -180,13 +177,13 @@ impl FirewheelProcessor {
                 .unwrap()
                 .schedule
                 .read_graph_outputs(
-                    block_samples,
+                    block_frames,
                     num_out_channels,
                     |channels: &[&[f32]], silence_mask| {
                         firewheel_core::dsp::interleave::interleave(
                             channels,
-                            &mut output[samples_processed * num_out_channels
-                                ..(samples_processed + block_samples) * num_out_channels],
+                            &mut output[frames_processed * num_out_channels
+                                ..(frames_processed + block_frames) * num_out_channels],
                             num_out_channels,
                             Some(silence_mask),
                         );
@@ -194,14 +191,14 @@ impl FirewheelProcessor {
                 );
 
             if !self.running {
-                if samples_processed < samples {
-                    output[samples_processed * num_out_channels..].fill(0.0);
+                if frames_processed < frames {
+                    output[frames_processed * num_out_channels..].fill(0.0);
                 }
                 break;
             }
 
-            samples_processed += block_samples;
-            clock_samples += ClockSamples(block_samples as u64);
+            frames_processed += block_frames;
+            clock_samples += ClockSamples(block_frames as u64);
             clock_seconds = next_clock_seconds;
         }
 
@@ -232,8 +229,8 @@ impl FirewheelProcessor {
                 }
                 ContextToProcessorMsg::NewSchedule(mut new_schedule_data) => {
                     assert_eq!(
-                        new_schedule_data.schedule.max_block_samples(),
-                        self.stream_info.max_block_samples as usize
+                        new_schedule_data.schedule.max_block_frames(),
+                        self.stream_info.max_block_frames.get() as usize
                     );
 
                     if let Some(mut old_schedule_data) = self.schedule_data.take() {
@@ -375,7 +372,7 @@ impl FirewheelProcessor {
 
     fn process_block(
         &mut self,
-        block_samples: usize,
+        block_frames: usize,
         clock_samples: ClockSamples,
         clock_seconds: Range<ClockSeconds>,
         stream_status: StreamStatus,
@@ -407,7 +404,7 @@ impl FirewheelProcessor {
 
                 if samples_after_now <= 0.0 {
                     node.num_delayed_events_this_block_first_sample += 1;
-                } else if samples_after_now as usize >= block_samples {
+                } else if samples_after_now as usize >= block_frames {
                     break;
                 } else {
                     node.num_delayed_events_this_block += 1;
@@ -423,7 +420,7 @@ impl FirewheelProcessor {
             // SAFETY:
             //
             // * `self.scratch_buffers` was initialized with a length of
-            // `NUM_SCRATCH_BUFFERS * max_block_samples` in the constructor.
+            // `NUM_SCRATCH_BUFFERS * max_block_frames` in the constructor.
             // * The resulting slices do not overlap.
             // * `self.scratch_buffers` is never written to or read from, so
             // it is safe to write to these slices.
@@ -431,15 +428,15 @@ impl FirewheelProcessor {
                 std::slice::from_raw_parts_mut(
                     self.scratch_buffers
                         .as_ptr()
-                        .add(i * self.stream_info.max_block_samples as usize)
+                        .add(i * self.stream_info.max_block_frames.get() as usize)
                         as *mut f32,
-                    self.stream_info.max_block_samples as usize,
+                    self.stream_info.max_block_frames.get() as usize,
                 )
             }
         });
 
         schedule_data.schedule.process(
-            block_samples,
+            block_frames,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
@@ -455,11 +452,11 @@ impl FirewheelProcessor {
                     outputs,
                     &mut scratch_buffers,
                     &self.declick_values,
-                    block_samples,
+                    block_frames,
                     clock_samples,
                     clock_seconds.start,
                     stream_status,
-                    self.sample_rate_recip,
+                    self.stream_info.sample_rate_recip,
                 )
             },
         );
@@ -510,7 +507,7 @@ fn process_node(
     outputs: &mut [&mut [f32]],
     scratch_buffers: &mut [&mut [f32]; 16],
     declick_values: &DeclickValues,
-    block_samples: usize,
+    block_frames: usize,
     clock_samples: ClockSamples,
     clock_seconds: ClockSeconds,
     stream_status: StreamStatus,
@@ -533,7 +530,7 @@ fn process_node(
             outputs,
             node.immediate_event_queue.iter_mut(),
             ProcInfo {
-                samples: block_samples,
+                frames: block_frames,
                 in_silence_mask,
                 out_silence_mask,
                 clock_samples,
@@ -563,7 +560,7 @@ fn process_node(
             outputs,
             scratch_buffers,
             declick_values,
-            block_samples,
+            block_frames,
             clock_samples,
             clock_seconds,
             stream_status,
@@ -583,7 +580,7 @@ fn process_node_sub_blocks(
     outputs: &mut [&mut [f32]],
     scratch_buffers: &mut [&mut [f32]; 16],
     declick_values: &DeclickValues,
-    block_samples: usize,
+    block_frames: usize,
     clock_samples: ClockSamples,
     clock_seconds: ClockSeconds,
     stream_status: StreamStatus,
@@ -591,16 +588,16 @@ fn process_node_sub_blocks(
 ) -> ProcessStatus {
     let mut new_out_silence_mask = SilenceMask::new_all_silent(outputs.len());
 
-    let mut process_sub_block = |samples_processed: usize,
-                                 sub_block_samples: usize,
+    let mut process_sub_block = |frames_processed: usize,
+                                 sub_block_frames: usize,
                                  node: &mut NodeEntry| {
         let tmp_inputs: ArrayVec<&[f32], { ChannelCount::MAX.get() as usize }> = inputs
             .iter()
-            .map(|b| &b[samples_processed..samples_processed + sub_block_samples])
+            .map(|b| &b[frames_processed..frames_processed + sub_block_frames])
             .collect();
         let mut tmp_outputs: ArrayVec<&mut [f32], { ChannelCount::MAX.get() as usize }> = outputs
             .iter_mut()
-            .map(|b| &mut b[samples_processed..samples_processed + sub_block_samples])
+            .map(|b| &mut b[frames_processed..frames_processed + sub_block_frames])
             .collect();
 
         let status = node.processor.process(
@@ -608,12 +605,12 @@ fn process_node_sub_blocks(
             tmp_outputs.as_mut_slice(),
             node.immediate_event_queue.iter_mut(),
             ProcInfo {
-                samples: sub_block_samples,
+                frames: sub_block_frames,
                 in_silence_mask,
                 out_silence_mask,
-                clock_samples: clock_samples + ClockSamples(samples_processed as u64),
+                clock_samples: clock_samples + ClockSamples(frames_processed as u64),
                 clock_seconds: clock_seconds
-                    + ClockSeconds(samples_processed as f64 * sample_rate_recip),
+                    + ClockSeconds(frames_processed as f64 * sample_rate_recip),
                 stream_status,
                 scratch_buffers,
                 declick_values,
@@ -670,14 +667,14 @@ fn process_node_sub_blocks(
     // Process the first sub-block.
     // Note, this value has been replaced with the sample this event
     // falls on in `FirewheelProcessor::process_block`.
-    let sub_block_samples = node.delayed_event_queue.front().unwrap().0 .0 as usize;
-    let mut samples_processed = 0;
-    process_sub_block(samples_processed, sub_block_samples, node);
-    samples_processed = sub_block_samples;
+    let sub_block_frames = node.delayed_event_queue.front().unwrap().0 .0 as usize;
+    let mut frames_processed = 0;
+    process_sub_block(frames_processed, sub_block_frames, node);
+    frames_processed = sub_block_frames;
 
-    while samples_processed < block_samples {
+    while frames_processed < block_frames {
         let mut num_events: u32 = 1;
-        let mut sub_block_samples = block_samples - samples_processed;
+        let mut sub_block_frames = block_frames - frames_processed;
         if node.num_delayed_events_this_block > 1 {
             // Note, this value has been replaced with the sample this event
             // falls on in `FirewheelProcessor::process_block`.
@@ -685,8 +682,8 @@ fn process_node_sub_blocks(
                 .delayed_event_queue
                 .range(1..node.num_delayed_events_this_block as usize)
             {
-                if samples_after_now.0 as usize > samples_processed {
-                    sub_block_samples = samples_after_now.0 as usize - samples_processed;
+                if samples_after_now.0 as usize > frames_processed {
+                    sub_block_frames = samples_after_now.0 as usize - frames_processed;
                     break;
                 }
                 num_events += 1;
@@ -697,10 +694,10 @@ fn process_node_sub_blocks(
             node.immediate_event_queue.push_front(event);
         }
 
-        process_sub_block(samples_processed, sub_block_samples, node);
+        process_sub_block(frames_processed, sub_block_frames, node);
 
         node.num_delayed_events_this_block -= num_events;
-        samples_processed += sub_block_samples;
+        frames_processed += sub_block_frames;
     }
 
     ProcessStatus::OutputsModified {

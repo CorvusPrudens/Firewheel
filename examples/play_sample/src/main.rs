@@ -1,13 +1,11 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use firewheel::{
     clock::EventDelay,
-    node::{NodeEvent, NodeEventType},
-    sampler::one_shot::OneShotSamplerNode,
+    node::RepeatMode,
+    sample_resource::SampleResource,
+    sampler::{Sampler, SamplerNode},
     FirewheelCpalCtx, UpdateStatus,
 };
 use symphonium::SymphoniumLoader;
@@ -32,39 +30,40 @@ fn main() {
 
     let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-    let sample =
+    let sample: Arc<dyn SampleResource> = Arc::new(
         firewheel::load_audio_file(&mut loader, args.path, sample_rate, Default::default())
-            .unwrap();
-    let sample_duration = Duration::from_secs_f64(sample.duration_seconds());
+            .unwrap(),
+    );
 
     let graph = cx.graph_mut().unwrap();
-    let sampler_node = graph
-        .add_node(OneShotSamplerNode::new(Default::default()).into(), None)
+    let sampler_node_id = graph
+        .add_node(SamplerNode::new(Default::default()).into(), None)
         .unwrap();
     graph
         .connect(
-            sampler_node,
+            sampler_node_id,
             graph.graph_out_node(),
             &[(0, 0), (1, 1)],
             false,
         )
         .unwrap();
 
-    graph.queue_event(NodeEvent {
-        node_id: sampler_node,
-        delay: EventDelay::Immediate,
-        event: NodeEventType::PlaySample {
-            sample: Arc::new(sample),
-            normalized_volume: 1.0,
-            stop_other_voices: false,
-        },
-    });
+    let mut sampler = Sampler::new(sampler_node_id);
+    sampler.set_sample(
+        Some(&sample),
+        1.0,
+        RepeatMode::PlayOnce,
+        EventDelay::Immediate,
+        graph,
+    );
+    sampler.start_or_restart(EventDelay::Immediate, graph);
 
-    let start = Instant::now();
-    // Give a little bit of leeway to account for latency.
-    let duration = sample_duration + Duration::from_millis(100);
-    while start.elapsed() < duration {
+    loop {
         std::thread::sleep(UPDATE_INTERVAL);
+
+        if sampler.status(cx.graph()).finished() {
+            break;
+        }
 
         match cx.update() {
             UpdateStatus::Inactive => {}

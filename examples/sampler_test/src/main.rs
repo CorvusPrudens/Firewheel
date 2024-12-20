@@ -11,14 +11,14 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([550.0, 300.0])
-            .with_min_inner_size([550.0, 220.0]),
+            .with_inner_size([575.0, 300.0])
+            .with_min_inner_size([575.0, 220.0]),
         vsync: true,
         ..Default::default()
     };
 
     eframe::run_native(
-        "firewheel one shot sampler demo",
+        "firewheel sampler test",
         native_options,
         Box::new(|_| Ok(Box::new(ui::DemoApp::new()))),
     )
@@ -32,7 +32,7 @@ fn main() {
     wasm_bindgen_futures::spawn_local(async {
         eframe::WebRunner::new()
             .start(
-                "firewheel one shot sampler demo",
+                "firewheel sampler test",
                 web_options,
                 Box::new(|cx| Ok(Box::new(ui::DemoApp::new(cx)))),
             )

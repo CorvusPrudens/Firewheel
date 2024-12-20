@@ -65,7 +65,7 @@ impl AudioNodeProcessor for MixNodeProcessor {
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
         let num_outputs = outputs.len();
-        let samples = proc_info.samples;
+        let samples = proc_info.frames;
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All inputs are silent.

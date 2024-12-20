@@ -23,8 +23,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [x] beep test (generates a sine wav for testing)
     * [ ] triple buffer input (put raw audio samples into the graph from another thread)
     * [ ] triple buffer output (allows the game engine to read the latest samples in the audio stream)
-    * [ ] one-shot sampler node
-    * [ ] looping sampler node
+    * [x] sampler node
     * [ ] simple spatial positioning (only the simplest implementation for first release)
 * [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
 * [x] Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
@@ -39,7 +38,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Later Goals
 
-* Seamlessly blending between multiple audio tracks in the `LoopingSamplerNode`
+* Seamlessly blending between multiple audio tracks in the `SamplerNode`
 * Extra built-in nodes:
     * [ ] delay compensation
     * [ ] convolution (user can load any impulse response they want to create effects like reverbs)
@@ -144,28 +143,6 @@ Audio nodes which output audio also must notify the graph on which output channe
 ## Sampler
 
 The sampler nodes are used to play back audio files (sound FX, music, etc.). Samplers can play back any resource which implements the `SampleResource` trait in [sample_resource.rs](crates/firewheel-core/src/sample_resource.rs). Using a trait like this gives the game engine control over how to load and store audio assets, i.e. by using a crate like [Symphonium](https://github.com/MeadowlarkDAW/symphonium).
-
-There are two sampler nodes, the `OneShotSamplerNode` and the `LoopingSamplerNode`.
-
-### OneShotSamplerNode
-
-This node is useful for playing audio FX.
-
-When the user calls `OneShotSamplerNode::play_sample`, the node will play the given sample to completion (or play a given range in the sample if specified).
-
-This node is initialized with a maximum number of "voices" that can play concurrently. If the maximum number of voices is reached, then the oldest voice will be stopped and replaced with the new voice.
-
-Calling `OneShotSamplerNode::pause` will pause all voices, `OneShotSamplerNode::resume` will resume all voices, and `OneShotSamplerNode::stop` will stop all voices.
-
-### LoopingSamplerNode
-
-This node is useful for playing music and ambiances.
-
-Unlike `OneShotSamplerNode`, this node only has a singular "voice". However, it takes anything that implements the `MultiSampleResource` trait (TODO) which allows it seamlessly blend between multiple audio tracks (useful for creating effects like smoothly changing the music when the player enters a different room). 
-
-When the user calls `LoopingSamplerNode::load_sample`, the old `MultiSampleResource` will be stopped and replaced with the new one, and the playhead will be reset to `0`.
-
-Once loaded, calling `LoopingSamplerNode::resume` will start/resume playback, `LoopingSamplerNode::pause` will pause playback, and `LoopingSamplerNode::stop` will stop playback and reset the playhead to `0`.
 
 ## Spatial Positioning
 

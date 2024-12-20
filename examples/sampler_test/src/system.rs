@@ -3,78 +3,19 @@ use std::sync::Arc;
 use firewheel::{
     basic_nodes::MixNode,
     clock::EventDelay,
-    graph::AudioGraph,
-    node::{NodeEvent, NodeEventType, NodeID},
+    node::RepeatMode,
     sample_resource::SampleResource,
-    sampler::one_shot::OneShotSamplerNode,
+    sampler::{Sampler, SamplerNode, SamplerStatus},
     ChannelConfig, FirewheelCpalCtx, UpdateStatus,
 };
 use symphonium::SymphoniumLoader;
 
-pub const SAMPLE_PATHS: [&'static str; 3] = [
+pub const SAMPLE_PATHS: [&'static str; 4] = [
     "assets/test_files/sword_swing.flac",
     "assets/test_files/bird_cherp.wav",
     "assets/test_files/beep.wav",
+    "assets/test_files/bird_ambiance.ogg",
 ];
-
-pub struct Sampler {
-    pub paused: bool,
-    pub stop_other_voices: bool,
-    pub volume: f32,
-
-    node_id: NodeID,
-    sample: Arc<dyn SampleResource>,
-}
-
-impl Sampler {
-    fn play(&mut self, graph: &mut AudioGraph) {
-        if !self.paused {
-            graph.queue_event(NodeEvent {
-                node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::PlaySample {
-                    sample: Arc::clone(&self.sample),
-                    normalized_volume: self.volume / 100.0,
-                    stop_other_voices: self.stop_other_voices,
-                },
-            });
-        }
-    }
-
-    fn pause(&mut self, graph: &mut AudioGraph) {
-        if !self.paused {
-            self.paused = true;
-
-            graph.queue_event(NodeEvent {
-                node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::Pause,
-            });
-        }
-    }
-
-    fn resume(&mut self, graph: &mut AudioGraph) {
-        if self.paused {
-            self.paused = false;
-
-            graph.queue_event(NodeEvent {
-                node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::Resume,
-            });
-        }
-    }
-
-    fn stop(&mut self, graph: &mut AudioGraph) {
-        self.paused = false;
-
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay: EventDelay::Immediate,
-            event: NodeEventType::Stop,
-        });
-    }
-}
 
 pub struct AudioSystem {
     cx: FirewheelCpalCtx,
@@ -111,12 +52,13 @@ impl AudioSystem {
             .iter()
             .enumerate()
             .map(|(i, path)| {
-                let sample =
+                let sample: Arc<dyn SampleResource> = Arc::new(
                     firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
-                        .unwrap();
+                        .unwrap(),
+                );
 
                 let node_id = graph
-                    .add_node(Box::new(OneShotSamplerNode::new(Default::default())), None)
+                    .add_node(Box::new(SamplerNode::new(Default::default())), None)
                     .unwrap();
                 graph
                     .connect(
@@ -127,13 +69,17 @@ impl AudioSystem {
                     )
                     .unwrap();
 
-                Sampler {
-                    paused: false,
-                    stop_other_voices: false,
-                    volume: 100.0,
-                    node_id,
-                    sample: Arc::new(sample),
-                }
+                let mut sampler = Sampler::new(node_id);
+
+                sampler.set_sample(
+                    Some(&sample),
+                    1.0,
+                    RepeatMode::PlayOnce,
+                    EventDelay::Immediate,
+                    graph,
+                );
+
+                sampler
             })
             .collect();
 
@@ -144,24 +90,46 @@ impl AudioSystem {
         self.cx.is_activated()
     }
 
-    pub fn play(&mut self, sampler_i: usize) {
+    pub fn start_or_restart(
+        &mut self,
+        sampler_i: usize,
+        normalized_volume: f32,
+        repeat_mode: RepeatMode,
+    ) {
         let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].play(graph);
+        let sampler = &mut self.samplers[sampler_i];
+
+        if normalized_volume != sampler.normalized_volume() || repeat_mode != sampler.repeat_mode()
+        {
+            sampler.set_sample(
+                None,
+                normalized_volume,
+                repeat_mode,
+                EventDelay::Immediate,
+                graph,
+            );
+        }
+
+        sampler.start_or_restart(EventDelay::Immediate, graph);
     }
 
     pub fn pause(&mut self, sampler_i: usize) {
         let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].pause(graph);
+        self.samplers[sampler_i].pause(EventDelay::Immediate, graph);
     }
 
     pub fn resume(&mut self, sampler_i: usize) {
         let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].resume(graph);
+        self.samplers[sampler_i].resume(EventDelay::Immediate, graph);
     }
 
     pub fn stop(&mut self, sampler_i: usize) {
         let graph = self.cx.graph_mut().unwrap();
         self.samplers[sampler_i].stop(graph);
+    }
+
+    pub fn sampler_status(&self, sampler_i: usize) -> SamplerStatus {
+        self.samplers[sampler_i].status(self.cx.graph())
     }
 
     pub fn update(&mut self) {

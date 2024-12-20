@@ -1,4 +1,5 @@
 use std::fmt;
+use std::num::NonZeroU32;
 use std::ops;
 use std::slice;
 
@@ -89,14 +90,23 @@ impl ParamSmoother {
     ///
     /// * `val` - The initial starting value
     /// * `sample_rate` - The sampling rate
-    /// * `max_block_samples` - The maximum number of samples that can
+    /// * `max_block_frames` - The maximum number of samples that can
     /// appear in a processing block.
     /// * `config` - Additional options for a [`ParamSmoother`]
-    pub fn new(val: f32, sample_rate: u32, max_block_samples: u32, config: SmootherConfig) -> Self {
+    pub fn new(
+        val: f32,
+        sample_rate: NonZeroU32,
+        max_block_frames: NonZeroU32,
+        config: SmootherConfig,
+    ) -> Self {
+        let mut output = Vec::new();
+        output.reserve_exact(max_block_frames.get() as usize);
+        output.resize(max_block_frames.get() as usize, val);
+
         Self {
             status: SmootherStatus::Inactive,
             target: val,
-            output: vec![val; max_block_samples as usize],
+            output,
             filter_coeff: smoothing_filter::Coeff::new(sample_rate, config.smooth_secs),
             filter_state: val,
             settle_epsilon: config.settle_epsilon,
@@ -159,8 +169,8 @@ impl ParamSmoother {
     ///
     /// If the filter is not currently smoothing, then no processing will occur and
     /// the output (which will contain all the same value) will simply be returned.
-    pub fn process(&mut self, samples: usize) -> SmoothedOutput {
-        let samples = samples.min(self.output.len());
+    pub fn process(&mut self, frames: usize) -> SmoothedOutput {
+        let frames = frames.min(self.output.len());
 
         match self.status {
             SmootherStatus::Deactivating => {
@@ -168,7 +178,7 @@ impl ParamSmoother {
             }
             SmootherStatus::Active => {
                 self.filter_state = smoothing_filter::process_into_buffer(
-                    &mut self.output[..samples],
+                    &mut self.output[..frames],
                     self.filter_state,
                     self.target,
                     self.filter_coeff,
@@ -186,7 +196,7 @@ impl ParamSmoother {
         }
 
         SmoothedOutput {
-            values: &self.output[..samples],
+            values: &self.output[..frames],
             status: self.status,
         }
     }
@@ -197,9 +207,9 @@ impl ParamSmoother {
     ///
     /// If the filter is not currently smoothing, then no processing will occur and
     /// the output (which will contain all the same value) will simply be returned.
-    pub fn set_and_process(&mut self, val: f32, samples: usize) -> SmoothedOutput {
+    pub fn set_and_process(&mut self, val: f32, frames: usize) -> SmoothedOutput {
         self.set(val);
-        self.process(samples)
+        self.process(frames)
     }
 
     /// Whether or not the filter is currently smoothing (`true`) or not (`false`)
@@ -218,7 +228,7 @@ impl ParamSmoother {
     }
 
     /// The maximum number of samples tha can appear in a single processing block.
-    pub fn max_block_samples(&self) -> usize {
+    pub fn max_block_frames(&self) -> usize {
         self.output.len()
     }
 }
@@ -227,7 +237,7 @@ impl fmt::Debug for ParamSmoother {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(concat!("ParamSmoother"))
             .field("output[0]", &self.output[0])
-            .field("max_block_samples", &self.max_block_samples())
+            .field("max_block_frames", &self.max_block_frames())
             .field("target", &self.target)
             .field("status", &self.status)
             .field("filter_state", &self.filter_state)

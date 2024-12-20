@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    num::NonZeroU32,
     sync::{atomic::AtomicU64, Arc},
     time::{Duration, Instant},
 };
@@ -56,7 +57,7 @@ pub struct FirewheelConfig {
     /// The amount of time in seconds to fade in/out when pausing/resuming
     /// to avoid clicks and pops.
     ///
-    /// By default this is set to `3.0 / 1_000.0`.
+    /// By default this is set to `5.0 / 1_000.0`.
     pub declick_seconds: f32,
 }
 
@@ -128,13 +129,19 @@ impl FirewheelGraphCtx {
     /// Returns an error if the context is already active.
     pub fn activate(
         &mut self,
-        stream_info: StreamInfo,
+        mut stream_info: StreamInfo,
     ) -> Result<FirewheelProcessor, ActivateCtxError> {
         // TODO: Return an error instead of panicking.
-        assert_ne!(stream_info.sample_rate, 0);
-        assert!(stream_info.max_block_samples > 0);
         assert!(stream_info.num_stream_in_channels <= 64);
         assert!(stream_info.num_stream_out_channels <= 64);
+
+        stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
+
+        stream_info.declick_frames = NonZeroU32::new(
+            (self.config.declick_seconds as f64 * stream_info.sample_rate.get() as f64).round()
+                as u32,
+        )
+        .unwrap_or(NonZeroU32::MIN);
 
         if self.active_state.is_some() {
             return Err(ActivateCtxError::AlreadyActivated);
@@ -171,7 +178,6 @@ impl FirewheelGraphCtx {
             self.graph.current_node_capacity(),
             stream_info,
             self.config.hard_clip_outputs,
-            self.config.declick_seconds,
         ))
     }
 

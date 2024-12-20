@@ -30,8 +30,8 @@ members = [
     "crates/firewheel-spatial",
     "crates/firewheel-extra",
     "examples/beep_test",
-    "examples/one_shot_sampler",
     "examples/play_sample",
+    "examples/sampler_test",
     "examples/visual_node_graph",
 ]
 
@@ -59,6 +59,7 @@ bitflags = "2.6.0"
 downcast-rs = "1.2.1"
 triple_buffer = "8"
 thunderdome = "0.6.1"
+crossbeam-utils = "0.8"
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

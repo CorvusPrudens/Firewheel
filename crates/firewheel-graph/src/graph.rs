@@ -638,7 +638,7 @@ impl AudioGraph {
         &mut self,
         stream_info: StreamInfo,
     ) -> Result<ScheduleHeapData, CompileGraphError> {
-        let schedule = self.compile_internal(stream_info.max_block_samples as usize)?;
+        let schedule = self.compile_internal(stream_info.max_block_frames.get() as usize)?;
 
         let new_node_processors = self.new_node_processors.drain(..).collect::<Vec<_>>();
 
@@ -658,16 +658,16 @@ impl AudioGraph {
 
     fn compile_internal(
         &mut self,
-        max_block_samples: usize,
+        max_block_frames: usize,
     ) -> Result<CompiledSchedule, CompileGraphError> {
-        assert!(max_block_samples > 0);
+        assert!(max_block_frames > 0);
 
         compiler::compile(
             &mut self.nodes,
             &mut self.edges,
             self.graph_in_id,
             self.graph_out_id,
-            max_block_samples,
+            max_block_frames,
         )
     }
 
