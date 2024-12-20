@@ -97,6 +97,9 @@ pub enum PatchError {
 #[derive(Debug, Clone)]
 pub struct Continuous<T> {
     value: T,
+    // TODO: there's really no reason for this to be an ArrayVec.
+    // It should just be a vector (or a newtype wrapper around it)
+    // with a fixed capacity once created.
     events: ArrayVec<ContinuousEvent<T>, 4>,
     /// The total number of events consumed.
     consumed: usize,
