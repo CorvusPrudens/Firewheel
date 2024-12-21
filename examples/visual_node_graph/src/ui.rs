@@ -36,6 +36,11 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         percent: f32,
     },
+    VolumePan {
+        id: firewheel::node::NodeID,
+        percent_volume: f32,
+        pan: f32,
+    },
 }
 
 impl GuiAudioNode {
@@ -50,6 +55,7 @@ impl GuiAudioNode {
             &Self::MixStereo4Ins { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
+            &Self::VolumePan { id, .. } => id,
         }
     }
 
@@ -64,6 +70,7 @@ impl GuiAudioNode {
             &Self::MixStereo4Ins { .. } => "Mix (Stereo, 4 Ins)",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
+            &Self::VolumePan { .. } => "Volume & Pan",
         }
         .into()
     }
@@ -79,6 +86,7 @@ impl GuiAudioNode {
             &Self::MixStereo4Ins { .. } => 8,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
+            &Self::VolumePan { .. } => 2,
         }
     }
 
@@ -93,6 +101,7 @@ impl GuiAudioNode {
             &Self::MixStereo4Ins { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
+            &Self::VolumePan { .. } => 2,
         }
     }
 }
@@ -238,6 +247,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("Volume & Pan").clicked() {
+            let node = self.audio_system.add_node(NodeType::VolumePan);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
     }
 
     fn has_dropped_wire_menu(
@@ -282,7 +296,9 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
     fn has_body(&mut self, node: &GuiAudioNode) -> bool {
         match node {
-            GuiAudioNode::VolumeMono { .. } | GuiAudioNode::VolumeStereo { .. } => true,
+            GuiAudioNode::VolumeMono { .. }
+            | GuiAudioNode::VolumeStereo { .. }
+            | GuiAudioNode::VolumePan { .. } => true,
             _ => false,
         }
     }
@@ -297,7 +313,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         snarl: &mut Snarl<GuiAudioNode>,
     ) {
         match snarl.get_node_mut(node).unwrap() {
-            GuiAudioNode::VolumeMono { id, percent, .. } => {
+            GuiAudioNode::VolumeMono { id, percent } => {
                 if ui
                     .add(egui::Slider::new(percent, 0.0..=200.0).text("volume"))
                     .changed()
@@ -305,13 +321,34 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     self.audio_system.set_volume(*id, *percent);
                 }
             }
-            GuiAudioNode::VolumeStereo { id, percent, .. } => {
+            GuiAudioNode::VolumeStereo { id, percent } => {
                 if ui
                     .add(egui::Slider::new(percent, 0.0..=200.0).text("volume"))
                     .changed()
                 {
                     self.audio_system.set_volume(*id, *percent);
                 }
+            }
+            GuiAudioNode::VolumePan {
+                id,
+                percent_volume,
+                pan,
+            } => {
+                ui.vertical(|ui| {
+                    if ui
+                        .add(egui::Slider::new(percent_volume, 0.0..=200.0).text("volume"))
+                        .changed()
+                    {
+                        self.audio_system
+                            .set_volume_pan(*id, Some(*percent_volume), None);
+                    }
+                    if ui
+                        .add(egui::Slider::new(pan, -1.0..=1.0).text("pan"))
+                        .changed()
+                    {
+                        self.audio_system.set_volume_pan(*id, None, Some(*pan));
+                    }
+                });
             }
             _ => {}
         }

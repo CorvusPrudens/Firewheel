@@ -15,7 +15,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [x] Cycle detection for invalid audio graphs
 * Key built-in nodes:
     * [x] volume (minimum value mutes)
-    * [ ] stereo panning
+    * [x] stereo panning
     * [x] mix (sum)
     * [x] mono to stereo
     * [x] stereo to mono

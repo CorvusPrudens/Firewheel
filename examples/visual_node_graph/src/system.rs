@@ -1,6 +1,7 @@
 use firewheel::{
-    basic_nodes::{beep_test::BeepTestNode, MixNode, StereoToMonoNode, VolumeNode},
+    basic_nodes::{beep_test::BeepTestNode, MixNode, StereoToMonoNode, VolumeNode, VolumePanNode},
     clock::EventDelay,
+    dsp::pan_law::PanLaw,
     error::AddEdgeError,
     graph::AudioGraph,
     node::{AudioNode, NodeEvent, NodeID},
@@ -18,6 +19,7 @@ pub enum NodeType {
     MixStereo4Ins,
     VolumeMono,
     VolumeStereo,
+    VolumePan,
 }
 
 pub struct AudioSystem {
@@ -55,6 +57,11 @@ impl AudioSystem {
             NodeType::MixStereo4Ins => (Box::new(MixNode), 8, 2),
             NodeType::VolumeMono => (Box::new(VolumeNode::new(1.0)), 1, 1),
             NodeType::VolumeStereo => (Box::new(VolumeNode::new(1.0)), 2, 2),
+            NodeType::VolumePan => (
+                Box::new(VolumePanNode::new(1.0, 0.0, PanLaw::default())),
+                2,
+                2,
+            ),
         };
 
         let id = self
@@ -70,6 +77,11 @@ impl AudioSystem {
             NodeType::MixStereo4Ins => GuiAudioNode::MixStereo4Ins { id },
             NodeType::VolumeMono => GuiAudioNode::VolumeMono { id, percent: 100.0 },
             NodeType::VolumeStereo => GuiAudioNode::VolumeStereo { id, percent: 100.0 },
+            NodeType::VolumePan => GuiAudioNode::VolumePan {
+                id,
+                percent_volume: 100.0,
+                pan: 0.0,
+            },
         }
     }
 
@@ -133,7 +145,7 @@ impl AudioSystem {
         let event = graph
             .node_mut::<VolumeNode>(node_id)
             .unwrap()
-            .set_volume(percent_volume / 100.0, false);
+            .set_volume(percent_volume / 100.0, true);
 
         graph.queue_event(NodeEvent {
             node_id,
@@ -142,5 +154,40 @@ impl AudioSystem {
             delay: EventDelay::Immediate,
             event,
         });
+    }
+
+    pub fn set_volume_pan(
+        &mut self,
+        node_id: NodeID,
+        percent_volume: Option<f32>,
+        pan: Option<f32>,
+    ) {
+        let graph = self.graph_mut();
+        let node = graph.node_mut::<VolumePanNode>(node_id).unwrap();
+
+        if let Some(percent_volume) = percent_volume {
+            let event = node.set_volume(percent_volume / 100.0, true);
+            graph.queue_event(NodeEvent {
+                node_id,
+                // Note, if you wanted to delay this event, use:
+                // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
+                delay: EventDelay::Immediate,
+                event,
+            });
+        }
+
+        let graph = self.graph_mut();
+        let node = graph.node_mut::<VolumePanNode>(node_id).unwrap();
+
+        if let Some(pan) = pan {
+            let event = node.set_pan(pan, true);
+            graph.queue_event(NodeEvent {
+                node_id,
+                // Note, if you wanted to delay this event, use:
+                // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
+                delay: EventDelay::Immediate,
+                event,
+            });
+        }
     }
 }

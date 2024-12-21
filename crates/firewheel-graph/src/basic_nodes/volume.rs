@@ -1,10 +1,12 @@
 use firewheel_core::{
-    dsp::decibel::normalized_volume_to_raw_gain,
+    dsp::{
+        decibel::normalized_volume_to_raw_gain,
+        smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
+    },
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
     },
-    param::smoother::ParamSmoother,
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
@@ -75,18 +77,21 @@ impl AudioNode for VolumeNode {
         let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
         Ok(Box::new(VolumeProcessor {
-            gain_smoother: ParamSmoother::new(
-                raw_gain,
+            smooth_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
-                stream_info.max_block_frames,
-                Default::default(),
+                DEFAULT_SMOOTH_SECONDS,
             ),
+            filter_target: raw_gain,
+            gain: raw_gain,
         }))
     }
 }
 
 struct VolumeProcessor {
-    gain_smoother: ParamSmoother,
+    smooth_filter_coeff: smoothing_filter::Coeff,
+    filter_target: f32,
+
+    gain: f32,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -97,8 +102,6 @@ impl AudioNodeProcessor for VolumeProcessor {
         events: NodeEventIter,
         proc_info: ProcInfo,
     ) -> ProcessStatus {
-        let samples = proc_info.frames;
-
         for msg in events {
             if let NodeEventType::F32Param {
                 id,
@@ -109,65 +112,122 @@ impl AudioNodeProcessor for VolumeProcessor {
                 if *id != VolumeNode::PARAM_VOLUME {
                     continue;
                 }
-                let raw_gain = normalized_volume_to_raw_gain(*value);
-                self.gain_smoother.set_with_smoothing(raw_gain, *smoothing);
+
+                self.filter_target = normalized_volume_to_raw_gain(*value);
+
+                if self.filter_target < 0.00001 {
+                    self.filter_target = 0.0;
+                } else if self.filter_target > 0.99999 && self.filter_target < 1.00001 {
+                    self.filter_target = 1.0
+                }
+
+                if !*smoothing {
+                    self.gain = self.filter_target;
+                }
             }
         }
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
-            self.gain_smoother.reset(self.gain_smoother.target_value());
+            self.gain = self.filter_target;
 
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let gain = self.gain_smoother.process(samples);
-
-        if !gain.is_smoothing() {
-            if gain.values[0] < 0.00001 {
+        if self.gain == self.filter_target {
+            if self.gain == 0.0 {
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
-            } else if gain.values[0] > 0.99999 && gain.values[0] < 1.00001 {
+            } else if self.gain == 1.0 {
                 // Unity gain, there is no need to process.
                 return ProcessStatus::Bypass;
-            }
-        }
-
-        // Hint to the compiler to optimize loop.
-        let samples = samples.min(gain.values.len());
-
-        // Provide an optimized loop for stereo.
-        if inputs.len() == 2 && outputs.len() == 2 {
-            // Hint to the compiler to optimize loop.
-            let samples = samples
-                .min(outputs[0].len())
-                .min(outputs[1].len())
-                .min(inputs[0].len())
-                .min(inputs[1].len());
-
-            for i in 0..samples {
-                outputs[0][i] = inputs[0][i] * gain[i];
-                outputs[1][i] = inputs[1][i] * gain[i];
-            }
-
-            return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
-        }
-
-        for (i, (output, input)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
-            // Hint to the compiler to optimize loop.
-            let samples = samples.min(output.len()).min(input.len());
-
-            if proc_info.in_silence_mask.is_channel_silent(i) {
-                if !proc_info.out_silence_mask.is_channel_silent(i) {
-                    output[..samples].fill(0.0);
+            } else {
+                for (ch_i, (out_ch, in_ch)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
+                    if proc_info.in_silence_mask.is_channel_silent(ch_i) {
+                        if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
+                            out_ch.fill(0.0);
+                        }
+                    } else {
+                        for (os, &is) in out_ch.iter_mut().zip(in_ch.iter()) {
+                            *os = is * self.gain;
+                        }
+                    }
                 }
-                continue;
-            }
 
-            for i in 0..samples {
-                output[i] = input[i] * gain[i];
+                return ProcessStatus::OutputsModified {
+                    out_silence_mask: proc_info.in_silence_mask,
+                };
             }
+        }
+
+        let mut gain = self.gain;
+
+        if inputs.len() == 1 {
+            // Provide an optimized loop for mono.
+
+            let target_times_a = self.filter_target * self.smooth_filter_coeff.a;
+
+            for (os, &is) in outputs[0].iter_mut().zip(inputs[0].iter()) {
+                gain = smoothing_filter::process_sample_a(
+                    gain,
+                    target_times_a,
+                    self.smooth_filter_coeff.b,
+                );
+
+                *os = is * gain;
+            }
+        } else if inputs.len() == 2 {
+            // Provide an optimized loop for stereo.
+
+            let target_times_a = self.filter_target * self.smooth_filter_coeff.a;
+
+            let in0 = &inputs[0][..proc_info.frames];
+            let in1 = &inputs[1][..proc_info.frames];
+            let (out0, out1) = outputs.split_first_mut().unwrap();
+            let out0 = &mut out0[..proc_info.frames];
+            let out1 = &mut out1[0][..proc_info.frames];
+
+            for i in 0..proc_info.frames {
+                gain = smoothing_filter::process_sample_a(
+                    gain,
+                    target_times_a,
+                    self.smooth_filter_coeff.b,
+                );
+
+                out0[i] = in0[i] * gain;
+                out1[i] = in1[i] * gain;
+            }
+        } else {
+            gain = smoothing_filter::process_into_buffer(
+                &mut proc_info.scratch_buffers[0][..proc_info.frames],
+                gain,
+                self.filter_target,
+                self.smooth_filter_coeff,
+            );
+
+            for (ch_i, (out_ch, in_ch)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
+                if proc_info.in_silence_mask.is_channel_silent(ch_i) {
+                    if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
+                        out_ch.fill(0.0);
+                    }
+                    continue;
+                }
+
+                for ((os, &is), &g) in out_ch
+                    .iter_mut()
+                    .zip(in_ch.iter())
+                    .zip(proc_info.scratch_buffers[0][..proc_info.frames].iter())
+                {
+                    *os = is * g;
+                }
+            }
+        }
+
+        self.gain = gain;
+
+        if smoothing_filter::has_settled(self.gain, self.filter_target, DEFAULT_SETTLE_EPSILON) {
+            self.gain = self.filter_target;
         }
 
         ProcessStatus::outputs_modified(proc_info.in_silence_mask)

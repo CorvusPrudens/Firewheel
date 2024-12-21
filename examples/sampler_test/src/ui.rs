@@ -18,7 +18,7 @@ impl DemoApp {
                         0 => "swish",
                         1 => "birds",
                         2 => "beep",
-                        _ => "bird ambiance"
+                        _ => "bird ambiance",
                     },
                     percent_volume: 100.0,
                     repeat: i == 3,

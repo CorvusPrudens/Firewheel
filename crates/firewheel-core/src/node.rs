@@ -219,7 +219,7 @@ pub trait AudioNodeProcessor: 'static + Send {
     ) -> ProcessStatus;
 }
 
-pub const NUM_SCRATCH_BUFFERS: usize = 16;
+pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a, 'b> {
