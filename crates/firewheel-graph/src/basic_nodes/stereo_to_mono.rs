@@ -1,37 +1,32 @@
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
-    ChannelConfig, ChannelCount, StreamInfo,
+    channel_config::{ChannelConfig, ChannelCount},
+    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
 };
 
-pub struct StereoToMonoNode;
+use crate::FirewheelCtx;
 
-impl AudioNode for StereoToMonoNode {
-    fn debug_name(&self) -> &'static str {
-        "stereo_to_mono"
-    }
+pub struct StereoToMonoNode {
+    handle: NodeHandle,
+}
 
-    fn info(&self) -> AudioNodeInfo {
-        AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::STEREO,
-            num_max_supported_inputs: ChannelCount::STEREO,
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::MONO,
-            default_channel_config: ChannelConfig {
+impl StereoToMonoNode {
+    pub fn new(cx: &mut FirewheelCtx) -> Self {
+        let handle = cx.add_node(
+            "stereo_to_mono",
+            ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::MONO,
             },
-            equal_num_ins_and_outs: false,
-            updates: false,
-            uses_events: false,
-        }
+            false,
+            Box::new(StereoToMonoProcessor {}),
+        );
+
+        Self { handle }
     }
 
-    fn activate(
-        &mut self,
-        _stream_info: &StreamInfo,
-        _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        Ok(Box::new(StereoToMonoProcessor))
+    /// The ID of this node
+    pub fn id(&self) -> NodeID {
+        self.handle.id
     }
 }
 
@@ -60,11 +55,5 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         }
 
         ProcessStatus::outputs_not_silent()
-    }
-}
-
-impl Into<Box<dyn AudioNode>> for StereoToMonoNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
     }
 }

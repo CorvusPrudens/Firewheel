@@ -379,14 +379,14 @@ impl DemoApp {
 }
 
 impl App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
             egui::menu::bar(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.menu_button("Menu", |ui| {
                         if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
+                            cx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
                     });
                     ui.add_space(16.0);
@@ -404,7 +404,7 @@ impl App for DemoApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(cx, |ui| {
             self.snarl_ui_id = Some(ui.id());
 
             self.snarl.show(

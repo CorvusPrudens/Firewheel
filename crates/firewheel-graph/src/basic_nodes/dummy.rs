@@ -1,32 +1,28 @@
-use std::error::Error;
-
+use crate::FirewheelCtx;
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
-    ChannelConfig, ChannelCount, StreamInfo,
+    channel_config::ChannelConfig,
+    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
 };
 
-pub struct DummyAudioNode;
+pub struct DummyAudioNode {
+    handle: NodeHandle,
+}
 
-impl AudioNode for DummyAudioNode {
-    fn debug_name(&self) -> &'static str {
-        "dummy"
+impl DummyAudioNode {
+    pub fn new(channel_config: ChannelConfig, cx: &mut FirewheelCtx) -> Self {
+        let handle = cx.add_node(
+            "dummy",
+            channel_config,
+            false,
+            Box::new(DummyAudioNodeProcessor),
+        );
+
+        Self { handle }
     }
 
-    fn info(&self) -> AudioNodeInfo {
-        AudioNodeInfo {
-            num_max_supported_inputs: ChannelCount::MAX,
-            num_max_supported_outputs: ChannelCount::MAX,
-            uses_events: false,
-            ..Default::default()
-        }
-    }
-
-    fn activate(
-        &mut self,
-        _stream_info: &StreamInfo,
-        _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>> {
-        Ok(Box::new(DummyAudioNodeProcessor))
+    /// The ID of this node
+    pub fn id(&self) -> NodeID {
+        self.handle.id
     }
 }
 
@@ -41,11 +37,5 @@ impl AudioNodeProcessor for DummyAudioNodeProcessor {
         _proc_info: ProcInfo,
     ) -> ProcessStatus {
         ProcessStatus::ClearAllOutputs
-    }
-}
-
-impl Into<Box<dyn AudioNode>> for DummyAudioNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
     }
 }

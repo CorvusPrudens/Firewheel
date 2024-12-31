@@ -508,12 +508,10 @@ fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
-    use atomic_float::AtomicF64;
-    use firewheel_core::{ChannelCount, StreamInfo};
-    use std::sync::{atomic::AtomicU64, Arc};
+    use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 
     use crate::{
-        basic_nodes::dummy::DummyAudioNode,
+        basic_nodes::dummy::DummyAudioNodeProcessor,
         graph::{AddEdgeError, AudioGraph, EdgeID},
         FirewheelConfig,
     };
@@ -532,13 +530,6 @@ mod tests {
             num_graph_outputs: ChannelCount::MONO,
             ..Default::default()
         });
-        graph
-            .activate(
-                StreamInfo::default(),
-                Arc::new(AtomicF64::new(0.0)),
-                Arc::new(AtomicU64::new(0)),
-            )
-            .unwrap();
 
         let node0 = graph.graph_in_node();
         let node1 = graph.graph_out_node();
@@ -583,30 +574,13 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph
-            .activate(
-                StreamInfo::default(),
-                Arc::new(AtomicF64::new(0.0)),
-                Arc::new(AtomicU64::new(0)),
-            )
-            .unwrap();
 
         let node0 = graph.graph_in_node();
-        let node1 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 2).into()))
-            .unwrap();
-        let node2 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 1).into()))
-            .unwrap();
-        let node3 = graph
-            .add_node(DummyAudioNode.into(), Some((2, 2).into()))
-            .unwrap();
-        let node4 = graph
-            .add_node(DummyAudioNode.into(), Some((2, 2).into()))
-            .unwrap();
-        let node5 = graph
-            .add_node(DummyAudioNode.into(), Some((5, 2).into()))
-            .unwrap();
+        let node1 = add_dummy_node(&mut graph, (1, 2));
+        let node2 = add_dummy_node(&mut graph, (1, 1));
+        let node3 = add_dummy_node(&mut graph, (2, 2));
+        let node4 = add_dummy_node(&mut graph, (2, 2));
+        let node5 = add_dummy_node(&mut graph, (5, 2));
         let node6 = graph.graph_out_node();
 
         let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
@@ -693,31 +667,14 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph
-            .activate(
-                StreamInfo::default(),
-                Arc::new(AtomicF64::new(0.0)),
-                Arc::new(AtomicU64::new(0)),
-            )
-            .unwrap();
 
         let node0 = graph.graph_in_node();
-        let node1 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 1).into()))
-            .unwrap();
-        let node2 = graph
-            .add_node(DummyAudioNode.into(), Some((2, 2).into()))
-            .unwrap();
-        let node3 = graph
-            .add_node(DummyAudioNode.into(), Some((2, 2).into()))
-            .unwrap();
-        let node4 = graph
-            .add_node(DummyAudioNode.into(), Some((5, 4).into()))
-            .unwrap();
+        let node1 = add_dummy_node(&mut graph, (1, 1));
+        let node2 = add_dummy_node(&mut graph, (2, 2));
+        let node3 = add_dummy_node(&mut graph, (2, 2));
+        let node4 = add_dummy_node(&mut graph, (5, 4));
         let node5 = graph.graph_out_node();
-        let node6 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 1).into()))
-            .unwrap();
+        let node6 = add_dummy_node(&mut graph, (1, 1));
 
         let edge0 = graph.connect(node0, node2, &[(0, 0)], false).unwrap()[0];
         let edge1 = graph.connect(node0, node3, &[(0, 1)], false).unwrap()[0];
@@ -764,6 +721,15 @@ mod tests {
         verify_node(node4, &[false, true, true, false, false], &schedule, &graph);
         verify_node(node5, &[false, true], &schedule, &graph);
         verify_node(node6, &[false], &schedule, &graph);
+    }
+
+    fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
+        graph.add_node(
+            "dummy_node",
+            channel_config.into(),
+            false,
+            Box::new(DummyAudioNodeProcessor),
+        )
     }
 
     fn verify_node(
@@ -835,13 +801,6 @@ mod tests {
             num_graph_outputs: ChannelCount::MONO,
             ..Default::default()
         });
-        graph
-            .activate(
-                StreamInfo::default(),
-                Arc::new(AtomicF64::new(0.0)),
-                Arc::new(AtomicU64::new(0)),
-            )
-            .unwrap();
 
         let node1 = graph.graph_in_node();
         let node2 = graph.graph_out_node();
@@ -865,23 +824,10 @@ mod tests {
             num_graph_outputs: ChannelCount::STEREO,
             ..Default::default()
         });
-        graph
-            .activate(
-                StreamInfo::default(),
-                Arc::new(AtomicF64::new(0.0)),
-                Arc::new(AtomicU64::new(0)),
-            )
-            .unwrap();
 
-        let node1 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 1).into()))
-            .unwrap();
-        let node2 = graph
-            .add_node(DummyAudioNode.into(), Some((2, 1).into()))
-            .unwrap();
-        let node3 = graph
-            .add_node(DummyAudioNode.into(), Some((1, 1).into()))
-            .unwrap();
+        let node1 = add_dummy_node(&mut graph, (1, 1));
+        let node2 = add_dummy_node(&mut graph, (2, 1));
+        let node3 = add_dummy_node(&mut graph, (1, 1));
 
         graph.connect(node1, node2, &[(0, 0)], false).unwrap();
         graph.connect(node2, node3, &[(0, 0)], false).unwrap();

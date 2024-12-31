@@ -1,11 +1,10 @@
-use downcast_rs::Downcast;
-use std::{any::Any, error::Error, fmt::Debug, hash::Hash, sync::Arc};
+use std::{any::Any, fmt::Debug, hash::Hash, sync::Arc};
 
 use crate::{
     clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::declick::DeclickValues,
     sample_resource::SampleResource,
-    ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
+    SilenceMask,
 };
 
 /// A globally unique identifier for a node.
@@ -63,139 +62,6 @@ impl Debug for NodeID {
             self.idx.slot(),
             self.idx.generation()
         )
-    }
-}
-
-/// The trait describing an audio node in an audio graph.
-///
-/// # Audio Node Lifecycle:
-///
-/// 1. The user constructs a new node instance using a custom constructor
-/// defined by the node.
-/// 2. The host calls [`AudioNode::info`] and [`AudioNode::debug_name`] to
-/// get information from the node.
-/// 3. The host checks the channel configuration with the info, and then
-/// calls [`AudioNode::channel_config_supported`] for a final check on the
-/// channel configuration. If the channel configuration is invalid, then
-/// the node will be discarded (dropped).
-/// 4. The host calls [`AudioNode::activate`]. If successful, then the
-/// [`AudioNodeProcessor`] counterpart is sent to the audio thread for
-/// processing (there may be a delay before processing starts). If the
-/// node returns an error and the node was just added to the graph, then
-/// the node will be discarded (dropped).
-/// 5. Activated state:
-///     * In this state, the user may get a mutable reference to the node
-/// via its [`NodeID`] and then downcasting. Note that the user can only
-/// access the node mutably this way when it is in the activated state,
-/// so there is no need to check for this activated state and return an
-/// error in the Node's custom methods.
-///     * If the node specified that it wants updates via
-/// [`AudioNodeInfo::updates`], then the host will call
-/// [`AudioNode::update`] periodically (i.e. once every frame).
-/// 6. The host deactivates the node by calling [`AudioNode::deactivate`].
-/// If the audio stream did not crash, then the processor counterpart
-/// is returned for any additional cleanup.
-/// 7. Here, the node may either be activated again or dropped.
-pub trait AudioNode: 'static + Downcast {
-    /// The name of this type of audio node for debugging purposes.
-    fn debug_name(&self) -> &'static str;
-
-    /// Return information about this audio node.
-    fn info(&self) -> AudioNodeInfo;
-
-    /// Return `Ok` if the given channel configuration is supported, or
-    /// an error if it is not.
-    ///
-    /// Note that the host already checks if `num_inputs` and `num_outputs`
-    /// is within the range given in [`AudioNode::info`], so there is no
-    /// need for the node to check that here.
-    fn channel_config_supported(
-        &self,
-        channel_config: ChannelConfig,
-    ) -> Result<(), Box<dyn Error>> {
-        let _ = channel_config;
-        Ok(())
-    }
-
-    /// Activate the audio node for processing.
-    ///
-    /// Note the host will call [`AudioNode::channel_config_supported`] with
-    /// the given number of inputs and outputs before calling this method, and
-    /// it will only call this method if that method returned `Ok`.
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn Error>>;
-
-    /// Called when the processor counterpart has been deactivated
-    /// and dropped.
-    ///
-    /// If the audio graph counterpart has gracefully shut down, then
-    /// the processor counterpart is returned.
-    fn deactivate(&mut self, processor: Option<Box<dyn AudioNodeProcessor>>) {
-        let _ = processor;
-    }
-
-    /// A method that gets called periodically (i.e. once every frame).
-    ///
-    /// This method will only be called if [`AudioNodeInfo::updates`]
-    /// was set to `true`.
-    fn update(&mut self) {}
-}
-
-downcast_rs::impl_downcast!(AudioNode);
-
-/// Information about an [`AudioNode`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AudioNodeInfo {
-    /// The minimum number of input buffers this node supports
-    pub num_min_supported_inputs: ChannelCount,
-    /// The maximum number of input buffers this node supports
-    pub num_max_supported_inputs: ChannelCount,
-
-    /// The minimum number of output buffers this node supports
-    pub num_min_supported_outputs: ChannelCount,
-    /// The maximum number of output buffers this node supports
-    pub num_max_supported_outputs: ChannelCount,
-
-    /// Whether or not the number of input channels must match the
-    /// number of output channels.
-    pub equal_num_ins_and_outs: bool,
-
-    /// The defaul channel configuration for this node
-    pub default_channel_config: ChannelConfig,
-
-    /// Whether or not to call the `update` method on this node.
-    ///
-    /// If you do not need this, set this to `false` to save
-    /// some performance overhead.
-    ///
-    /// By default this is set to `false`.
-    pub updates: bool,
-
-    /// Whether or not this node reads any events in
-    /// [`AudioNodeProcessor::process`].
-    ///
-    /// Setting this to `false` will skip allocating an event
-    /// buffer for this node.
-    ///
-    /// By default this is set to `true`.
-    pub uses_events: bool,
-}
-
-impl Default for AudioNodeInfo {
-    fn default() -> Self {
-        Self {
-            num_min_supported_inputs: ChannelCount::default(),
-            num_max_supported_inputs: ChannelCount::default(),
-            num_min_supported_outputs: ChannelCount::default(),
-            num_max_supported_outputs: ChannelCount::default(),
-            default_channel_config: ChannelConfig::default(),
-            equal_num_ins_and_outs: false,
-            updates: false,
-            uses_events: true,
-        }
     }
 }
 
@@ -455,6 +321,8 @@ pub enum NodeEventType {
     },
     /// Custom event type.
     Custom(Box<dyn Any + Send>),
+    /// Reserved for use by [`NodeHandle`] only.
+    _Dropped,
     // TODO: Animation (automation) event types.
 }
 
@@ -481,5 +349,44 @@ impl RepeatMode {
             } => num_times_looped_back < num_times_to_repeat as u64,
             Self::RepeatEndlessly => true,
         }
+    }
+}
+
+// TODO: Option to use crossbeam.
+pub type EventQueueSender = std::sync::mpsc::Sender<NodeEvent>;
+
+/// A handle to a node in the audio graph.
+///
+/// When this handle is dropped, it will automatically send an event through
+/// the event queue to notify the audio graph to remove this node.
+#[derive(Debug, Clone)]
+pub struct NodeHandle {
+    pub id: NodeID,
+    pub event_queue_sender: EventQueueSender,
+}
+
+impl NodeHandle {
+    /// Queue an event to send to this node's processor counterpart.
+    ///
+    /// Note that [`FirewheelCtx::update()`] must be called to
+    /// flush the events.
+    pub fn queue_event(&mut self, event: NodeEventType, delay: EventDelay) {
+        self.event_queue_sender
+            .send(NodeEvent {
+                node_id: self.id,
+                delay,
+                event,
+            })
+            .unwrap();
+    }
+}
+
+impl Drop for NodeHandle {
+    fn drop(&mut self) {
+        let _ = self.event_queue_sender.send(NodeEvent {
+            node_id: self.id,
+            delay: EventDelay::Immediate,
+            event: NodeEventType::_Dropped,
+        });
     }
 }

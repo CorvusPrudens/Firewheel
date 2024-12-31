@@ -1,4 +1,4 @@
-use firewheel_core::{node::NodeID, ChannelConfig};
+use firewheel_core::{channel_config::ChannelConfig, node::NodeID};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
@@ -10,26 +10,24 @@ mod schedule;
 pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
-pub struct NodeEntry<N> {
+pub struct NodeEntry {
     pub id: NodeID,
     /// The number of input and output ports used by the node
     pub channel_config: ChannelConfig,
-    pub weight: N,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
     /// The edges connected to this node's output ports.
     outgoing: SmallVec<[Edge; 4]>,
 }
 
-impl<N> NodeEntry<N> {
-    pub fn new(channel_config: ChannelConfig, weight: N) -> Self {
+impl NodeEntry {
+    pub fn new(channel_config: ChannelConfig) -> Self {
         Self {
             id: NodeID {
                 idx: thunderdome::Index::DANGLING,
                 debug_name: "",
             },
             channel_config,
-            weight,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
         }
@@ -117,8 +115,8 @@ impl BufferAllocator {
 }
 
 /// Main compilation algorithm
-pub fn compile<'a, N>(
-    nodes: &mut Arena<NodeEntry<N>>,
+pub fn compile<'a>(
+    nodes: &mut Arena<NodeEntry>,
     edges: &mut Arena<Edge>,
     graph_in_id: NodeID,
     graph_out_id: NodeID,
@@ -132,15 +130,14 @@ pub fn compile<'a, N>(
     )
 }
 
-pub fn cycle_detected<'a, N>(
-    nodes: &'a mut Arena<NodeEntry<N>>,
+pub fn cycle_detected<'a>(
+    nodes: &'a mut Arena<NodeEntry>,
     edges: &'a mut Arena<Edge>,
     graph_in_id: NodeID,
     graph_out_id: NodeID,
 ) -> bool {
     if let Err(CompileGraphError::CycleDetected) =
-        GraphIR::<N>::preprocess(nodes, edges, graph_in_id, graph_out_id, 0)
-            .sort_topologically(false)
+        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0).sort_topologically(false)
     {
         true
     } else {
@@ -150,8 +147,8 @@ pub fn cycle_detected<'a, N>(
 
 /// Internal IR used by the compiler algorithm. Built incrementally
 /// via the compiler passes.
-struct GraphIR<'a, N> {
-    nodes: &'a mut Arena<NodeEntry<N>>,
+struct GraphIR<'a> {
+    nodes: &'a mut Arena<NodeEntry>,
     edges: &'a mut Arena<Edge>,
 
     /// The topologically sorted schedule of the graph. Built internally.
@@ -166,11 +163,11 @@ struct GraphIR<'a, N> {
     max_block_frames: usize,
 }
 
-impl<'a, N> GraphIR<'a, N> {
+impl<'a> GraphIR<'a> {
     /// Construct a [GraphIR] instance from lists of nodes and edges, building
     /// up the adjacency table and creating an empty schedule.
     fn preprocess(
-        nodes: &'a mut Arena<NodeEntry<N>>,
+        nodes: &'a mut Arena<NodeEntry>,
         edges: &'a mut Arena<Edge>,
         graph_in_id: NodeID,
         graph_out_id: NodeID,

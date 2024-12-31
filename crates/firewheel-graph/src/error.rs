@@ -4,10 +4,7 @@
 use std::error::Error;
 use std::fmt;
 
-use firewheel_core::{
-    node::{AudioNodeInfo, NodeID},
-    ChannelConfig, ChannelCount,
-};
+use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 
 use crate::graph::{Edge, EdgeID, PortIdx};
 
@@ -137,71 +134,6 @@ impl fmt::Display for CompileGraphError {
             }
             Self::MessageChannelFull => {
                 write!(f, "Failed to compile audio graph: Message channel is full")
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum NodeError {
-    InvalidChannelConfig {
-        channel_config: ChannelConfig,
-        node_info: AudioNodeInfo,
-        msg: Option<Box<dyn Error>>,
-    },
-    ActivationFailed {
-        node_id: Option<NodeID>,
-        error: Box<dyn Error>,
-    },
-}
-
-impl Error for NodeError {}
-
-impl std::fmt::Display for NodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NodeError::InvalidChannelConfig {
-                channel_config,
-                node_info,
-                msg,
-            } => {
-                write!(
-                    f,
-                    "Invalid channel configuration {:?} on node with info: {:?}: custom message: {:?}",
-                    channel_config, node_info, msg
-                )
-            }
-            NodeError::ActivationFailed { node_id, error } => {
-                if let Some(node_id) = node_id {
-                    write!(
-                        f,
-                        "Node with ID {:?} failed to activate: {}",
-                        node_id, error
-                    )
-                } else {
-                    write!(f, "Node failed to activate: {}", error)
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ActivateCtxError {
-    AlreadyActivated,
-    NodeFailedToActived(NodeError),
-}
-
-impl Error for ActivateCtxError {}
-
-impl std::fmt::Display for ActivateCtxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ActivateCtxError::AlreadyActivated => {
-                write!(f, "Firewheel context is already activated")
-            }
-            ActivateCtxError::NodeFailedToActived(e) => {
-                write!(f, "Audio node failed to activate: {}", e)
             }
         }
     }

@@ -2,25 +2,25 @@ use std::{
     any::Any,
     collections::VecDeque,
     ops::Range,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
 use arrayvec::ArrayVec;
-use atomic_float::AtomicF64;
 use thunderdome::Arena;
 
-use crate::graph::{NodeHeapData, ScheduleHeapData};
+use crate::{
+    context::ClockValues,
+    graph::{NodeHeapData, ScheduleHeapData},
+};
 use firewheel_core::{
+    channel_config::ChannelCount,
     clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::declick::DeclickValues,
     node::{
         AudioNodeProcessor, NodeEvent, NodeEventType, NodeID, ProcInfo, ProcessStatus,
         StreamStatus, NUM_SCRATCH_BUFFERS,
     },
-    ChannelCount, SilenceMask, StreamInfo,
+    SilenceMask, StreamInfo,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +47,7 @@ pub struct FirewheelProcessor {
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
 
     clock_samples: ClockSamples,
-    clock_seconds_shared: Arc<AtomicF64>,
-    clock_samples_shared: Arc<AtomicU64>,
+    clock_shared: Arc<ClockValues>,
 
     running: bool,
     stream_info: StreamInfo,
@@ -63,8 +62,7 @@ impl FirewheelProcessor {
     pub(crate) fn new(
         from_graph_rx: rtrb::Consumer<ContextToProcessorMsg>,
         to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
-        clock_seconds_shared: Arc<AtomicF64>,
-        clock_samples_shared: Arc<AtomicU64>,
+        clock_shared: Arc<ClockValues>,
         node_capacity: usize,
         stream_info: StreamInfo,
         hard_clip_outputs: bool,
@@ -85,8 +83,7 @@ impl FirewheelProcessor {
             from_graph_rx,
             to_graph_tx,
             clock_samples: ClockSamples(0),
-            clock_seconds_shared,
-            clock_samples_shared,
+            clock_shared,
             running: true,
             stream_info,
             sample_rate,
@@ -117,9 +114,10 @@ impl FirewheelProcessor {
         let mut clock_samples = self.clock_samples;
         self.clock_samples += ClockSamples(frames as u64);
 
-        self.clock_samples_shared
+        self.clock_shared
+            .samples
             .store(self.clock_samples.0, Ordering::Relaxed);
-        self.clock_seconds_shared.store(
+        self.clock_shared.seconds.store(
             clock_seconds.0 + (frames as f64 * self.stream_info.sample_rate_recip),
             Ordering::Relaxed,
         );
@@ -473,7 +471,7 @@ impl Drop for FirewheelProcessor {
         std::mem::swap(&mut s, &mut self.scratch_buffers);
 
         let _ = self.to_graph_tx.push(ProcessorToContextMsg::Dropped {
-            nodes,
+            _nodes: nodes,
             _schedule_data: self.schedule_data.take(),
             _scratch_buffers: s,
         });
@@ -492,7 +490,7 @@ pub(crate) enum ProcessorToContextMsg {
     ReturnEventGroup(Vec<NodeEvent>),
     ReturnSchedule(Box<ScheduleHeapData>),
     Dropped {
-        nodes: Arena<NodeEntry>,
+        _nodes: Arena<NodeEntry>,
         _schedule_data: Option<Box<ScheduleHeapData>>,
         _scratch_buffers: Vec<f32>,
     },

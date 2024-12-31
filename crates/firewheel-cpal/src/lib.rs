@@ -4,10 +4,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::DeviceInfo,
-    error::ActivateCtxError,
-    graph::AudioGraph,
+    error::CompileGraphError,
     processor::{FirewheelProcessor, FirewheelProcessorStatus},
-    FirewheelConfig, FirewheelGraphCtx, UpdateStatus,
+    FirewheelConfig, FirewheelCtx, UpdateStatusInner,
 };
 
 /// 1024 samples is a latency of about 23 milliseconds, which should
@@ -16,12 +15,59 @@ const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const MSG_CHANNEL_CAPACITY: usize = 4;
 
-struct ActiveState {
-    _stream: cpal::Stream,
-    _to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
-    from_err_rx: rtrb::Consumer<cpal::StreamError>,
-    out_device_name: String,
-    cpal_config: cpal::StreamConfig,
+pub fn available_output_devices() -> Vec<DeviceInfo> {
+    let mut devices = Vec::with_capacity(16);
+
+    let host = cpal::default_host();
+
+    let default_device_name = if let Some(default_device) = host.default_output_device() {
+        match default_device.name() {
+            Ok(n) => Some(n),
+            Err(e) => {
+                log::warn!("Failed to get name of default audio output device: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    match host.output_devices() {
+        Ok(output_devices) => {
+            for device in output_devices {
+                let Ok(name) = device.name() else {
+                    continue;
+                };
+
+                let is_default = if let Some(default_device_name) = &default_device_name {
+                    &name == default_device_name
+                } else {
+                    false
+                };
+
+                let default_out_config = match device.default_output_config() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        if is_default {
+                            log::warn!("Failed to get default config for the default audio output device: {}", e);
+                        }
+                        continue;
+                    }
+                };
+
+                devices.push(DeviceInfo {
+                    name,
+                    num_channels: default_out_config.channels(),
+                    is_default,
+                })
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to get output audio devices: {}", e);
+        }
+    }
+
+    devices
 }
 
 /// A firewheel context using CPAL as the audio backend.
@@ -29,106 +75,33 @@ struct ActiveState {
 /// The generic is a custom global processing context that is available to
 /// node processors.
 pub struct FirewheelCpalCtx {
-    cx: FirewheelGraphCtx,
-    active_state: Option<ActiveState>,
+    pub cx: FirewheelCtx,
+    from_err_rx: rtrb::Consumer<cpal::StreamError>,
+    out_device_name: String,
+    stream_config: cpal::StreamConfig,
+    _stream: cpal::Stream,
+    _to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
 }
 
 impl FirewheelCpalCtx {
-    pub fn new(config: FirewheelConfig) -> Self {
-        Self {
-            cx: FirewheelGraphCtx::new(config),
-            active_state: None,
-        }
-    }
-
-    /// Get an immutable reference to the audio graph.
-    pub fn graph(&self) -> &AudioGraph {
-        self.cx.graph()
-    }
-
-    /// Get a mutable reference to the audio graph.
-    ///
-    /// Returns `None` if the context is not currently activated.
-    pub fn graph_mut(&mut self) -> Option<&mut AudioGraph> {
-        self.cx.graph_mut()
-    }
-
-    /// Returns whether or not this context is currently activated.
-    pub fn is_activated(&self) -> bool {
-        self.cx.is_activated()
-    }
-
-    pub fn available_output_devices(&self) -> Vec<DeviceInfo> {
-        let mut devices = Vec::with_capacity(16);
-
-        let host = cpal::default_host();
-
-        let default_device_name = if let Some(default_device) = host.default_output_device() {
-            match default_device.name() {
-                Ok(n) => Some(n),
+    /// Create a new Firewheel context using CPAL as the backend.
+    pub fn new(config: FirewheelConfig, cpal_config: CpalConfig) -> Result<Self, ActivateError> {
+        let host = if let Some(host_id) = cpal_config.host {
+            match cpal::host_from_id(host_id) {
+                Ok(host) => host,
                 Err(e) => {
-                    log::warn!("Failed to get name of default audio output device: {}", e);
-                    None
+                    log::warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
+                    cpal::default_host()
                 }
             }
         } else {
-            None
+            cpal::default_host()
         };
-
-        match host.output_devices() {
-            Ok(output_devices) => {
-                for device in output_devices {
-                    let Ok(name) = device.name() else {
-                        continue;
-                    };
-
-                    let is_default = if let Some(default_device_name) = &default_device_name {
-                        &name == default_device_name
-                    } else {
-                        false
-                    };
-
-                    let default_out_config = match device.default_output_config() {
-                        Ok(c) => c,
-                        Err(e) => {
-                            if is_default {
-                                log::warn!("Failed to get default config for the default audio output device: {}", e);
-                            }
-                            continue;
-                        }
-                    };
-
-                    devices.push(DeviceInfo {
-                        name,
-                        num_channels: default_out_config.channels(),
-                        is_default,
-                    })
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to get output audio devices: {}", e);
-            }
-        }
-
-        devices
-    }
-
-    /// Activate the context and start the audio stream.
-    ///
-    /// Returns an error if the context is already active.
-    pub fn activate(&mut self, config: AudioStreamConfig) -> Result<(), ActivateError> {
-        if self.cx.is_activated() {
-            return Err(ActivateError::ContextError(
-                ActivateCtxError::AlreadyActivated,
-            ));
-        }
-
-        let host = cpal::default_host();
 
         let is_alsa = cpal::HostId::name(&host.id()) == "ALSA";
 
         let mut device = None;
-        if let Some(output_device_name) = &config.output_device_name {
+        if let Some(output_device_name) = &cpal_config.output_device_name {
             match host.output_devices() {
                 Ok(mut output_devices) => {
                     if let Some(d) = output_devices.find(|d| {
@@ -139,14 +112,14 @@ impl FirewheelCpalCtx {
                         }
                     }) {
                         device = Some(d);
-                    } else if config.fallback {
+                    } else if cpal_config.fallback {
                         log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &output_device_name);
                     } else {
                         return Err(ActivateError::DeviceNotFound(output_device_name.clone()));
                     }
                 }
                 Err(e) => {
-                    if config.fallback {
+                    if cpal_config.fallback {
                         log::error!("Failed to get output audio devices: {}. Falling back to default device...", e);
                     } else {
                         return Err(e.into());
@@ -157,7 +130,7 @@ impl FirewheelCpalCtx {
 
         if device.is_none() {
             let Some(default_device) = host.default_output_device() else {
-                if config.fallback {
+                if cpal_config.fallback {
                     log::error!("No default audio output device found. Falling back to dummy output device...");
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
@@ -172,7 +145,7 @@ impl FirewheelCpalCtx {
         let default_cpal_config = match device.default_output_config() {
             Ok(c) => c,
             Err(e) => {
-                if config.fallback {
+                if cpal_config.fallback {
                     log::error!(
                         "Failed to get default config for output audio device: {}. Falling back to dummy output device...",
                         e
@@ -185,13 +158,13 @@ impl FirewheelCpalCtx {
             }
         };
 
-        let mut desired_sample_rate = config
+        let mut desired_sample_rate = cpal_config
             .desired_sample_rate
             .unwrap_or(default_cpal_config.sample_rate().0);
         let desired_latency_frames = if let &cpal::SupportedBufferSize::Range { min, max } =
             default_cpal_config.buffer_size()
         {
-            Some(config.desired_latency_frames.clamp(min, max))
+            Some(cpal_config.desired_latency_frames.clamp(min, max))
         } else {
             None
         };
@@ -199,7 +172,7 @@ impl FirewheelCpalCtx {
         let supported_cpal_configs = match device.supported_output_configs() {
             Ok(c) => c,
             Err(e) => {
-                if config.fallback {
+                if cpal_config.fallback {
                     log::error!(
                         "Failed to get configs for output audio device: {}. Falling back to dummy output device...",
                         e
@@ -230,7 +203,7 @@ impl FirewheelCpalCtx {
             cpal::BufferSize::Default
         };
 
-        let cpal_config = cpal::StreamConfig {
+        let stream_config = cpal::StreamConfig {
             channels: num_out_channels as u16,
             sample_rate: cpal::SampleRate(desired_sample_rate),
             buffer_size: desired_buffer_size,
@@ -244,18 +217,18 @@ impl FirewheelCpalCtx {
             &cpal_config
         );
 
-        let max_block_frames = match cpal_config.buffer_size {
+        let max_block_frames = match stream_config.buffer_size {
             cpal::BufferSize::Default => DEFAULT_MAX_BLOCK_FRAMES as usize,
             cpal::BufferSize::Fixed(f) => f as usize,
         };
 
-        let stream_latency_frames = if let cpal::BufferSize::Fixed(s) = cpal_config.buffer_size {
+        let stream_latency_frames = if let cpal::BufferSize::Fixed(s) = stream_config.buffer_size {
             Some(s)
         } else {
             None
         };
 
-        let (mut to_stream_tx, from_ctx_rx) =
+        let (mut to_stream_tx, from_cx_rx) =
             rtrb::RingBuffer::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY);
         let (mut err_to_cx_tx, from_err_rx) =
             rtrb::RingBuffer::<cpal::StreamError>::new(MSG_CHANNEL_CAPACITY);
@@ -263,14 +236,14 @@ impl FirewheelCpalCtx {
         let mut data_callback = DataCallback::new(
             num_in_channels,
             num_out_channels,
-            from_ctx_rx,
-            cpal_config.sample_rate.0,
+            from_cx_rx,
+            stream_config.sample_rate.0,
             is_alsa,
         );
 
         let mut is_first_callback = true;
         let stream = match device.build_output_stream(
-            &cpal_config,
+            &stream_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
                 if is_first_callback {
                     // Apparently there is a bug in CPAL where the callback instant in
@@ -290,7 +263,7 @@ impl FirewheelCpalCtx {
         ) {
             Ok(s) => s,
             Err(e) => {
-                if config.fallback {
+                if cpal_config.fallback {
                     log::error!("Failed to start output audio stream: {}. Falling back to dummy output device...", e);
                     // TODO: Use dummy audio backend as fallback.
                     todo!()
@@ -302,115 +275,84 @@ impl FirewheelCpalCtx {
 
         stream.play()?;
 
-        let processor = self.cx.activate(StreamInfo {
-            sample_rate: NonZeroU32::new(cpal_config.sample_rate.0).unwrap(),
-            max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
-            num_stream_in_channels: num_in_channels as u32,
-            num_stream_out_channels: num_out_channels as u32,
-            stream_latency_frames,
-            // The engine will overwrite the other values.
-            ..Default::default()
-        })?;
+        let (cx, processor) = FirewheelCtx::new(
+            config,
+            StreamInfo {
+                sample_rate: NonZeroU32::new(stream_config.sample_rate.0).unwrap(),
+                max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
+                num_stream_in_channels: num_in_channels as u32,
+                num_stream_out_channels: num_out_channels as u32,
+                stream_latency_frames,
+                // The engine will overwrite the other values.
+                ..Default::default()
+            },
+        );
 
         to_stream_tx
             .push(CtxToStreamMsg::NewProcessor(processor))
             .unwrap();
 
-        self.active_state = Some(ActiveState {
-            _stream: stream,
-            _to_stream_tx: to_stream_tx,
+        Ok(Self {
+            cx,
             from_err_rx,
             out_device_name,
-            cpal_config,
-        });
-
-        Ok(())
+            stream_config,
+            _stream: stream,
+            _to_stream_tx: to_stream_tx,
+        })
     }
 
     /// Get the name of the audio output device.
-    ///
-    /// Returns `None` if the context is not currently activated.
-    pub fn out_device_name(&self) -> Option<&str> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.out_device_name.as_str())
+    pub fn out_device_name(&self) -> &str {
+        self.out_device_name.as_str()
     }
 
     /// Get information about the current audio stream.
-    ///
-    /// Returns `None` if the context is not currently activated.
-    pub fn stream_info(&self) -> Option<&StreamInfo> {
+    pub fn stream_info(&self) -> &StreamInfo {
         self.cx.stream_info()
     }
 
     /// Get the current configuration of the audio stream.
-    ///
-    /// Returns `None` if the context is not currently activated.
-    pub fn stream_config(&self) -> Option<&cpal::StreamConfig> {
-        self.active_state.as_ref().map(|s| &s.cpal_config)
+    pub fn stream_config(&self) -> &cpal::StreamConfig {
+        &self.stream_config
     }
 
     /// Update the firewheel context.
     ///
-    /// This must be called reguarly once the context has been activated
-    /// (i.e. once every frame).
+    /// This must be called reguarly (i.e. once every frame).
     #[must_use]
-    pub fn update(&mut self) -> UpdateStatus {
-        if let Some(state) = &mut self.active_state {
-            if let Ok(e) = state.from_err_rx.pop() {
-                self.cx.deactivate(false);
-                self.active_state = None;
+    pub fn update(self) -> UpdateStatus {
+        let FirewheelCpalCtx {
+            mut cx,
+            mut from_err_rx,
+            out_device_name,
+            stream_config,
+            _stream,
+            _to_stream_tx,
+        } = self;
 
-                return UpdateStatus::Deactivated {
-                    error: Some(Box::new(e)),
-                };
-            }
+        if let Ok(e) = from_err_rx.pop() {
+            cx._notify_stream_crashed();
+
+            return UpdateStatus::Deactivated { error: Some(e) };
         }
 
-        match self.cx.update() {
-            UpdateStatus::Active { graph_error } => UpdateStatus::Active { graph_error },
-            UpdateStatus::Inactive => UpdateStatus::Inactive,
-            UpdateStatus::Deactivated { error } => {
-                if self.active_state.is_some() {
-                    self.active_state = None;
-                }
-
-                UpdateStatus::Deactivated { error }
-            }
-        }
-    }
-
-    /// Flush the event queue.
-    ///
-    /// If the context is not currently activated, then this will do
-    /// nothing.
-    pub fn flush_events(&mut self) {
-        self.cx.flush_events();
-    }
-
-    /// Deactivate the firewheel context and stop the audio stream.
-    ///
-    /// On native platforms, his will block the thread until either
-    /// the processor has been successfully dropped or a timeout has
-    /// been reached.
-    ///
-    /// On WebAssembly, this will *NOT* wait for the processor to be
-    /// successfully dropped.
-    ///
-    /// If the context is already deactivated, then this will do
-    /// nothing and return `false`.
-    pub fn deactivate(&mut self) -> bool {
-        if self.cx.is_activated() {
-            #[cfg(target_family = "wasm")]
-            {
-                self.active_state = None;
-            }
-
-            self.cx.deactivate(self.active_state.is_some());
-            self.active_state = None;
-            true
-        } else {
-            false
+        match cx._update() {
+            UpdateStatusInner::Ok {
+                cx,
+                graph_compile_error,
+            } => UpdateStatus::Ok {
+                cx: Self {
+                    cx,
+                    from_err_rx,
+                    out_device_name,
+                    stream_config,
+                    _stream,
+                    _to_stream_tx,
+                },
+                graph_compile_error,
+            },
+            UpdateStatusInner::Deactivated { .. } => UpdateStatus::Deactivated { error: None },
         }
     }
 }
@@ -422,9 +364,25 @@ impl Debug for FirewheelCpalCtx {
     }
 }
 
+pub enum UpdateStatus {
+    Ok {
+        cx: FirewheelCpalCtx,
+        graph_compile_error: Option<CompileGraphError>,
+    },
+    /// The engine was deactivated.
+    ///
+    /// If this is returned, then all node handles are invalidated.
+    /// The graph and all its nodes must be reconstructed.
+    Deactivated { error: Option<cpal::StreamError> },
+}
+
 /// The configuration of an audio stream
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AudioStreamConfig {
+pub struct CpalConfig {
+    /// The host to use. Set to `None` to use the
+    /// system's default output device.
+    pub host: Option<cpal::HostId>,
+
     /// The name of the output device to use. Set to `None` to use the
     /// system's default output device.
     ///
@@ -455,9 +413,10 @@ pub struct AudioStreamConfig {
     pub fallback: bool,
 }
 
-impl Default for AudioStreamConfig {
+impl Default for CpalConfig {
     fn default() -> Self {
         Self {
+            host: None,
             output_device_name: None,
             desired_sample_rate: None,
             desired_latency_frames: DEFAULT_MAX_BLOCK_FRAMES,
@@ -469,7 +428,7 @@ impl Default for AudioStreamConfig {
 struct DataCallback {
     num_in_channels: usize,
     num_out_channels: usize,
-    from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
+    from_cx_rx: rtrb::Consumer<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
     sample_rate_recip: f64,
     first_internal_clock_instant: Option<cpal::StreamInstant>,
@@ -483,14 +442,14 @@ impl DataCallback {
     fn new(
         num_in_channels: usize,
         num_out_channels: usize,
-        from_ctx_rx: rtrb::Consumer<CtxToStreamMsg>,
+        from_cx_rx: rtrb::Consumer<CtxToStreamMsg>,
         sample_rate: u32,
         is_alsa: bool,
     ) -> Self {
         Self {
             num_in_channels,
             num_out_channels,
-            from_ctx_rx,
+            from_cx_rx,
             processor: None,
             sample_rate_recip: f64::from(sample_rate).recip(),
             first_internal_clock_instant: None,
@@ -502,7 +461,7 @@ impl DataCallback {
     }
 
     fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
-        while let Ok(msg) = self.from_ctx_rx.pop() {
+        while let Ok(msg) = self.from_cx_rx.pop() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
         }
@@ -616,22 +575,13 @@ impl DataCallback {
     }
 }
 
-impl Drop for FirewheelCpalCtx {
-    fn drop(&mut self) {
-        if self.cx.is_activated() {
-            self.cx.deactivate(self.active_state.is_some());
-        }
-    }
-}
 enum CtxToStreamMsg {
     NewProcessor(FirewheelProcessor),
 }
 
-/// An error occured while trying to activate an [`InactiveFwCpalCtx`]
+/// An error occured while trying to activate an [`InactiveFwCpalcx`]
 #[derive(Debug, thiserror::Error)]
 pub enum ActivateError {
-    #[error("Firewheel context failed to activate: {0}")]
-    ContextError(#[from] ActivateCtxError),
     #[error("The requested audio device was not found: {0}")]
     DeviceNotFound(String),
     #[error("Could not get audio devices: {0}")]

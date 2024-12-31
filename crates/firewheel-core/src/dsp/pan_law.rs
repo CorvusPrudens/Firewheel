@@ -21,7 +21,7 @@ pub enum PanLaw {
 }
 
 impl PanLaw {
-    /// Compute the gain values for the `(left, right)` channels.
+    /// Compute the raw gain values for the `(left, right)` channels.
     ///
     /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left, and
     /// `1.0` is fully right.

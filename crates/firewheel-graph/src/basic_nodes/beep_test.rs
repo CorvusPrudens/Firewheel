@@ -1,20 +1,47 @@
 use firewheel_core::{
+    channel_config::{ChannelConfig, ChannelCount},
+    clock::EventDelay,
     dsp::decibel::normalized_volume_to_raw_gain,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
+        AudioNodeProcessor, NodeEventIter, NodeEventType, NodeHandle, NodeID, ProcInfo,
         ProcessStatus,
     },
-    ChannelConfig, ChannelCount, StreamInfo,
 };
+
+use crate::FirewheelCtx;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Params {
+    /// The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
+    /// value for testing is `440` (middle C).
+    pub freq_hz: f32,
+
+    /// The normalized volume where `.0` is mute and `1.0` is unity gain.
+    /// NOTE, a sine wave at `1.0`` volume is *LOUD*, prefer to use a value
+    /// like `0.5``.
+    pub normalized_volume: f32,
+
+    /// Whether or not the node is currently enabled.
+    pub enabled: bool,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        Self {
+            freq_hz: 440.0,
+            normalized_volume: 0.5,
+            enabled: true,
+        }
+    }
+}
 
 /// A simple node that outputs a sine wave, used for testing purposes.
 ///
 /// Note that because this node is for testing purposes, it does not
 /// bother with parameter smoothing.
 pub struct BeepTestNode {
-    freq_hz: f32,
-    normalized_volume: f32,
-    enabled: bool,
+    params: Params,
+    handle: NodeHandle,
 }
 
 impl BeepTestNode {
@@ -24,100 +51,78 @@ impl BeepTestNode {
     pub const PARAM_FREQUENCY: u32 = 1;
 
     /// Create a new [`BeepTestNode`].
-    ///
-    /// * `normalized_volume` - The normalized volume where `.0` is mute and `1.0` is unity gain.
-    /// NOTE, a sine wave at `1.0`` volume is *LOUD*, prefer to use a value like `0.25``.
-    /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
-    /// value for testing is `440` (middle C).
-    /// * `enabled` - Whether or not to start outputting a sine wave when the node is added
-    /// to the graph.
-    pub fn new(normalized_volume: f32, freq_hz: f32, enabled: bool) -> Self {
-        Self {
-            freq_hz: freq_hz.clamp(20.0, 20_000.0),
-            normalized_volume: normalized_volume.max(0.0),
-            enabled,
-        }
+    pub fn new(params: Params, cx: &mut FirewheelCtx) -> Self {
+        let sample_rate = cx.stream_info().sample_rate;
+        let sample_rate_recip = cx.stream_info().sample_rate_recip;
+
+        let handle = cx.add_node(
+            "beep_test",
+            ChannelConfig {
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: ChannelCount::MONO,
+            },
+            true,
+            Box::new(BeepTestProcessor {
+                phasor: 0.0,
+                phasor_inc: params.freq_hz.clamp(20.0, 20_000.0) * sample_rate_recip as f32,
+                gain: normalized_volume_to_raw_gain(params.normalized_volume),
+                sample_rate_recip: (sample_rate.get() as f32).recip(),
+                enabled: params.enabled,
+            }),
+        );
+
+        Self { params, handle }
     }
 
-    /// Get the current normalized volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
+    /// The ID of this node
+    pub fn id(&self) -> NodeID {
+        self.handle.id
     }
 
-    /// Return an event type to set the volume parameter.
+    /// Get the current parameters.
+    pub fn params(&self) -> &Params {
+        &self.params
+    }
+
+    /// Set the volume parameter.
     ///
     /// * `normalized_volume` - The normalized volume where `0.0` is mute and `1.0` is unity gain.
     ///
-    /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.25`.
-    pub fn set_volume(&mut self, normalized_volume: f32) -> NodeEventType {
-        self.normalized_volume = normalized_volume;
-        NodeEventType::F32Param {
-            id: Self::PARAM_VOLUME,
-            value: normalized_volume,
-            smoothing: false,
-        }
+    /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.5`.
+    pub fn set_volume(&mut self, normalized_volume: f32, delay: EventDelay) {
+        self.params.normalized_volume = normalized_volume;
+        self.handle.queue_event(
+            NodeEventType::F32Param {
+                id: Self::PARAM_VOLUME,
+                value: normalized_volume,
+                smoothing: false,
+            },
+            delay,
+        );
     }
 
-    /// Get the frequency of the sine wave in the range `[20.0, 20_000.0]`
-    pub fn freq_hz(&self) -> f32 {
-        self.freq_hz
-    }
-
-    /// Return an event type to set the frequency parameter.
+    /// Set the frequency parameter.
     ///
     /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`.
     ///
     /// A good value for testing is `440` (middle C).
-    pub fn set_freq_hz(&mut self, freq_hz: f32) -> NodeEventType {
-        self.freq_hz = freq_hz;
-        NodeEventType::F32Param {
-            id: Self::PARAM_FREQUENCY,
-            value: freq_hz,
-            smoothing: false,
-        }
-    }
-
-    /// Get whether or not this node is currently enabled.
-    pub fn enabled(&self) -> bool {
-        self.enabled
-    }
-
-    /// Return an event type to enable/disable the node.
-    pub fn set_enabled(&mut self, enabled: bool) -> NodeEventType {
-        self.enabled = enabled;
-        NodeEventType::SetEnabled(enabled)
-    }
-}
-
-impl AudioNode for BeepTestNode {
-    fn debug_name(&self) -> &'static str {
-        "beep_test"
-    }
-
-    fn info(&self) -> AudioNodeInfo {
-        AudioNodeInfo {
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::MAX,
-            default_channel_config: ChannelConfig {
-                num_inputs: ChannelCount::ZERO,
-                num_outputs: ChannelCount::STEREO,
+    pub fn set_freq_hz(&mut self, freq_hz: f32, delay: EventDelay) {
+        self.params.freq_hz = freq_hz;
+        self.handle.queue_event(
+            NodeEventType::F32Param {
+                id: Self::PARAM_VOLUME,
+                value: freq_hz,
+                smoothing: false,
             },
-            ..Default::default()
-        }
+            delay,
+        );
     }
 
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        Ok(Box::new(BeepTestProcessor {
-            phasor: 0.0,
-            phasor_inc: self.freq_hz * stream_info.sample_rate_recip as f32,
-            gain: normalized_volume_to_raw_gain(self.normalized_volume),
-            sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
-            enabled: self.enabled,
-        }))
+    /// Enable/disable this node.
+    pub fn set_enabled(&mut self, enabled: bool, delay: EventDelay) {
+        self.params.enabled = enabled;
+        self.handle
+            .queue_event(NodeEventType::SetEnabled(enabled), delay);
     }
 }
 
@@ -171,11 +176,5 @@ impl AudioNodeProcessor for BeepTestProcessor {
         }
 
         ProcessStatus::outputs_not_silent()
-    }
-}
-
-impl Into<Box<dyn AudioNode>> for BeepTestNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
     }
 }

@@ -1,53 +1,56 @@
+use std::num::NonZeroU32;
+
 use firewheel_core::{
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, ProcInfo, ProcessStatus},
-    ChannelConfig, ChannelCount, StreamInfo,
+    channel_config::{ChannelConfig, ChannelCount},
+    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
 };
 
-pub struct MixNode;
+use crate::FirewheelCtx;
 
-impl AudioNode for MixNode {
-    fn debug_name(&self) -> &'static str {
-        "mix"
-    }
+pub struct MixNode {
+    handle: NodeHandle,
+}
 
-    fn info(&self) -> AudioNodeInfo {
-        AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::MONO,
-            num_max_supported_inputs: ChannelCount::MAX,
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::MAX,
-            default_channel_config: ChannelConfig {
-                num_inputs: ChannelCount::new(4).unwrap(),
-                num_outputs: ChannelCount::STEREO,
+#[derive(Debug, thiserror::Error)]
+pub enum MixNodeError {
+    #[error("The number of channels times the number of input streams on a MixNode cannot be greater than 64 (channels {channels}, num_in_streams: {num_in_streams}")]
+    TooManyChannels {
+        channels: NonZeroU32,
+        num_in_streams: NonZeroU32,
+    },
+}
+
+impl MixNode {
+    pub fn new(
+        channels: NonZeroU32,
+        num_in_streams: NonZeroU32,
+        cx: &mut FirewheelCtx,
+    ) -> Result<Self, MixNodeError> {
+        let num_inputs = ChannelCount::new(channels.get() * num_in_streams.get()).ok_or(
+            MixNodeError::TooManyChannels {
+                channels,
+                num_in_streams,
             },
-            equal_num_ins_and_outs: false,
-            updates: false,
-            uses_events: false,
-        }
+        )?;
+
+        let handle = cx.add_node(
+            "mix",
+            ChannelConfig {
+                num_inputs,
+                num_outputs: ChannelCount::new(channels.get()).unwrap(),
+            },
+            false,
+            Box::new(MixNodeProcessor {
+                num_in_ports: channels.get() as usize,
+            }),
+        );
+
+        Ok(Self { handle })
     }
 
-    fn channel_config_supported(
-        &self,
-        channel_config: ChannelConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if channel_config.num_inputs.get() % channel_config.num_outputs.get() != 0 {
-            Err(format!("The number of inputs on a MixNode must be a multiple of the number of outputs. Got config: {:?}", channel_config).into())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn activate(
-        &mut self,
-        _stream_info: &StreamInfo,
-        channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        assert!(channel_config.num_inputs.get() % channel_config.num_outputs.get() == 0);
-
-        Ok(Box::new(MixNodeProcessor {
-            num_in_ports: (channel_config.num_inputs.get() / channel_config.num_outputs.get())
-                as usize,
-        }))
+    /// The ID of this node
+    pub fn id(&self) -> NodeID {
+        self.handle.id
     }
 }
 
@@ -151,11 +154,5 @@ impl AudioNodeProcessor for MixNodeProcessor {
         }
 
         ProcessStatus::outputs_not_silent()
-    }
-}
-
-impl Into<Box<dyn AudioNode>> for MixNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
     }
 }

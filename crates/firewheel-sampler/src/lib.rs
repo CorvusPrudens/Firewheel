@@ -1,4 +1,5 @@
 use crossbeam_utils::atomic::AtomicCell;
+use firewheel_graph::FirewheelCtx;
 use smallvec::SmallVec;
 use std::{
     num::{NonZeroU32, NonZeroUsize},
@@ -10,6 +11,7 @@ use std::{
 };
 
 use firewheel_core::{
+    channel_config::{ChannelConfig, ChannelCount},
     clock::EventDelay,
     dsp::{
         buffer::InstanceBuffer,
@@ -17,19 +19,20 @@ use firewheel_core::{
         declick::{DeclickValues, Declicker},
     },
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEvent, NodeEventIter, NodeEventType,
-        NodeID, ProcInfo, ProcessStatus, RepeatMode,
+        AudioNodeProcessor, NodeEventIter, NodeEventType, NodeHandle, NodeID, ProcInfo,
+        ProcessStatus, RepeatMode,
     },
     sample_resource::SampleResource,
-    ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
+    SilenceMask,
 };
-use firewheel_graph::graph::AudioGraph;
 
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SamplerConfig {
+    /// The number of channels in this node.
+    pub channels: ChannelCount,
     /// If `true`, then mono samples will be converted to stereo during playback.
     ///
     /// By default this is set to `true`.
@@ -51,6 +54,7 @@ pub struct SamplerConfig {
 impl Default for SamplerConfig {
     fn default() -> Self {
         Self {
+            channels: ChannelCount::STEREO,
             mono_to_stereo: true,
             num_declickers: DEFAULT_NUM_DECLICKERS as u32,
             crossfade_on_restart: true,
@@ -58,345 +62,79 @@ impl Default for SamplerConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SamplerStatus {
-    pub playback: PlaybackStatus,
-    pub latest_queued_event: LatestQueuedEvent,
-}
-
-impl SamplerStatus {
-    pub fn is_playing(&self) -> bool {
-        match self.latest_queued_event {
-            LatestQueuedEvent::NewSampleEventQueued
-            | LatestQueuedEvent::StopEventQueued
-            | LatestQueuedEvent::DiscardEventQueued
-            | LatestQueuedEvent::PauseEventQueued => false,
-            LatestQueuedEvent::StartOrRestartEventQueued => true,
-            LatestQueuedEvent::ResumeEventQueued => {
-                self.playback != PlaybackStatus::Finished
-                    && self.playback != PlaybackStatus::NoSample
-                    && self.playback != PlaybackStatus::NotStartedYet
-            }
-            _ => match self.playback {
-                PlaybackStatus::Playing | PlaybackStatus::PlayingEndlessly => true,
-                _ => false,
-            },
-        }
-    }
-
-    pub fn finished(&self) -> bool {
-        self.playback == PlaybackStatus::Finished
-    }
-
-    /// Returns a `score` of how good of a candidate this node is to
-    /// be given new work. The higher the score, the better the candidate
-    /// for the work.
-    ///
-    /// This is useful when assigning work to a pool of sampler nodes.
-    /// If all nodes in the pool are currently working, then the one
-    /// with the highest score is the "oldest" one.
-    pub fn new_work_score(&self, playhead_frames: u64) -> u64 {
-        match self.latest_queued_event {
-            LatestQueuedEvent::NewSampleEventQueued => u64::MAX - 4,
-            LatestQueuedEvent::StopEventQueued => u64::MAX - 3,
-            LatestQueuedEvent::DiscardEventQueued => u64::MAX - 2,
-            LatestQueuedEvent::StartOrRestartEventQueued => playhead_frames,
-            _ => match self.playback {
-                PlaybackStatus::NoSample => u64::MAX,
-                PlaybackStatus::Finished => u64::MAX - 1,
-                PlaybackStatus::NotStartedYet => u64::MAX - 3,
-                _ => playhead_frames,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaybackStatus {
-    /// The sampler currently has no sample loaded.
-    NoSample,
-    /// The sampler has not currently started playing its sample yet.
-    NotStartedYet,
-    /// The sampler is currently paused.
-    Paused,
-    /// The sampler is currently playing a sample.
-    Playing,
-    /// The sampler is currently playing a sample on an endless loop.
-    PlayingEndlessly,
-    /// The sampler has finished playing the sample.
-    Finished,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LatestQueuedEvent {
-    None,
-    NewSampleEventQueued,
-    StopEventQueued,
-    StartOrRestartEventQueued,
-    DiscardEventQueued,
-    PauseEventQueued,
-    ResumeEventQueued,
-}
-
-/// A wrapper around a [`SamplerNode`].
-pub struct Sampler {
-    pub node_id: NodeID,
-    sample: Option<Arc<dyn SampleResource>>,
-    normalized_volume: f32,
-    repeat_mode: RepeatMode,
-}
-
-impl Sampler {
-    pub fn new(node_id: NodeID) -> Self {
-        Self {
-            node_id,
-            sample: None,
-            normalized_volume: 1.0,
-            repeat_mode: RepeatMode::PlayOnce,
-        }
-    }
-
-    /// Use the given sample with the given settings. This will stop any
-    /// currently playing samples and reset the playhead to the beginning.
-    /// Call `start_or_restart` to begin playback.
-    ///
-    /// If this node already has this sample with the given settings, then
-    /// this will do nothing.
-    pub fn set_sample(
-        &mut self,
-        replace_with_sample: Option<&Arc<dyn SampleResource>>,
-        normalized_volume: f32,
-        repeat_mode: RepeatMode,
-        delay: EventDelay,
-        graph: &mut AudioGraph,
-    ) {
-        if let Some(new_sample) = replace_with_sample {
-            if let Some(old_sample) = self.sample.as_ref() {
-                if Arc::ptr_eq(old_sample, new_sample)
-                    && self.normalized_volume == normalized_volume
-                    && self.repeat_mode == repeat_mode
-                {
-                    return;
-                }
-            }
-
-            self.sample = Some(Arc::clone(new_sample));
-        } else if self.sample.is_none() {
-            return;
-        };
-
-        self.normalized_volume = normalized_volume;
-        self.repeat_mode = repeat_mode;
-        let sample = Arc::clone(self.sample.as_ref().unwrap());
-
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::NewSample {
-                sample,
-                normalized_volume,
-                repeat_mode,
-            },
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::NewSampleEventQueued);
-    }
-
-    /// Discard any sample data loaded in this node. This will stop any
-    /// currently playing samples and reset the playhead to the beginning.
-    pub fn discard_sample(&mut self, graph: &mut AudioGraph) {
-        if self.sample.is_some() {
-            self.sample = None;
-
-            graph.queue_event(NodeEvent {
-                node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::DiscardData,
-            });
-
-            graph
-                .node_mut::<SamplerNode>(self.node_id)
-                .unwrap()
-                .set_latest_queued_event(LatestQueuedEvent::DiscardEventQueued);
-        }
-    }
-
-    /// Start/restart playback.
-    pub fn start_or_restart(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        if self.sample.is_none() {
-            return;
-        }
-
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::StartOrRestart,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::StartOrRestartEventQueued);
-    }
-
-    /// Pause playback.
-    pub fn pause(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::Pause,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::PauseEventQueued);
-    }
-
-    /// Resume playback.
-    pub fn resume(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::Resume,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::ResumeEventQueued);
-    }
-
-    /// Stop playback and reset the playhead back to the beginning.
-    ///
-    /// This will also discard any pending delayed events.
-    pub fn stop(&mut self, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay: EventDelay::Immediate,
-            event: NodeEventType::Stop,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::StopEventQueued);
-    }
-
-    /// Set the playhead to the given time in seconds.
-    pub fn set_playhead_seconds(
-        &mut self,
-        seconds: f64,
-        delay: EventDelay,
-        graph: &mut AudioGraph,
-    ) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::F64Param {
-                id: SamplerNode::PARAM_PLAYHEAD_SECONDS,
-                value: seconds,
-                smoothing: false,
-            },
-        });
-    }
-
-    /// Set the playhead to the given time in frames (samples in a single
-    /// channel of audio, not to be confused with video frames).
-    pub fn set_playhead_frames(&mut self, frames: u64, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::U64Param {
-                id: SamplerNode::PARAM_PLAYHEAD_FRAMES,
-                value: frames,
-                smoothing: false,
-            },
-        });
-    }
-
-    /// The current sample loaded into this node.
-    pub fn sample(&self) -> Option<&Arc<dyn SampleResource>> {
-        self.sample.as_ref()
-    }
-
-    /// The current value of the playhead in units of frames (samples in a
-    /// single channel of audio, not to be confused with video frames).
-    pub fn playhead_frames(&self, graph: &AudioGraph) -> u64 {
-        graph
-            .node::<SamplerNode>(self.node_id)
-            .unwrap()
-            .playhead_frames()
-    }
-
-    /// The current value of the playhead in units of seconds.
-    ///
-    /// Returns `None` if the node does not exist in the graph.
-    pub fn playhead_seconds(&self, graph: &AudioGraph) -> f64 {
-        graph
-            .node::<SamplerNode>(self.node_id)
-            .unwrap()
-            .playhead_seconds()
-    }
-
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
-    }
-
-    pub fn repeat_mode(&self) -> RepeatMode {
-        self.repeat_mode
-    }
-
-    pub fn status(&self, graph: &AudioGraph) -> SamplerStatus {
-        graph.node::<SamplerNode>(self.node_id).unwrap().status()
-    }
-
-    pub fn exists_in_graph(&self, graph: &AudioGraph) -> bool {
-        graph.node::<SamplerNode>(self.node_id).is_some()
-    }
-}
-
-struct SharedState {
-    playhead_frames: AtomicU64,
-    status: AtomicCell<SamplerStatus>,
-}
-
-impl SharedState {
-    fn reset(&self) {
-        self.playhead_frames.store(0, Ordering::Relaxed);
-        self.status.store(SamplerStatus {
-            playback: PlaybackStatus::NoSample,
-            latest_queued_event: LatestQueuedEvent::None,
-        });
-    }
-}
-
 pub struct SamplerNode {
-    config: SamplerConfig,
     shared_state: Arc<SharedState>,
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
+    sample: Option<Arc<dyn SampleResource>>,
+    normalized_volume: f32,
+    repeat_mode: RepeatMode,
+    handle: NodeHandle,
 }
 
 impl SamplerNode {
     pub const PARAM_PLAYHEAD_SECONDS: u32 = 0;
     pub const PARAM_PLAYHEAD_FRAMES: u32 = 0;
 
-    pub fn new(config: SamplerConfig) -> Self {
-        Self {
-            config,
-            shared_state: Arc::new(SharedState {
-                playhead_frames: AtomicU64::new(0),
-                status: AtomicCell::new(SamplerStatus {
-                    playback: PlaybackStatus::NoSample,
-                    latest_queued_event: LatestQueuedEvent::None,
-                }),
+    pub fn new(config: SamplerConfig, cx: &mut FirewheelCtx) -> Self {
+        assert_ne!(config.channels.get(), 0);
+
+        let sample_rate = cx.stream_info().sample_rate;
+
+        let stop_declicker_buffers = if config.num_declickers == 0 {
+            None
+        } else {
+            Some(InstanceBuffer::new(
+                config.num_declickers as usize,
+                NonZeroUsize::new(config.channels.get() as usize).unwrap(),
+                NonZeroUsize::new(cx.stream_info().declick_frames.get() as usize).unwrap(),
+            ))
+        };
+
+        let shared_state = Arc::new(SharedState {
+            playhead_frames: AtomicU64::new(0),
+            status: AtomicCell::new(SamplerStatus {
+                playback: PlaybackStatus::NoSample,
+                latest_queued_event: LatestQueuedEvent::None,
             }),
+        });
+
+        let handle = cx.add_node(
+            "sampler",
+            ChannelConfig {
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: config.channels,
+            },
+            true,
+            Box::new(SamplerProcessor {
+                config,
+                sample: None,
+                sample_len_frames: 0,
+                sample_num_channels: NonZeroUsize::MIN,
+                sample_mono_to_stereo: false,
+                gain: 0.0,
+                playhead: 0,
+                repeat_mode: RepeatMode::default(),
+                num_times_looped_back: 0,
+                declicker: Declicker::SettledAt0,
+                paused: true,
+                shared_state: Arc::clone(&shared_state),
+                stop_declickers: smallvec::smallvec![StopDeclickerState::default(); config.num_declickers as usize],
+                num_active_stop_declickers: 0,
+                stop_declicker_buffers,
+                sample_rate,
+                has_begun_playing: false,
+            }),
+        );
+
+        Self {
+            shared_state,
             sample_rate: NonZeroU32::MIN,
             sample_rate_recip: 0.0,
+            sample: None,
+            normalized_volume: 1.0,
+            repeat_mode: RepeatMode::PlayOnce,
+            handle,
         }
     }
 
@@ -421,14 +159,6 @@ impl SamplerNode {
         self.shared_state.status.load()
     }
 
-    pub fn set_latest_queued_event(&mut self, latest_queued_event: LatestQueuedEvent) {
-        let playback = self.shared_state.status.load().playback;
-        self.shared_state.status.store(SamplerStatus {
-            playback,
-            latest_queued_event,
-        });
-    }
-
     pub fn set_playhead_seconds_event(&self, seconds: f64) -> NodeEventType {
         NodeEventType::F64Param {
             id: Self::PARAM_PLAYHEAD_SECONDS,
@@ -444,77 +174,149 @@ impl SamplerNode {
             smoothing: false,
         }
     }
-}
 
-impl AudioNode for SamplerNode {
-    fn debug_name(&self) -> &'static str {
-        "sampler"
+    /// The ID of this node
+    pub fn id(&self) -> NodeID {
+        self.handle.id
     }
 
-    fn info(&self) -> AudioNodeInfo {
-        AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::ZERO,
-            num_max_supported_inputs: ChannelCount::ZERO,
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::new(MAX_OUT_CHANNELS as u32).unwrap(),
-            default_channel_config: ChannelConfig {
-                num_inputs: ChannelCount::ZERO,
-                num_outputs: ChannelCount::STEREO,
+    /// Use the given sample with the given settings. This will stop any
+    /// currently playing samples and reset the playhead to the beginning.
+    /// Call `start_or_restart` to begin playback.
+    ///
+    /// If this node already has this sample with the given settings, then
+    /// this will do nothing.
+    pub fn set_sample(
+        &mut self,
+        replace_with_sample: Option<&Arc<dyn SampleResource>>,
+        normalized_volume: f32,
+        repeat_mode: RepeatMode,
+        delay: EventDelay,
+    ) {
+        if let Some(new_sample) = replace_with_sample {
+            if let Some(old_sample) = self.sample.as_ref() {
+                if Arc::ptr_eq(old_sample, new_sample)
+                    && self.normalized_volume == normalized_volume
+                    && self.repeat_mode == repeat_mode
+                {
+                    return;
+                }
+            }
+
+            self.sample = Some(Arc::clone(new_sample));
+        } else if self.sample.is_none() {
+            return;
+        };
+
+        self.normalized_volume = normalized_volume;
+        self.repeat_mode = repeat_mode;
+        let sample = Arc::clone(self.sample.as_ref().unwrap());
+
+        self.handle.queue_event(
+            NodeEventType::NewSample {
+                sample,
+                normalized_volume,
+                repeat_mode,
             },
-            equal_num_ins_and_outs: false,
-            updates: false,
-            uses_events: true,
+            delay,
+        );
+
+        self.set_latest_queued_event(LatestQueuedEvent::NewSampleEventQueued);
+    }
+
+    /// Discard any sample data loaded in this node. This will stop any
+    /// currently playing samples and reset the playhead to the beginning.
+    pub fn discard_sample(&mut self) {
+        if self.sample.is_some() {
+            self.sample = None;
+
+            self.handle
+                .queue_event(NodeEventType::DiscardData, EventDelay::Immediate);
+
+            self.set_latest_queued_event(LatestQueuedEvent::DiscardEventQueued);
         }
     }
 
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        self.shared_state.reset();
-        self.sample_rate = stream_info.sample_rate;
-        self.sample_rate_recip = stream_info.sample_rate_recip;
+    /// Start/restart playback.
+    pub fn start_or_restart(&mut self, delay: EventDelay) {
+        if self.sample.is_none() {
+            return;
+        }
 
-        let stop_declicker_buffers = if self.config.num_declickers == 0 {
-            None
-        } else {
-            Some(InstanceBuffer::new(
-                self.config.num_declickers as usize,
-                NonZeroUsize::new(channel_config.num_outputs.get() as usize).unwrap(),
-                NonZeroUsize::new(stream_info.declick_frames.get() as usize).unwrap(),
-            ))
-        };
+        self.handle
+            .queue_event(NodeEventType::StartOrRestart, delay);
 
-        Ok(Box::new(SamplerProcessor {
-            config: self.config,
-            sample: None,
-            sample_len_frames: 0,
-            sample_num_channels: NonZeroUsize::MIN,
-            sample_mono_to_stereo: false,
-            gain: 0.0,
-            playhead: 0,
-            repeat_mode: RepeatMode::default(),
-            num_times_looped_back: 0,
-            declicker: Declicker::SettledAt0,
-            paused: true,
-            shared_state: Arc::clone(&self.shared_state),
-            stop_declickers: smallvec::smallvec![StopDeclickerState::default(); self.config.num_declickers as usize],
-            num_active_stop_declickers: 0,
-            stop_declicker_buffers,
-            sample_rate: stream_info.sample_rate,
-            has_begun_playing: false,
-        }))
+        self.set_latest_queued_event(LatestQueuedEvent::StartOrRestartEventQueued);
     }
 
-    fn deactivate(&mut self, _processor: Option<Box<dyn AudioNodeProcessor>>) {
-        self.shared_state.reset();
-    }
-}
+    /// Pause playback.
+    pub fn pause(&mut self, delay: EventDelay) {
+        self.handle.queue_event(NodeEventType::Pause, delay);
 
-impl Into<Box<dyn AudioNode>> for SamplerNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
+        self.set_latest_queued_event(LatestQueuedEvent::PauseEventQueued);
+    }
+
+    /// Resume playback.
+    pub fn resume(&mut self, delay: EventDelay) {
+        self.handle.queue_event(NodeEventType::Resume, delay);
+
+        self.set_latest_queued_event(LatestQueuedEvent::ResumeEventQueued);
+    }
+
+    /// Stop playback and reset the playhead back to the beginning.
+    ///
+    /// This will also discard any pending delayed events.
+    pub fn stop(&mut self) {
+        self.handle
+            .queue_event(NodeEventType::Stop, EventDelay::Immediate);
+
+        self.set_latest_queued_event(LatestQueuedEvent::StopEventQueued);
+    }
+
+    /// Set the playhead to the given time in seconds.
+    pub fn set_playhead_seconds(&mut self, seconds: f64, delay: EventDelay) {
+        self.handle.queue_event(
+            NodeEventType::F64Param {
+                id: SamplerNode::PARAM_PLAYHEAD_SECONDS,
+                value: seconds,
+                smoothing: false,
+            },
+            delay,
+        );
+    }
+
+    /// Set the playhead to the given time in frames (samples in a single
+    /// channel of audio, not to be confused with video frames).
+    pub fn set_playhead_frames(&mut self, frames: u64, delay: EventDelay) {
+        self.handle.queue_event(
+            NodeEventType::U64Param {
+                id: SamplerNode::PARAM_PLAYHEAD_FRAMES,
+                value: frames,
+                smoothing: false,
+            },
+            delay,
+        );
+    }
+
+    /// The current sample loaded into this node.
+    pub fn sample(&self) -> Option<&Arc<dyn SampleResource>> {
+        self.sample.as_ref()
+    }
+
+    pub fn normalized_volume(&self) -> f32 {
+        self.normalized_volume
+    }
+
+    pub fn repeat_mode(&self) -> RepeatMode {
+        self.repeat_mode
+    }
+
+    fn set_latest_queued_event(&mut self, latest_queued_event: LatestQueuedEvent) {
+        let playback = self.shared_state.status.load().playback;
+        self.shared_state.status.store(SamplerStatus {
+            playback,
+            latest_queued_event,
+        });
     }
 }
 
@@ -961,4 +763,89 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         ProcessStatus::OutputsModified { out_silence_mask }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplerStatus {
+    pub playback: PlaybackStatus,
+    pub latest_queued_event: LatestQueuedEvent,
+}
+
+impl SamplerStatus {
+    pub fn is_playing(&self) -> bool {
+        match self.latest_queued_event {
+            LatestQueuedEvent::NewSampleEventQueued
+            | LatestQueuedEvent::StopEventQueued
+            | LatestQueuedEvent::DiscardEventQueued
+            | LatestQueuedEvent::PauseEventQueued => false,
+            LatestQueuedEvent::StartOrRestartEventQueued => true,
+            LatestQueuedEvent::ResumeEventQueued => {
+                self.playback != PlaybackStatus::Finished
+                    && self.playback != PlaybackStatus::NoSample
+                    && self.playback != PlaybackStatus::NotStartedYet
+            }
+            _ => match self.playback {
+                PlaybackStatus::Playing | PlaybackStatus::PlayingEndlessly => true,
+                _ => false,
+            },
+        }
+    }
+
+    pub fn finished(&self) -> bool {
+        self.playback == PlaybackStatus::Finished
+    }
+
+    /// Returns a `score` of how good of a candidate this node is to
+    /// be given new work. The higher the score, the better the candidate
+    /// for the work.
+    ///
+    /// This is useful when assigning work to a pool of sampler nodes.
+    /// If all nodes in the pool are currently working, then the one
+    /// with the highest score is the "oldest" one.
+    pub fn new_work_score(&self, playhead_frames: u64) -> u64 {
+        match self.latest_queued_event {
+            LatestQueuedEvent::NewSampleEventQueued => u64::MAX - 4,
+            LatestQueuedEvent::StopEventQueued => u64::MAX - 3,
+            LatestQueuedEvent::DiscardEventQueued => u64::MAX - 2,
+            LatestQueuedEvent::StartOrRestartEventQueued => playhead_frames,
+            _ => match self.playback {
+                PlaybackStatus::NoSample => u64::MAX,
+                PlaybackStatus::Finished => u64::MAX - 1,
+                PlaybackStatus::NotStartedYet => u64::MAX - 3,
+                _ => playhead_frames,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackStatus {
+    /// The sampler currently has no sample loaded.
+    NoSample,
+    /// The sampler has not currently started playing its sample yet.
+    NotStartedYet,
+    /// The sampler is currently paused.
+    Paused,
+    /// The sampler is currently playing a sample.
+    Playing,
+    /// The sampler is currently playing a sample on an endless loop.
+    PlayingEndlessly,
+    /// The sampler has finished playing the sample.
+    Finished,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LatestQueuedEvent {
+    None,
+    NewSampleEventQueued,
+    StopEventQueued,
+    StartOrRestartEventQueued,
+    DiscardEventQueued,
+    PauseEventQueued,
+    ResumeEventQueued,
+}
+
+struct SharedState {
+    playhead_frames: AtomicU64,
+    status: AtomicCell<SamplerStatus>,
 }
