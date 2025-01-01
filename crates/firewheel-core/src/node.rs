@@ -339,7 +339,7 @@ pub enum EventData {
     /// A parameter event.
     ///
     /// Each node can freely interpret the data according to its parameters.
-    Parameter(ParamEvent),
+    Parameter(Box<ParamEvent>),
     /// A custom event.
     ///
     /// This is useful for one-shot events like playing samples.

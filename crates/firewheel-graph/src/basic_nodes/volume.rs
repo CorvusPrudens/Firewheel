@@ -3,17 +3,17 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, EventData, NodeEventIter, ProcInfo,
         ProcessStatus,
     },
-    param::{AudioParam, Continuous},
+    param::{AudioParam, Timeline},
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
 #[derive(AudioParam, Clone)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct VolumeNode(pub Continuous<f32>);
+#[cfg_attr(feature = "bevy_ecs", derive(bevy_ecs::prelude::Component))]
+pub struct VolumeNode(pub Timeline<f32>);
 
 impl VolumeNode {
     pub fn new(level: f32) -> Self {
-        Self(Continuous::new(level))
+        Self(Timeline::new(level))
     }
 }
 

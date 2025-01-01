@@ -1,4 +1,4 @@
-use crate::clock::{ClockSamples, ClockSeconds};
+use crate::clock::ClockSeconds;
 use arrayvec::ArrayVec;
 use bevy_math::prelude::{Curve, Ease, EaseFunction, EasingCurve};
 use core::any::Any;
@@ -42,7 +42,10 @@ pub trait AudioParam: Sized {
     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError>;
 
     /// Update `self` according to `time`, if necessary.
-    fn tick(&mut self, time: ClockSeconds) {}
+    fn tick(&mut self, time: ClockSeconds) {
+        // Suppress the unused warning
+        let _ = time;
+    }
 }
 
 /// An parameter synchronization event.
@@ -55,10 +58,9 @@ pub struct ParamEvent {
 /// The payload for a [`ParamEvent`].
 #[derive(Debug)]
 pub enum ParamData {
-    F32(ContinuousEvent<f32>),
-    F64(ContinuousEvent<f64>),
-    I32(ContinuousEvent<i32>),
-    I64(ContinuousEvent<i64>),
+    F32(TimelineEvent<f32>),
+    I32(TimelineEvent<i32>),
+    I64(TimelineEvent<i64>),
     Bool(DeferredEvent<bool>),
     Any(Box<dyn Any + Sync + Send>),
 }
@@ -93,20 +95,23 @@ pub enum PatchError {
     InvalidData,
 }
 
-/// A type that can vary smoothly over time.
+/// A parameter expressed as a timeline of events.
+///
+/// This allows parameters to vary smoothly at audio-rate
+/// with minimal cross-thread communication.
 #[derive(Debug, Clone)]
-pub struct Continuous<T> {
+pub struct Timeline<T> {
     value: T,
     // TODO: there's really no reason for this to be an ArrayVec.
     // It should just be a vector (or a newtype wrapper around it)
     // with a fixed capacity once created.
-    events: ArrayVec<ContinuousEvent<T>, 4>,
+    events: ArrayVec<TimelineEvent<T>, 4>,
     /// The total number of events consumed.
     consumed: usize,
 }
 
-impl<T> Continuous<T> {
-    /// Create a new [`Continuous`] with an initial value.
+impl<T> Timeline<T> {
+    /// Create a new instance of [`Timeline`] with an initial value.
     pub fn new(value: T) -> Self {
         Self {
             value,
@@ -119,36 +124,36 @@ impl<T> Continuous<T> {
     pub fn is_active(&self, time: ClockSeconds) -> bool {
         self.events
             .iter()
-            .any(|e| e.contains(time) && matches!(e, ContinuousEvent::Curve { .. }))
+            .any(|e| e.contains(time) && matches!(e, TimelineEvent::Curve { .. }))
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum ContinuousError {
+pub enum TimelineError {
     OverlappingRanges,
 }
 
-impl<T: Ease + Clone> Continuous<T> {
+impl<T: Ease + Clone> Timeline<T> {
     /// Push an event to the timeline, popping off the oldest one if the
     /// queue is full.
-    pub fn push(&mut self, event: ContinuousEvent<T>) -> Result<(), ContinuousError> {
+    pub fn push(&mut self, event: TimelineEvent<T>) -> Result<(), TimelineError> {
         // scan the events to ensure the event doesn't overlap any ranges
         match &event {
-            ContinuousEvent::Deferred { time, .. } => {
+            TimelineEvent::Deferred { time, .. } => {
                 if self.events.iter().any(|e| e.overlaps(*time)) {
-                    return Err(ContinuousError::OverlappingRanges);
+                    return Err(TimelineError::OverlappingRanges);
                 }
             }
-            ContinuousEvent::Curve { start, end, .. } => {
+            TimelineEvent::Curve { start, end, .. } => {
                 if self
                     .events
                     .iter()
                     .any(|e| e.overlaps(*start) || e.overlaps(*end))
                 {
-                    return Err(ContinuousError::OverlappingRanges);
+                    return Err(TimelineError::OverlappingRanges);
                 }
             }
-            ContinuousEvent::Immediate(i) => {
+            TimelineEvent::Immediate(i) => {
                 self.value = i.clone();
             }
         }
@@ -165,7 +170,8 @@ impl<T: Ease + Clone> Continuous<T> {
 
     /// Set the value immediately.
     pub fn set(&mut self, value: T) {
-        self.push(ContinuousEvent::Immediate(value));
+        // this unwrap cannot fail
+        self.push(TimelineEvent::Immediate(value)).unwrap();
     }
 
     /// Push a curve event with absolute timestamps.
@@ -175,11 +181,11 @@ impl<T: Ease + Clone> Continuous<T> {
         start: ClockSeconds,
         end: ClockSeconds,
         curve: EaseFunction,
-    ) -> Result<(), ContinuousError> {
+    ) -> Result<(), TimelineError> {
         let start_value = self.value_at(start);
         let curve = EasingCurve::new(start_value, end_value, curve);
 
-        self.push(ContinuousEvent::Curve { curve, start, end })
+        self.push(TimelineEvent::Curve { curve, start, end })
     }
 
     /// Get the value at a point in time.
@@ -188,7 +194,7 @@ impl<T: Ease + Clone> Continuous<T> {
             return bounded.get(time);
         }
 
-        let mut recent_time = core::f64::MAX;
+        let mut recent_time = f64::MAX;
         let mut recent_value = None;
 
         for event in &self.events {
@@ -206,13 +212,16 @@ impl<T: Ease + Clone> Continuous<T> {
     }
 
     /// Get the current value without respect to time.
+    ///
+    /// This depends on regular calls to [`AudioParam::tick`]
+    /// for accuracy.
     pub fn get(&self) -> T {
         self.value.clone()
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum ContinuousEvent<T> {
+pub enum TimelineEvent<T> {
     Immediate(T),
     Deferred {
         value: T,
@@ -225,7 +234,7 @@ pub enum ContinuousEvent<T> {
     },
 }
 
-impl<T> ContinuousEvent<T> {
+impl<T> TimelineEvent<T> {
     pub fn start_time(&self) -> Option<ClockSeconds> {
         match self {
             Self::Deferred { time, .. } => Some(*time),
@@ -258,7 +267,7 @@ impl<T> ContinuousEvent<T> {
     }
 }
 
-impl<T: Ease + Clone> ContinuousEvent<T> {
+impl<T: Ease + Clone> TimelineEvent<T> {
     pub fn get(&self, time: ClockSeconds) -> T {
         match self {
             Self::Immediate(i) => i.clone(),
@@ -295,11 +304,70 @@ pub enum DeferredEvent<T> {
     Deferred { value: T, time: ClockSeconds },
 }
 
+impl<T> DeferredEvent<T>
+where
+    T: Clone,
+{
+    pub fn end_time(&self) -> Option<ClockSeconds> {
+        match self {
+            Self::Immediate(_) => None,
+            Self::Deferred { time, .. } => Some(*time),
+        }
+    }
+
+    pub fn value(&self) -> T {
+        match self {
+            Self::Immediate(i) => i.clone(),
+            Self::Deferred { value, .. } => value.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Deferred<T> {
     value: T,
     events: ArrayVec<DeferredEvent<T>, 4>,
     consumed: usize,
+}
+
+impl<T> Deferred<T>
+where
+    T: Clone,
+{
+    /// Get the value at a point in time.
+    pub fn value_at(&self, time: ClockSeconds) -> T {
+        let mut recent_time = f64::MAX;
+        let mut recent_value = None;
+
+        for event in &self.events {
+            if let Some(end) = event.end_time() {
+                let delta = time.0 - end.0;
+
+                if delta >= 0. && delta < recent_time {
+                    recent_time = delta;
+                    recent_value = Some(event.value());
+                }
+            }
+        }
+
+        recent_value.unwrap_or(self.value.clone())
+    }
+
+    /// Get the current value without respect to time.
+    ///
+    /// This depends on regular calls to [`AudioParam::tick`]
+    /// for accuracy.
+    pub fn get(&self) -> T {
+        self.value.clone()
+    }
+
+    pub fn push(&mut self, event: DeferredEvent<T>) {
+        if self.events.remaining_capacity() == 0 {
+            self.events.pop_at(0);
+        }
+
+        self.events.push(event);
+    }
 }
 
 impl AudioParam for () {
@@ -314,7 +382,7 @@ impl AudioParam for f32 {
     fn diff(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
         if self != cmp {
             writer(ParamEvent {
-                data: ParamData::F32(ContinuousEvent::Immediate(*self)),
+                data: ParamData::F32(TimelineEvent::Immediate(*self)),
                 path: path.clone(),
             });
         }
@@ -322,7 +390,7 @@ impl AudioParam for f32 {
 
     fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
         match data {
-            ParamData::F32(ContinuousEvent::Immediate(value)) => {
+            ParamData::F32(TimelineEvent::Immediate(value)) => {
                 *self = *value;
 
                 Ok(())
@@ -354,7 +422,7 @@ impl AudioParam for bool {
     }
 }
 
-impl AudioParam for Continuous<f32> {
+impl AudioParam for Timeline<f32> {
     fn diff(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
         let newly_consumed = self.consumed.saturating_sub(cmp.consumed);
 
@@ -380,11 +448,55 @@ impl AudioParam for Continuous<f32> {
     fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
         match data {
             ParamData::F32(message) => {
-                if let ContinuousEvent::Immediate(i) = message {
+                if let TimelineEvent::Immediate(i) = message {
                     self.value = *i;
                 }
 
-                self.events.push(message.clone());
+                // nothing to do in the audio thread
+                let _ = self.push(message.clone());
+
+                Ok(())
+            }
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn tick(&mut self, time: ClockSeconds) {
+        self.value = self.value_at(time);
+    }
+}
+
+impl AudioParam for Deferred<bool> {
+    fn diff(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        let newly_consumed = self.consumed.saturating_sub(cmp.consumed);
+
+        if newly_consumed == 0 {
+            return;
+        }
+
+        // If more items were added than the buffer can hold, we only have the most recent self.events.len() items.
+        let clamped_newly_consumed = newly_consumed.min(self.events.len());
+
+        // Start index for the new items. They are the last 'clamped_newly_consumed' items in the buffer.
+        let start = self.events.len() - clamped_newly_consumed;
+        let new_items = &self.events[start..];
+
+        for event in new_items.iter() {
+            writer(ParamEvent {
+                data: ParamData::Bool(event.clone()),
+                path: path.clone(),
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
+        match data {
+            ParamData::Bool(message) => {
+                if let DeferredEvent::Immediate(i) = message {
+                    self.value = *i;
+                }
+
+                self.push(message.clone());
 
                 Ok(())
             }
@@ -403,7 +515,7 @@ mod test {
 
     #[test]
     fn test_continuous_diff() {
-        let a = Continuous::new(0f32);
+        let a = Timeline::new(0f32);
         let mut b = a.clone();
 
         b.push_curve(
@@ -424,7 +536,7 @@ mod test {
 
     #[test]
     fn test_full_diff() {
-        let mut a = Continuous::new(0f32);
+        let mut a = Timeline::new(0f32);
 
         for _ in 0..8 {
             a.push_curve(
@@ -456,7 +568,7 @@ mod test {
 
     #[test]
     fn test_linear_curve() {
-        let mut value = Continuous::new(0f32);
+        let mut value = Timeline::new(0f32);
 
         value
             .push_curve(
@@ -477,7 +589,7 @@ mod test {
             .unwrap();
 
         value
-            .push(ContinuousEvent::Deferred {
+            .push(TimelineEvent::Deferred {
                 value: 3.0,
                 time: ClockSeconds(2.5),
             })

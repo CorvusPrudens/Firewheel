@@ -89,6 +89,7 @@ impl Into<usize> for ChannelCount {
 
 /// A supported number of channels on an audio node.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_ecs", derive(bevy_ecs::component::Component))]
 pub struct ChannelConfig {
     pub num_inputs: ChannelCount,
     pub num_outputs: ChannelCount,
