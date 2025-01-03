@@ -126,6 +126,11 @@ impl<T> Timeline<T> {
             .iter()
             .any(|e| e.contains(time) && matches!(e, TimelineEvent::Curve { .. }))
     }
+
+    /// Remove all events from the timeline.
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -170,7 +175,11 @@ impl<T: Ease + Clone> Timeline<T> {
 
     /// Set the value immediately.
     pub fn set(&mut self, value: T) {
-        // this unwrap cannot fail
+        // For set to work reliably, we must clear all
+        // other events.
+        self.clear();
+
+        // This push cannot fail.
         self.push(TimelineEvent::Immediate(value)).unwrap();
     }
 
@@ -304,6 +313,15 @@ pub enum DeferredEvent<T> {
     Deferred { value: T, time: ClockSeconds },
 }
 
+impl<T> From<DeferredEvent<T>> for TimelineEvent<T> {
+    fn from(value: DeferredEvent<T>) -> Self {
+        match value {
+            DeferredEvent::Immediate(i) => TimelineEvent::Immediate(i),
+            DeferredEvent::Deferred { value, time } => TimelineEvent::Deferred { value, time },
+        }
+    }
+}
+
 impl<T> DeferredEvent<T>
 where
     T: Clone,
@@ -334,6 +352,15 @@ impl<T> Deferred<T>
 where
     T: Clone,
 {
+    /// Construct a new [`Deferred`] with an initial value.
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            events: Default::default(),
+            consumed: 0,
+        }
+    }
+
     /// Get the value at a point in time.
     pub fn value_at(&self, time: ClockSeconds) -> T {
         let mut recent_time = f64::MAX;
@@ -367,6 +394,7 @@ where
         }
 
         self.events.push(event);
+        self.consumed += 1;
     }
 }
 
@@ -500,6 +528,56 @@ impl AudioParam for Deferred<bool> {
 
                 Ok(())
             }
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn tick(&mut self, time: ClockSeconds) {
+        self.value = self.value_at(time);
+    }
+}
+
+impl AudioParam for Deferred<i32> {
+    fn diff(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        let newly_consumed = self.consumed.saturating_sub(cmp.consumed);
+
+        if newly_consumed == 0 {
+            return;
+        }
+
+        // If more items were added than the buffer can hold, we only have the most recent self.events.len() items.
+        let clamped_newly_consumed = newly_consumed.min(self.events.len());
+
+        // Start index for the new items. They are the last 'clamped_newly_consumed' items in the buffer.
+        let start = self.events.len() - clamped_newly_consumed;
+        let new_items = &self.events[start..];
+
+        for event in new_items.iter() {
+            writer(ParamEvent {
+                data: ParamData::I32(event.clone().into()),
+                path: path.clone(),
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
+        match data {
+            ParamData::I32(message) => match message {
+                TimelineEvent::Deferred { value, time } => {
+                    self.push(DeferredEvent::Deferred {
+                        value: *value,
+                        time: *time,
+                    });
+
+                    Ok(())
+                }
+                TimelineEvent::Immediate(i) => {
+                    self.push(DeferredEvent::Immediate(*i));
+
+                    Ok(())
+                }
+                _ => Err(PatchError::InvalidData),
+            },
             _ => Err(PatchError::InvalidData),
         }
     }

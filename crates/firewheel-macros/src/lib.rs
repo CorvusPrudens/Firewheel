@@ -6,7 +6,10 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
 use syn::spanned::Spanned;
 
-fn derive_param_inner(input: TokenStream) -> syn::Result<TokenStream2> {
+fn derive_param_inner(
+    input: TokenStream,
+    firewheel_path: TokenStream2,
+) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;
     let identifier = &input.ident;
 
@@ -65,7 +68,7 @@ fn derive_param_inner(input: TokenStream) -> syn::Result<TokenStream2> {
         predicates: Default::default(),
     });
 
-    let param_path = quote! { ::firewheel_core::param };
+    let param_path = quote! { #firewheel_path::param };
 
     for (_, ty) in &fields {
         where_generics
@@ -86,7 +89,7 @@ fn derive_param_inner(input: TokenStream) -> syn::Result<TokenStream2> {
                 }
             }
 
-            fn tick(&mut self, time: ::firewheel_core::clock::ClockSeconds) {
+            fn tick(&mut self, time: #firewheel_path::clock::ClockSeconds) {
                 #(#ticks)*
             }
         }
@@ -95,7 +98,7 @@ fn derive_param_inner(input: TokenStream) -> syn::Result<TokenStream2> {
 
 #[proc_macro_derive(AudioParam)]
 pub fn derive_audio_param(input: TokenStream) -> TokenStream {
-    derive_param_inner(input)
+    derive_param_inner(input, quote! { ::firewheel_core })
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
