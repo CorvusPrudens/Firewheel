@@ -127,6 +127,16 @@ impl<T> Timeline<T> {
             .any(|e| e.contains(time) && matches!(e, TimelineEvent::Curve { .. }))
     }
 
+    /// Returns whether this node will change within the time range.
+    pub fn active_within(&self, start: ClockSeconds, end: ClockSeconds) -> bool {
+        self.events.iter().any(|e| {
+            e.start_time()
+                .is_some_and(|t| (start.0..end.0).contains(&t.0))
+                || e.end_time()
+                    .is_some_and(|t| (start.0..end.0).contains(&t.0))
+        })
+    }
+
     /// Remove all events from the timeline.
     pub fn clear(&mut self) {
         self.events.clear();
@@ -378,6 +388,13 @@ where
         }
 
         recent_value.unwrap_or(self.value.clone())
+    }
+
+    pub fn active_within(&self, start: ClockSeconds, end: ClockSeconds) -> bool {
+        self.events.iter().any(|e| {
+            e.end_time()
+                .is_some_and(|t| (start.0..end.0).contains(&t.0))
+        })
     }
 
     /// Get the current value without respect to time.
