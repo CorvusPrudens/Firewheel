@@ -10,11 +10,16 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
+bevy_ecs = ["dep:bevy_ecs"]
 resampler = ["symphonium?/resampler"]
 
 [dependencies]
+firewheel-macros = { path = "../firewheel-macros", version = "0.1" }
 arrayvec.workspace = true
+smallvec.workspace = true
 bitflags.workspace = true
 downcast-rs.workspace = true
 thunderdome.workspace = true
 symphonium = { version = "0.2", default-features = false, optional = true }
+bevy_math = "0.15"
+bevy_ecs = { version = "0.15", optional = true }

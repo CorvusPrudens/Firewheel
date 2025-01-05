@@ -229,6 +229,10 @@ pub struct ProcInfo<'a, 'b> {
     /// Not to be confused with video frames.
     pub frames: usize,
 
+    /// The reciprocal of the sample rate, or the
+    /// duration in seconds of each frame.
+    pub sample_rate_recip: f64,
+
     /// An optional optimization hint on which input channels contain
     /// all zeros (silence). The first bit (`0b1`) is the first channel,
     /// the second bit is the second channel, and so on.
@@ -454,7 +458,7 @@ pub enum NodeEventType {
         repeat_mode: RepeatMode,
     },
     /// Custom event type.
-    Custom(Box<dyn Any + Send>),
+    Custom(Box<dyn Any + Send + Sync>),
     // TODO: Animation (automation) event types.
 }
 

@@ -23,16 +23,17 @@ categories = ["game-development", "multimedia::audio"]
 
 [workspace]
 members = [
-    "crates/firewheel-core",
-    "crates/firewheel-cpal",
-    "crates/firewheel-graph",
-    "crates/firewheel-sampler",
-    "crates/firewheel-spatial",
-    "crates/firewheel-extra",
-    "examples/beep_test",
-    "examples/play_sample",
-    "examples/sampler_test",
-    "examples/visual_node_graph",
+  "crates/firewheel-core",
+  "crates/firewheel-cpal",
+  "crates/firewheel-graph",
+  "crates/firewheel-sampler",
+  "crates/firewheel-spatial",
+  "crates/firewheel-extra",
+  "crates/firewheel-macros",
+  "examples/beep_test",
+  "examples/play_sample",
+  "examples/sampler_test",
+  "examples/visual_node_graph",
 ]
 
 [features]
@@ -41,12 +42,18 @@ cpal = ["dep:firewheel-cpal"]
 sampler = ["dep:firewheel-sampler"]
 resampler = ["firewheel-core/resampler"]
 symphonium = ["firewheel-core/symphonium"]
+bevy_ecs = [
+  "firewheel-core/bevy_ecs",
+  "firewheel-graph/bevy_ecs",
+  "firewheel-sampler/bevy_ecs",
+]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.1" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.1" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.1", optional = true }
 firewheel-sampler = { path = "crates/firewheel-sampler", version = "0.1", optional = true }
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.1", optional = true }
 
 [workspace.dependencies]
 log = "0.4.22"

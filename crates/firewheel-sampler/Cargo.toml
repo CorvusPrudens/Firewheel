@@ -9,10 +9,15 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+bevy_ecs = ["dep:bevy_ecs"]
+
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.1" }
-firewheel-graph = { path ="../firewheel-graph", version = "0.1" }
+firewheel-graph = { path = "../firewheel-graph", version = "0.1" }
 smallvec.workspace = true
 arrayvec.workspace = true
 crossbeam-utils.workspace = true
 log.workspace = true
+bevy_ecs = { version = "0.15", optional = true }
+

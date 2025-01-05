@@ -3,6 +3,8 @@ use firewheel_core::{
     ChannelConfig, ChannelCount, StreamInfo,
 };
 
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy_ecs", derive(bevy_ecs::component::Component))]
 pub struct MixNode;
 
 impl AudioNode for MixNode {

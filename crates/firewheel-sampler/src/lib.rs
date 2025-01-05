@@ -359,9 +359,10 @@ impl Sampler {
     }
 }
 
-struct SharedState {
-    playhead_frames: AtomicU64,
-    status: AtomicCell<SamplerStatus>,
+#[derive(Debug)]
+pub struct SharedState {
+    pub playhead_frames: AtomicU64,
+    pub status: AtomicCell<SamplerStatus>,
 }
 
 impl SharedState {
@@ -374,6 +375,8 @@ impl SharedState {
     }
 }
 
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy_ecs", derive(bevy_ecs::component::Component))]
 pub struct SamplerNode {
     config: SamplerConfig,
     shared_state: Arc<SharedState>,
@@ -398,6 +401,11 @@ impl SamplerNode {
             sample_rate: NonZeroU32::MIN,
             sample_rate_recip: 0.0,
         }
+    }
+
+    /// Get a reference to this node's shared state.
+    pub fn state(&self) -> &SharedState {
+        &self.shared_state
     }
 
     /// Get the current playhead in units of frames (samples in a single channel

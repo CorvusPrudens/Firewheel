@@ -9,6 +9,9 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+bevy_ecs = ["dep:bevy_ecs", "firewheel-core/bevy_ecs"]
+
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.1" }
 log.workspace = true
@@ -20,3 +23,4 @@ downcast-rs.workspace = true
 atomic_float.workspace = true
 ahash = "0.8.11"
 arraydeque = "0.5.1"
+bevy_ecs = { version = "0.15", optional = true }
