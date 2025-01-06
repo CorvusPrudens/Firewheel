@@ -53,7 +53,6 @@ pub struct FirewheelProcessor {
     running: bool,
     stream_info: StreamInfo,
     sample_rate: f64,
-    sample_rate_recip: f64,
     hard_clip_outputs: bool,
 
     scratch_buffers: Vec<f32>,
@@ -71,7 +70,6 @@ impl FirewheelProcessor {
         hard_clip_outputs: bool,
     ) -> Self {
         let sample_rate = f64::from(stream_info.sample_rate.get());
-        let sample_rate_recip = sample_rate.recip();
 
         let mut scratch_buffers = Vec::new();
         scratch_buffers
@@ -92,7 +90,6 @@ impl FirewheelProcessor {
             running: true,
             stream_info,
             sample_rate,
-            sample_rate_recip,
             hard_clip_outputs,
             scratch_buffers,
             declick_values: DeclickValues::new(stream_info.declick_frames),

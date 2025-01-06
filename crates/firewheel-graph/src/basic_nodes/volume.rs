@@ -1,5 +1,6 @@
 use firewheel_core::{
     clock::ClockSeconds,
+    dsp::decibel::normalized_volume_to_raw_gain,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
         ProcessStatus,
@@ -98,12 +99,18 @@ impl AudioNodeProcessor for VolumeProcessor {
                 continue;
             }
 
-            for i in 0..samples {
-                let seconds = now
-                    + firewheel_core::clock::ClockSeconds(i as f64 * proc_info.sample_rate_recip);
-                self.params.tick(seconds);
+            let mut gain = 0f32;
 
-                let gain = self.params.0.get();
+            for i in 0..samples {
+                if i % 32 == 0 {
+                    let seconds = now
+                        + firewheel_core::clock::ClockSeconds(
+                            i as f64 * proc_info.sample_rate_recip,
+                        );
+                    self.params.tick(seconds);
+
+                    gain = normalized_volume_to_raw_gain(self.params.0.get());
+                }
 
                 output[i] = input[i] * gain;
             }
