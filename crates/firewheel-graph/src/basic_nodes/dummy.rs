@@ -1,41 +1,43 @@
-use crate::FirewheelCtx;
 use firewheel_core::{
     channel_config::ChannelConfig,
-    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
+    event::NodeEventList,
+    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    StreamInfo,
 };
 
-pub struct DummyAudioNode {
-    handle: NodeHandle,
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DummyConfig {
+    pub channel_config: ChannelConfig,
 }
 
-impl DummyAudioNode {
-    pub fn new(channel_config: ChannelConfig, cx: &mut FirewheelCtx) -> Self {
-        let handle = cx.add_node(
-            "dummy",
-            channel_config,
-            false,
-            Box::new(DummyAudioNodeProcessor),
-        );
-
-        Self { handle }
+impl AudioNodeConstructor for DummyConfig {
+    fn debug_name(&self) -> &'static str {
+        "dummy"
     }
 
-    /// The ID of this node
-    pub fn id(&self) -> NodeID {
-        self.handle.id
+    fn channel_config(&self) -> ChannelConfig {
+        self.channel_config
+    }
+
+    fn uses_events(&self) -> bool {
+        false
+    }
+
+    fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(DummyProcessor)
     }
 }
 
-pub struct DummyAudioNodeProcessor;
+pub struct DummyProcessor;
 
-impl AudioNodeProcessor for DummyAudioNodeProcessor {
+impl AudioNodeProcessor for DummyProcessor {
     fn process(
         &mut self,
         _inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
-        _events: NodeEventIter,
+        _events: NodeEventList,
         _proc_info: ProcInfo,
     ) -> ProcessStatus {
-        ProcessStatus::ClearAllOutputs
+        ProcessStatus::Bypass
     }
 }

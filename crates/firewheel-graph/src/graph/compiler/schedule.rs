@@ -1,10 +1,9 @@
 use arrayvec::ArrayVec;
 use smallvec::SmallVec;
-use std::{collections::VecDeque, fmt::Debug};
+use std::fmt::Debug;
 
 use firewheel_core::{
-    clock::ClockSeconds,
-    node::{AudioNodeProcessor, NodeEventType, ProcessStatus},
+    node::{AudioNodeProcessor, ProcessStatus},
     SilenceMask,
 };
 
@@ -16,6 +15,7 @@ use super::NodeID;
 pub(super) struct ScheduledNode {
     /// The node ID
     pub id: NodeID,
+    pub debug_name: &'static str,
 
     /// The assigned input buffers.
     pub input_buffers: SmallVec<[InBufferAssignment; 4]>,
@@ -24,9 +24,10 @@ pub(super) struct ScheduledNode {
 }
 
 impl ScheduledNode {
-    pub fn new(id: NodeID) -> Self {
+    pub fn new(id: NodeID, debug_name: &'static str) -> Self {
         Self {
             id,
+            debug_name,
             input_buffers: SmallVec::new(),
             output_buffers: SmallVec::new(),
         }
@@ -35,7 +36,13 @@ impl ScheduledNode {
 
 impl Debug for ScheduledNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{ {:?}", &self.id)?;
+        write!(
+            f,
+            "{{ {}-{}-{}",
+            self.debug_name,
+            self.id.0.slot(),
+            self.id.0.generation()
+        )?;
 
         if !self.input_buffers.is_empty() {
             write!(f, " | in: [")?;
@@ -132,33 +139,7 @@ pub(super) struct OutBufferAssignment {
 pub struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
-    pub immediate_event_queue: VecDeque<NodeEventType>,
-    pub delayed_event_queue: VecDeque<(ClockSeconds, NodeEventType)>,
-}
-
-impl NodeHeapData {
-    pub fn new(
-        id: NodeID,
-        processor: Box<dyn AudioNodeProcessor>,
-        event_queue_capacity: usize,
-        uses_events: bool,
-    ) -> Self {
-        let (immediate_event_queue, delayed_event_queue) = if uses_events {
-            (
-                VecDeque::with_capacity(event_queue_capacity),
-                VecDeque::with_capacity(event_queue_capacity),
-            )
-        } else {
-            (VecDeque::new(), VecDeque::new())
-        };
-
-        Self {
-            id,
-            processor,
-            immediate_event_queue,
-            delayed_event_queue,
-        }
-    }
+    pub event_buffer_indices: Vec<u32>,
 }
 
 pub struct ScheduleHeapData {
@@ -511,7 +492,7 @@ mod tests {
     use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 
     use crate::{
-        basic_nodes::dummy::DummyAudioNodeProcessor,
+        basic_nodes::dummy::DummyConfig,
         graph::{AddEdgeError, AudioGraph, EdgeID},
         FirewheelConfig,
     };
@@ -724,12 +705,9 @@ mod tests {
     }
 
     fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
-        graph.add_node(
-            "dummy_node",
-            channel_config.into(),
-            false,
-            Box::new(DummyAudioNodeProcessor),
-        )
+        graph.add_node(DummyConfig {
+            channel_config: channel_config.into(),
+        })
     }
 
     fn verify_node(

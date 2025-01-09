@@ -1,24 +1,19 @@
-use std::{any::Any, fmt::Debug, hash::Hash, sync::Arc};
+use std::{fmt::Debug, hash::Hash, ops::Range};
 
 use crate::{
-    clock::{ClockSamples, ClockSeconds, EventDelay},
+    channel_config::ChannelConfig,
+    clock::{ClockSamples, ClockSeconds},
     dsp::declick::DeclickValues,
-    sample_resource::SampleResource,
-    SilenceMask,
+    event::NodeEventList,
+    SilenceMask, StreamInfo,
 };
 
 /// A globally unique identifier for a node.
-#[derive(Clone, Copy)]
-pub struct NodeID {
-    pub idx: thunderdome::Index,
-    pub debug_name: &'static str,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeID(pub thunderdome::Index);
 
 impl NodeID {
-    pub const DANGLING: Self = Self {
-        idx: thunderdome::Index::DANGLING,
-        debug_name: "dangling",
-    };
+    pub const DANGLING: Self = Self(thunderdome::Index::DANGLING);
 }
 
 impl Default for NodeID {
@@ -27,46 +22,33 @@ impl Default for NodeID {
     }
 }
 
-impl PartialEq for NodeID {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
-    }
-}
+pub trait AudioNodeConstructor {
+    /// A unique name for this type of node, used for debugging purposes.
+    ///
+    /// This is only called once when the node is added to the audio graph.
+    fn debug_name(&self) -> &'static str;
 
-impl Eq for NodeID {}
+    /// The channel configuration of this node.
+    ///
+    /// This is only called once when the node is added to the audio graph.
+    fn channel_config(&self) -> ChannelConfig;
 
-impl Ord for NodeID {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.idx.cmp(&other.idx)
+    /// Return `true` if this node type uses events, `false` otherwise.
+    ///
+    /// Returning `false` will help the system save some memory by not
+    /// allocating an event buffer for this node.
+    ///
+    /// By default this returns `true`.
+    fn uses_events(&self) -> bool {
+        true
     }
-}
 
-impl PartialOrd for NodeID {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Hash for NodeID {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.idx.hash(state);
-    }
-}
-
-impl Debug for NodeID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}-{}-{}",
-            self.debug_name,
-            self.idx.slot(),
-            self.idx.generation()
-        )
-    }
+    /// Construct a processor for this node.
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
 }
 
 /// The trait describing the realtime processor counterpart to an
-/// [`AudioNode`].
+/// audio node.
 pub trait AudioNodeProcessor: 'static + Send {
     /// Process the given block of audio. Only process data in the
     /// buffers up to `samples`.
@@ -80,9 +62,21 @@ pub trait AudioNodeProcessor: 'static + Send {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        events: NodeEventIter,
+        events: NodeEventList,
         proc_info: ProcInfo,
     ) -> ProcessStatus;
+
+    /// Called when the audio stream has been stopped.
+    fn stream_stopped(&mut self) {}
+
+    /// Called when a new audio stream has been started after a previous
+    /// call to `stream_stopped`.
+    ///
+    /// Note, this method gets called on the main thread, not the audio
+    /// thread. So it is safe to allocate/deallocate here.
+    fn new_stream(&mut self, stream_info: &StreamInfo) {
+        let _ = stream_info;
+    }
 }
 
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
@@ -105,14 +99,15 @@ pub struct ProcInfo<'a, 'b> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current time of the internal clock in units of seconds.
+    /// The current interval of time of the internal clock in units of
+    /// seconds. The start of the range is the instant of time at the
+    /// first sample in the block (inclusive), and the end of the range
+    /// is the instant of time at the end of the block (exclusive).
     ///
     /// This uses the clock from the OS's audio API so it should be quite
-    /// accurate.
-    ///
-    /// This value correctly accounts for any output underflows that may
-    /// occur.
-    pub clock_seconds: ClockSeconds,
+    /// accurate, and it correctly accounts for any output underflows that
+    /// may occur.
+    pub clock_seconds: Range<ClockSeconds>,
 
     /// The total number of samples (in a single channel of audio) that
     /// have been processed since the start of the audio stream.
@@ -183,210 +178,5 @@ impl ProcessStatus {
     /// All output buffers were filled with data.
     pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
         Self::OutputsModified { out_silence_mask }
-    }
-}
-
-/// An event sent to an [`AudioNode`].
-pub struct NodeEvent {
-    /// The ID of the node that should receive the event.
-    pub node_id: NodeID,
-    /// The delay of this event.
-    ///
-    /// Note the following event types will ignore this value and execute
-    /// the event immediately instead:
-    /// * [`NodeEventType::Pause`]
-    /// * [`NodeEventType::Resume`]
-    /// * [`NodeEventType::Stop`]
-    pub delay: EventDelay,
-    /// The type of event.
-    pub event: NodeEventType,
-}
-
-/// An event type associated with an [`AudioNode`].
-pub enum NodeEventType {
-    /// Pause this node and all of its pending delayed events.
-    ///
-    /// Note this event type cannot be delayed.
-    Pause,
-    /// Resume this node and all of its pending delayed events.
-    ///
-    /// Note this event type cannot be delayed.
-    Resume,
-    /// Stop this node and discard all of its pending delayed events.
-    ///
-    /// Note this event type cannot be delayed.
-    Stop,
-    /// Tell the node to start/restart its playback sequencue.
-    ///
-    /// Note the node must implement this event type for this to take
-    /// effect.
-    StartOrRestart,
-    /// Enable/disable this node.
-    ///
-    /// Note the node must implement this event type for this to take
-    /// effect.
-    SetEnabled(bool),
-    /// Tell the node to discard any stored data (like samples).
-    ///
-    /// Note the node must implement this event type for this to take
-    /// effect.
-    DiscardData,
-    /// Set the value of an `f32` parameter.
-    F32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f32,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `f64` parameter.
-    F64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f64,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `i32` parameter.
-    I32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: i32,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of an `u64` parameter.
-    U64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u64,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of a `bool` parameter.
-    BoolParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: bool,
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Set the value of a parameter containing three
-    /// `f32` elements.
-    Vector3DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 3],
-        /// Set this to `false` to request the node to immediately jump
-        /// to this new value without smoothing (may cause audible
-        /// clicking or stair-stepping artifacts).
-        smoothing: bool,
-    },
-    /// Use the given sample. This will stop any currently playing samples
-    /// and reset the playhead to the beginning. Send a `StartOrRestart`
-    /// event to begin playback.
-    ///
-    /// (Even though this event is only used by the `SamplerNode`, because it
-    /// is so common, define it here so that the event doesn't have to be
-    /// allocated every time.)
-    NewSample {
-        /// The sample resource.
-        sample: Arc<dyn SampleResource>,
-        /// The normalized volume to play this sample at (where `0.0` is mute
-        /// and `1.0` is unity gain.)
-        ///
-        /// Note, this value cannot be changed while the sample is playing.
-        /// Use a `VolumeNode` or a `StereoVolumePanNOde` node for that
-        /// instead.
-        normalized_volume: f32,
-        /// How many times this sample should be repeated for each
-        /// `StartOrRestart` command.
-        repeat_mode: RepeatMode,
-    },
-    /// Custom event type.
-    Custom(Box<dyn Any + Send>),
-    /// Reserved for use by [`NodeHandle`] only.
-    _Dropped,
-    // TODO: Animation (automation) event types.
-}
-
-pub type NodeEventIter<'a> = std::collections::vec_deque::IterMut<'a, NodeEventType>;
-
-/// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RepeatMode {
-    /// Play the sample/sequence once and then stop.
-    #[default]
-    PlayOnce,
-    /// Repeat the sample/sequence the given number of times.
-    RepeatMultiple { num_times_to_repeat: u16 },
-    /// Repeat the sample/sequence endlessly.
-    RepeatEndlessly,
-}
-
-impl RepeatMode {
-    pub fn do_loop(&self, num_times_looped_back: u64) -> bool {
-        match self {
-            Self::PlayOnce => false,
-            &Self::RepeatMultiple {
-                num_times_to_repeat,
-            } => num_times_looped_back < num_times_to_repeat as u64,
-            Self::RepeatEndlessly => true,
-        }
-    }
-}
-
-// TODO: Option to use crossbeam.
-pub type EventQueueSender = std::sync::mpsc::Sender<NodeEvent>;
-
-/// A handle to a node in the audio graph.
-///
-/// When this handle is dropped, it will automatically send an event through
-/// the event queue to notify the audio graph to remove this node.
-#[derive(Debug, Clone)]
-pub struct NodeHandle {
-    pub id: NodeID,
-    pub event_queue_sender: EventQueueSender,
-}
-
-impl NodeHandle {
-    /// Queue an event to send to this node's processor counterpart.
-    ///
-    /// Note that [`FirewheelCtx::update()`] must be called to
-    /// flush the events.
-    pub fn queue_event(&mut self, event: NodeEventType, delay: EventDelay) {
-        self.event_queue_sender
-            .send(NodeEvent {
-                node_id: self.id,
-                delay,
-                event,
-            })
-            .unwrap();
-    }
-}
-
-impl Drop for NodeHandle {
-    fn drop(&mut self) {
-        let _ = self.event_queue_sender.send(NodeEvent {
-            node_id: self.id,
-            delay: EventDelay::Immediate,
-            event: NodeEventType::_Dropped,
-        });
     }
 }

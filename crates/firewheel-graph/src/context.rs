@@ -1,27 +1,25 @@
-use std::{
-    error::Error,
-    num::NonZeroU32,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc, Arc,
-    },
-};
-
 use atomic_float::AtomicF64;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds},
     dsp::declick::DeclickValues,
-    node::{AudioNodeProcessor, NodeEvent, NodeEventType, NodeHandle, NodeID},
+    event::NodeEvent,
+    node::{AudioNodeConstructor, NodeID},
     StreamInfo,
 };
-use rtrb::PushError;
 use smallvec::SmallVec;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 use crate::{
-    error::{AddEdgeError, CompileGraphError},
+    backend::{AudioBackend, DeviceInfo},
+    error::{AddEdgeError, StartStreamError, UpdateError},
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
-    processor::{ContextToProcessorMsg, FirewheelProcessor, ProcessorToContextMsg},
+    processor::{
+        ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorInner, ProcessorToContextMsg,
+    },
 };
 
 /// The configuration of a Firewheel context.
@@ -48,6 +46,11 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to `256`.
     pub initial_edge_capacity: u32,
+    /// The amount of time in seconds to fade in/out when pausing/resuming
+    /// to avoid clicks and pops.
+    ///
+    /// By default this is set to `10.0 / 1_000.0`.
+    pub declick_seconds: f32,
     /// The initial capacity for a group of events.
     ///
     /// By default this is set to `128`.
@@ -60,11 +63,6 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to `128`.
     pub event_queue_capacity: u32,
-    /// The amount of time in seconds to fade in/out when pausing/resuming
-    /// to avoid clicks and pops.
-    ///
-    /// By default this is set to `10.0 / 1_000.0`.
-    pub declick_seconds: f32,
 }
 
 impl Default for FirewheelConfig {
@@ -75,24 +73,33 @@ impl Default for FirewheelConfig {
             hard_clip_outputs: false,
             initial_node_capacity: 128,
             initial_edge_capacity: 256,
+            declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
             initial_event_group_capacity: 128,
             channel_capacity: 64,
             event_queue_capacity: 128,
-            declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
         }
     }
 }
 
-/// A Firewheel context
-pub struct FirewheelCtx {
-    config: FirewheelConfig,
+struct ActiveState<B: AudioBackend> {
+    backend_handle: B,
+    stream_info: StreamInfo,
+}
 
+/// A Firewheel context
+pub struct FirewheelCtx<B: AudioBackend> {
     graph: AudioGraph,
 
-    to_executor_tx: rtrb::Producer<ContextToProcessorMsg>,
-    from_executor_rx: rtrb::Consumer<ProcessorToContextMsg>,
+    to_processor_tx: rtrb::Producer<ContextToProcessorMsg>,
+    from_processor_rx: rtrb::Consumer<ProcessorToContextMsg>,
 
-    stream_info: StreamInfo,
+    active_state: Option<ActiveState<B>>,
+
+    processor_channel: Option<(
+        rtrb::Consumer<ContextToProcessorMsg>,
+        rtrb::Producer<ProcessorToContextMsg>,
+    )>,
+    processor_drop_rx: Option<rtrb::Consumer<FirewheelProcessorInner>>,
 
     clock_shared: Arc<ClockValues>,
 
@@ -101,35 +108,20 @@ pub struct FirewheelCtx {
     event_group: Vec<NodeEvent>,
     initial_event_group_capacity: usize,
 
-    event_queue_tx: mpsc::Sender<NodeEvent>,
-    event_queue_rx: mpsc::Receiver<NodeEvent>,
-
-    stream_crashed: bool,
+    config: FirewheelConfig,
 }
 
-impl FirewheelCtx {
-    /// Create a new Firewheel context and return the processor to send to the
-    /// audio thread.
-    pub fn new(config: FirewheelConfig, mut stream_info: StreamInfo) -> (Self, FirewheelProcessor) {
-        // TODO: Return an error instead of panicking.
-        assert!(stream_info.num_stream_in_channels <= 64);
-        assert!(stream_info.num_stream_out_channels <= 64);
-
-        stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
-
-        stream_info.declick_frames = NonZeroU32::new(
-            (config.declick_seconds as f64 * stream_info.sample_rate.get() as f64).round() as u32,
-        )
-        .unwrap_or(NonZeroU32::MIN);
-
+impl<B: AudioBackend> FirewheelCtx<B> {
+    /// Create a new Firewheel context.
+    pub fn new(config: FirewheelConfig) -> Self {
         let clock_shared = Arc::new(ClockValues {
             seconds: AtomicF64::new(0.0),
             samples: AtomicU64::new(0),
         });
 
-        let (to_executor_tx, from_graph_rx) =
+        let (to_processor_tx, from_context_rx) =
             rtrb::RingBuffer::<ContextToProcessorMsg>::new(config.channel_capacity as usize);
-        let (to_graph_tx, from_executor_rx) =
+        let (to_context_tx, from_processor_rx) =
             rtrb::RingBuffer::<ProcessorToContextMsg>::new(config.channel_capacity as usize * 4);
 
         let initial_event_group_capacity = config.initial_event_group_capacity as usize;
@@ -138,32 +130,244 @@ impl FirewheelCtx {
             event_group_pool.push(Vec::with_capacity(initial_event_group_capacity));
         }
 
-        let (event_queue_tx, event_queue_rx) = mpsc::channel::<NodeEvent>();
+        Self {
+            graph: AudioGraph::new(&config),
+            to_processor_tx,
+            from_processor_rx,
+            active_state: None,
+            processor_channel: Some((from_context_rx, to_context_tx)),
+            processor_drop_rx: None,
+            clock_shared: Arc::clone(&clock_shared),
+            event_group_pool,
+            event_group: Vec::with_capacity(initial_event_group_capacity),
+            initial_event_group_capacity,
+            config,
+        }
+    }
 
-        (
-            Self {
-                graph: AudioGraph::new(&config),
-                to_executor_tx,
-                from_executor_rx,
-                stream_info,
-                clock_shared: Arc::clone(&clock_shared),
-                event_group_pool,
-                event_group: Vec::with_capacity(initial_event_group_capacity),
-                initial_event_group_capacity,
-                event_queue_tx,
-                event_queue_rx,
-                config,
-                stream_crashed: false,
-            },
-            FirewheelProcessor::new(
-                from_graph_rx,
-                to_graph_tx,
-                clock_shared,
-                config.initial_node_capacity as usize,
-                stream_info,
-                config.hard_clip_outputs,
-            ),
-        )
+    /// Get a list of the available audio input devices.
+    pub fn available_input_devices(&self) -> Vec<DeviceInfo> {
+        B::available_input_devices()
+    }
+
+    /// Get a list of the available audio output devices.
+    pub fn available_output_devices(&self) -> Vec<DeviceInfo> {
+        B::available_output_devices()
+    }
+
+    /// Returns `true` if an audio stream can be started right now.
+    ///
+    /// When calling [`FirewheelCtx::stop_stream()`], it may take some time for the
+    /// old stream to be fully stopped. This method is used to check if it has been
+    /// dropped yet.
+    ///
+    /// Note, in rare cases where the audio thread crashes without cleanly dropping
+    /// its contents, this may never return `true`. Consider adding a timeout to
+    /// avoid deadlocking.
+    pub fn can_start_stream(&self) -> bool {
+        if self.is_audio_stream_running() {
+            false
+        } else if let Some(rx) = &self.processor_drop_rx {
+            !rx.is_empty()
+        } else {
+            true
+        }
+    }
+
+    /// Start an audio stream for this context. Only one audio stream can exist on
+    /// a context at a time.
+    ///
+    /// When calling [`FirewheelCtx::stop_stream()`], it may take some time for the
+    /// old stream to be fully stopped. Use [`FirewheelCtx::can_start_stream`] to
+    /// check if it has been dropped yet.
+    ///
+    /// Note, in rare cases where the audio thread crashes without cleanly dropping
+    /// its contents, this may never succeed. Consider adding a timeout to avoid
+    /// deadlocking.
+    pub fn start_stream(
+        &mut self,
+        config: B::Config,
+    ) -> Result<(), StartStreamError<B::StartStreamError>> {
+        if self.is_audio_stream_running() {
+            return Err(StartStreamError::AlreadyStarted);
+        }
+
+        if !self.can_start_stream() {
+            return Err(StartStreamError::OldStreamNotFinishedStopping);
+        }
+
+        let (mut backend_handle, stream_info) =
+            B::start_stream(config).map_err(|e| StartStreamError::BackendError(e))?;
+
+        let schedule = self.graph.compile(&stream_info)?;
+
+        let (drop_tx, drop_rx) = rtrb::RingBuffer::<FirewheelProcessorInner>::new(1);
+
+        let processor =
+            if let Some((from_context_rx, to_context_tx)) = self.processor_channel.take() {
+                FirewheelProcessorInner::new(
+                    from_context_rx,
+                    to_context_tx,
+                    Arc::clone(&self.clock_shared),
+                    self.graph.node_capacity(),
+                    &stream_info,
+                    self.config.hard_clip_outputs,
+                )
+            } else {
+                let mut processor = self.processor_drop_rx.as_mut().unwrap().pop().unwrap();
+
+                if processor.poisoned {
+                    panic!("The audio thread has panicked!");
+                }
+
+                processor.new_stream(&stream_info);
+
+                processor
+            };
+
+        backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
+
+        if let Err(_) = self.send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
+        {
+            panic!("Firewheel message channel is full!");
+        }
+
+        self.active_state = Some(ActiveState {
+            backend_handle,
+            stream_info,
+        });
+        self.processor_drop_rx = Some(drop_rx);
+
+        Ok(())
+    }
+
+    /// Stop the audio stream in this context.
+    pub fn stop_stream(&mut self) {
+        // When the backend handle is dropped, the backend will automatically
+        // stop its stream.
+        self.active_state = None;
+        self.graph.deactivate();
+    }
+
+    /// Returns `true` if there is currently a running audio stream.
+    pub fn is_audio_stream_running(&self) -> bool {
+        self.active_state.is_some()
+    }
+
+    /// Information about the running audio stream.
+    ///
+    /// Returns `None` if no audio stream is currently running.
+    pub fn stream_info(&self) -> Option<&StreamInfo> {
+        self.active_state.as_ref().map(|s| &s.stream_info)
+    }
+
+    /// The current time of the clock in the number of seconds since the stream
+    /// was started.
+    pub fn clock_now(&self) -> ClockSeconds {
+        ClockSeconds(self.clock_shared.seconds.load(Ordering::Relaxed))
+    }
+
+    /// The current time of the sample clock in the number of samples that have
+    /// been processed since the beginning of the stream.
+    pub fn clock_samples(&self) -> ClockSamples {
+        ClockSamples(self.clock_shared.samples.load(Ordering::Relaxed))
+    }
+
+    /// Whether or not outputs are being hard clipped at 0dB.
+    pub fn hard_clip_outputs(&self) -> bool {
+        self.config.hard_clip_outputs
+    }
+
+    /// Set whether or not outputs should be hard clipped at 0dB to
+    /// help protect the system's speakers.
+    ///
+    /// Note that most operating systems already hard clip the output,
+    /// so this is usually not needed (TODO: Do research to see if this
+    /// assumption is true.)
+    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) {
+        if self.config.hard_clip_outputs == hard_clip_outputs {
+            return;
+        }
+        self.config.hard_clip_outputs = hard_clip_outputs;
+
+        let _ = self
+            .send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs));
+    }
+
+    /// Update the firewheel context.
+    ///
+    /// This must be called reguarly (i.e. once every frame).
+    pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        while let Ok(msg) = self.from_processor_rx.pop() {
+            match msg {
+                ProcessorToContextMsg::ReturnEventGroup(mut event_group) => {
+                    event_group.clear();
+                    self.event_group_pool.push(event_group);
+                }
+                ProcessorToContextMsg::ReturnSchedule(schedule_data) => {
+                    let _ = schedule_data;
+                }
+            }
+        }
+
+        if let Some(active_state) = &mut self.active_state {
+            if let Err(e) = active_state.backend_handle.poll_status() {
+                self.active_state = None;
+                self.graph.deactivate();
+
+                return Err(UpdateError::StreamStoppedUnexpectedly(Some(e)));
+            }
+
+            if !self.processor_drop_rx.as_ref().unwrap().is_empty() {
+                self.active_state = None;
+                self.graph.deactivate();
+
+                return Err(UpdateError::StreamStoppedUnexpectedly(None));
+            }
+        }
+
+        if self.is_audio_stream_running() {
+            if !self.event_group.is_empty() {
+                let mut next_event_group = self
+                    .event_group_pool
+                    .pop()
+                    .unwrap_or_else(|| Vec::with_capacity(self.initial_event_group_capacity));
+                std::mem::swap(&mut next_event_group, &mut self.event_group);
+
+                if let Err((msg, e)) = self
+                    .send_message_to_processor(ContextToProcessorMsg::EventGroup(next_event_group))
+                {
+                    let ContextToProcessorMsg::EventGroup(mut event_group) = msg else {
+                        unreachable!();
+                    };
+
+                    std::mem::swap(&mut event_group, &mut self.event_group);
+                    self.event_group_pool.push(event_group);
+
+                    return Err(e);
+                }
+            }
+
+            if self.graph.needs_compile() {
+                let schedule_data = self
+                    .graph
+                    .compile(&self.active_state.as_ref().unwrap().stream_info)?;
+
+                if let Err((msg, e)) = self
+                    .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule_data))
+                {
+                    let ContextToProcessorMsg::NewSchedule(schedule) = msg else {
+                        unreachable!();
+                    };
+
+                    self.graph.on_schedule_send_failed(schedule);
+
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// The ID of the graph input node
@@ -176,37 +380,29 @@ impl FirewheelCtx {
         self.graph.graph_out_node()
     }
 
-    /// Information about the running audio stream.
-    pub fn stream_info(&self) -> &StreamInfo {
-        &self.stream_info
+    /// Add a node to the audio graph.
+    pub fn add_node(&mut self, node: impl AudioNodeConstructor + 'static) -> NodeID {
+        self.graph.add_node(node)
     }
 
-    /// Add a node to the audio graph.
+    /// Remove the given node from the audio graph.
     ///
-    /// This method is intended to be used inside the constructors of nodes.
+    /// This will automatically remove all edges from the graph that
+    /// were connected to this node.
     ///
-    /// * `debug_name` - The name of this type of audio node for debugging
-    /// purposes.
-    /// * `channel_config` - The channel configuration of this node.
-    /// * `uses_events` - Whether or not this node reads any events in
-    /// [`AudioNodeProcessor::process`]. Setting this to `false` will skip
-    /// allocating an event buffer for this node.
-    /// * `processor` - The processor counterpart to send to the audio thread.
-    pub fn add_node(
-        &mut self,
-        debug_name: &'static str,
-        channel_config: ChannelConfig,
-        uses_events: bool,
-        processor: Box<dyn AudioNodeProcessor>,
-    ) -> NodeHandle {
-        let id = self
-            .graph
-            .add_node(debug_name, channel_config, uses_events, processor);
+    /// On success, this returns a list of all edges that were removed
+    /// from the graph as a result of removing this node.
+    ///
+    /// This will return an error if a node with the given ID does not
+    /// exist in the graph, or if the ID is of the graph input or graph
+    /// output node.
+    pub fn remove_node(&mut self, node_id: NodeID) -> Result<SmallVec<[EdgeID; 4]>, ()> {
+        self.graph.remove_node(node_id)
+    }
 
-        NodeHandle {
-            id,
-            event_queue_sender: self.event_queue_tx.clone(),
-        }
+    /// Get information about a node in the graph.
+    pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
+        self.graph.node_info(id)
     }
 
     /// Get a list of all the existing nodes in the graph.
@@ -225,11 +421,11 @@ impl FirewheelCtx {
     pub fn set_graph_channel_config(
         &mut self,
         channel_config: ChannelConfig,
-    ) -> Result<Vec<EdgeID>, Box<dyn Error>> {
+    ) -> SmallVec<[EdgeID; 4]> {
         self.graph.set_graph_channel_config(channel_config)
     }
 
-    /// Add connections (edges) between two nodes in the graph.
+    /// Add connections (edges) between two nodes to the graph.
     ///
     /// * `src_node` - The ID of the source node.
     /// * `dst_node` - The ID of the destination node.
@@ -252,7 +448,7 @@ impl FirewheelCtx {
         dst_node: NodeID,
         ports_src_dst: &[(PortIdx, PortIdx)],
         check_for_cycles: bool,
-    ) -> Result<SmallVec<[EdgeID; 8]>, AddEdgeError> {
+    ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
         self.graph
             .connect(src_node, dst_node, ports_src_dst, check_for_cycles)
     }
@@ -288,179 +484,39 @@ impl FirewheelCtx {
         self.graph.edge(edge_id)
     }
 
-    /// The current time of the clock in the number of seconds since the stream
-    /// was started.
-    pub fn clock_now(&self) -> ClockSeconds {
-        ClockSeconds(self.clock_shared.seconds.load(Ordering::Relaxed))
-    }
-
-    /// The current time of the sample clock in the number of samples that have
-    /// been processed since the beginning of the stream.
-    pub fn clock_samples(&self) -> ClockSamples {
-        ClockSamples(self.clock_shared.samples.load(Ordering::Relaxed))
-    }
-
+    /// Runs a check to see if a cycle exists in the audio graph.
+    ///
+    /// Note, this method is expensive.
     pub fn cycle_detected(&mut self) -> bool {
         self.graph.cycle_detected()
     }
 
-    pub fn needs_compile(&self) -> bool {
-        self.graph.needs_compile()
-    }
-
-    /// Whether or not outputs are being hard clipped at 0dB.
-    pub fn hard_clip_outputs(&self) -> bool {
-        self.config.hard_clip_outputs
-    }
-
-    /// Set whether or not outputs should be hard clipped at 0dB to
-    /// help protect the system's speakers.
+    /// Queue an event to be sent to an audio node's processor.
     ///
-    /// Note that most operating systems already hard clip the output,
-    /// so this is usually not needed (TODO: Do research to see if this
-    /// assumption is true.)
-    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) {
-        if self.config.hard_clip_outputs == hard_clip_outputs {
-            return;
-        }
-        self.config.hard_clip_outputs = hard_clip_outputs;
-
-        let _ = self
-            .send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs));
-    }
-
-    /// Update the firewheel context.
-    ///
-    /// This must be called reguarly (i.e. once every frame).
-    ///
-    /// This should be called in an `update` method in the backend's context.
-    #[must_use]
-    pub fn _update(mut self) -> UpdateStatusInner {
-        if self.stream_crashed {
-            return UpdateStatusInner::Deactivated { error: None };
-        }
-
-        let mut dropped = false;
-        while let Ok(msg) = self.from_executor_rx.pop() {
-            match msg {
-                ProcessorToContextMsg::ReturnCustomEvent(event) => {
-                    let _ = event;
-                }
-                ProcessorToContextMsg::ReturnEventGroup(mut event_group) => {
-                    event_group.clear();
-                    self.event_group_pool.push(event_group);
-                }
-                ProcessorToContextMsg::ReturnSchedule(schedule_data) => {
-                    let _ = schedule_data;
-                }
-                ProcessorToContextMsg::Dropped { .. } => {
-                    dropped = true;
-                }
-            }
-        }
-
-        if dropped {
-            return UpdateStatusInner::Deactivated { error: None };
-        }
-
-        let mut nodes_to_drop = Vec::new();
-
-        for event in self.event_queue_rx.try_iter() {
-            if let NodeEventType::_Dropped = &event.event {
-                nodes_to_drop.push(event.node_id);
-            } else {
-                self.event_group.push(event);
-            }
-        }
-
-        for node_id in nodes_to_drop.drain(..) {
-            self.graph.remove_node(node_id);
-        }
-
-        if !self.event_group.is_empty() {
-            let mut next_event_group = self
-                .event_group_pool
-                .pop()
-                .unwrap_or_else(|| Vec::with_capacity(self.initial_event_group_capacity));
-            std::mem::swap(&mut next_event_group, &mut self.event_group);
-
-            if let Err(msg) =
-                self.send_message_to_processor(ContextToProcessorMsg::EventGroup(next_event_group))
-            {
-                if let ContextToProcessorMsg::EventGroup(event_group) = msg {
-                    self.event_group_pool.push(event_group);
-                }
-            }
-        }
-
-        if self.graph.needs_compile() {
-            match self.graph.compile(self.stream_info) {
-                Ok(schedule_data) => {
-                    if let Err(msg) = self.send_message_to_processor(
-                        ContextToProcessorMsg::NewSchedule(Box::new(schedule_data)),
-                    ) {
-                        if let ContextToProcessorMsg::NewSchedule(schedule_data) = msg {
-                            let _ = schedule_data;
-                        }
-                    }
-                }
-                Err(e) => {
-                    return UpdateStatusInner::Ok {
-                        cx: self,
-                        graph_compile_error: Some(e),
-                    };
-                }
-            }
-        }
-
-        UpdateStatusInner::Ok {
-            cx: self,
-            graph_compile_error: None,
-        }
-    }
-
-    /// Notify the context that the audio stream has stopped due to an unexpected error.
-    pub fn _notify_stream_crashed(&mut self) {
-        self.stream_crashed = true;
+    /// Note, this event will not be sent until the event queue is flushed
+    /// in [`FirewheelCtx::update`].
+    pub fn queue_event(&mut self, event: NodeEvent) {
+        self.event_group.push(event);
     }
 
     fn send_message_to_processor(
         &mut self,
         msg: ContextToProcessorMsg,
-    ) -> Result<(), ContextToProcessorMsg> {
-        if let Err(e) = self.to_executor_tx.push(msg) {
-            let PushError::Full(msg) = e;
-
-            log::error!("Firewheel message channel is full!");
-
-            Err(msg)
-        } else {
-            Ok(())
-        }
+    ) -> Result<(), (ContextToProcessorMsg, UpdateError<B::StreamError>)> {
+        self.to_processor_tx.push(msg).map_err(|msg| {
+            let rtrb::PushError::Full(msg) = msg;
+            (msg, UpdateError::MsgChannelFull)
+        })
     }
 }
 
-impl Drop for FirewheelCtx {
+impl<B: AudioBackend> Drop for FirewheelCtx<B> {
     fn drop(&mut self) {
-        if !self.stream_crashed {
-            let _ = self.send_message_to_processor(ContextToProcessorMsg::Stop);
-        }
+        self.stop_stream();
     }
 }
 
 pub(crate) struct ClockValues {
     pub seconds: AtomicF64,
     pub samples: AtomicU64,
-}
-
-pub enum UpdateStatusInner {
-    Ok {
-        cx: FirewheelCtx,
-        graph_compile_error: Option<CompileGraphError>,
-    },
-    /// The engine was deactivated.
-    ///
-    /// If this is returned, then all node handles are invalidated.
-    /// The graph and all its nodes must be reconstructed.
-    Deactivated { error: Option<Box<dyn Error>> },
 }

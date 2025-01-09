@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, num::NonZeroU32};
 
 /// A supported number of channels on an audio node.
 ///
@@ -55,6 +55,69 @@ impl Into<usize> for ChannelCount {
     #[inline]
     fn into(self) -> usize {
         self.get() as usize
+    }
+}
+
+/// A supported number of channels on an audio node.
+///
+/// This number cannot be `0` or greater than `64`.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NonZeroChannelCount(NonZeroU32);
+
+impl NonZeroChannelCount {
+    pub const MONO: Self = Self(NonZeroU32::new(1).unwrap());
+    pub const STEREO: Self = Self(NonZeroU32::new(2).unwrap());
+    pub const MAX: Self = Self(NonZeroU32::new(64).unwrap());
+
+    /// Create a new [`NonZeroChannelCount`].
+    ///
+    /// Returns `None` if `count` is greater than `64`.
+    #[inline]
+    pub const fn new(count: u32) -> Option<Self> {
+        if count > 0 && count <= 64 {
+            Some(Self(NonZeroU32::new(count).unwrap()))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub const fn get(&self) -> ChannelCount {
+        if self.0.get() <= 64 {
+            ChannelCount(self.0.get())
+        } else {
+            // SAFETY:
+            // The constructor ensures that the value is less than or
+            // equal to `64`.
+            unsafe { std::hint::unreachable_unchecked() }
+        }
+    }
+}
+
+impl Default for NonZeroChannelCount {
+    fn default() -> Self {
+        Self::STEREO
+    }
+}
+
+impl From<usize> for NonZeroChannelCount {
+    fn from(value: usize) -> Self {
+        Self::new(value as u32).unwrap()
+    }
+}
+
+impl Into<NonZeroU32> for NonZeroChannelCount {
+    #[inline]
+    fn into(self) -> NonZeroU32 {
+        NonZeroU32::new(self.get().get()).unwrap()
+    }
+}
+
+impl Into<usize> for NonZeroChannelCount {
+    #[inline]
+    fn into(self) -> usize {
+        self.get().get() as usize
     }
 }
 

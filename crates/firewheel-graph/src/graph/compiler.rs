@@ -1,4 +1,7 @@
-use firewheel_core::{channel_config::ChannelConfig, node::NodeID};
+use firewheel_core::{
+    channel_config::ChannelConfig,
+    node::{AudioNodeConstructor, NodeID},
+};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
@@ -12,8 +15,12 @@ use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
 pub struct NodeEntry {
     pub id: NodeID,
+    pub debug_name: &'static str,
     /// The number of input and output ports used by the node
     pub channel_config: ChannelConfig,
+    pub constructor: Box<dyn AudioNodeConstructor>,
+    pub activated: bool,
+    pub uses_events: bool,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
     /// The edges connected to this node's output ports.
@@ -21,13 +28,19 @@ pub struct NodeEntry {
 }
 
 impl NodeEntry {
-    pub fn new(channel_config: ChannelConfig) -> Self {
+    pub fn new(
+        debug_name: &'static str,
+        channel_config: ChannelConfig,
+        uses_events: bool,
+        constructor: Box<dyn AudioNodeConstructor>,
+    ) -> Self {
         Self {
-            id: NodeID {
-                idx: thunderdome::Index::DANGLING,
-                debug_name: "",
-            },
+            id: NodeID::DANGLING,
+            debug_name,
             channel_config,
+            constructor,
+            activated: false,
+            uses_events,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
         }
@@ -173,8 +186,8 @@ impl<'a> GraphIR<'a> {
         graph_out_id: NodeID,
         max_block_frames: usize,
     ) -> Self {
-        assert!(nodes.contains(graph_in_id.idx));
-        assert!(nodes.contains(graph_out_id.idx));
+        assert!(nodes.contains(graph_in_id.0));
+        assert!(nodes.contains(graph_out_id.0));
 
         for (_, node) in nodes.iter_mut() {
             node.incoming.clear();
@@ -182,8 +195,8 @@ impl<'a> GraphIR<'a> {
         }
 
         for (_, edge) in edges.iter() {
-            nodes[edge.src_node.idx].outgoing.push(*edge);
-            nodes[edge.dst_node.idx].incoming.push(*edge);
+            nodes[edge.src_node.0].outgoing.push(*edge);
+            nodes[edge.dst_node.0].incoming.push(*edge);
 
             debug_assert_ne!(edge.src_node, graph_out_id);
             debug_assert_ne!(edge.dst_node, graph_in_id);
@@ -217,21 +230,20 @@ impl<'a> GraphIR<'a> {
         // Calculate in-degree of each vertex
         for (_, node_entry) in self.nodes.iter() {
             for edge in node_entry.outgoing.iter() {
-                in_degree[edge.dst_node.idx.slot() as usize] += 1;
+                in_degree[edge.dst_node.0.slot() as usize] += 1;
             }
         }
 
         // Make sure that the graph in node is the first entry in the
         // schedule. Otherwise a different root node could overwrite
         // the buffers assigned to the graph in node.
-        queue.push_back(self.graph_in_id.idx.slot());
+        queue.push_back(self.graph_in_id.0.slot());
 
         // Enqueue all other nodes with 0 in-degree
         for (_, node_entry) in self.nodes.iter() {
-            if node_entry.incoming.is_empty()
-                && node_entry.id.idx.slot() != self.graph_in_id.idx.slot()
+            if node_entry.incoming.is_empty() && node_entry.id.0.slot() != self.graph_in_id.0.slot()
             {
-                queue.push_back(node_entry.id.idx.slot());
+                queue.push_back(node_entry.id.0.slot());
             }
         }
 
@@ -243,17 +255,18 @@ impl<'a> GraphIR<'a> {
 
             // Reduce in-degree of adjacent nodes
             for edge in node_entry.outgoing.iter() {
-                in_degree[edge.dst_node.idx.slot() as usize] -= 1;
+                in_degree[edge.dst_node.0.slot() as usize] -= 1;
 
                 // If in-degree becomes 0, enqueue it
-                if in_degree[edge.dst_node.idx.slot() as usize] == 0 {
-                    queue.push_back(edge.dst_node.idx.slot());
+                if in_degree[edge.dst_node.0.slot() as usize] == 0 {
+                    queue.push_back(edge.dst_node.0.slot());
                 }
             }
 
             if build_schedule {
-                if node_slot != self.graph_out_id.idx.slot() {
-                    self.schedule.push(ScheduledNode::new(node_entry.id));
+                if node_slot != self.graph_out_id.0.slot() {
+                    self.schedule
+                        .push(ScheduledNode::new(node_entry.id, node_entry.debug_name));
                 }
             }
         }
@@ -263,7 +276,8 @@ impl<'a> GraphIR<'a> {
             // schedule by waiting to push it after all other nodes have
             // been pushed. Otherwise a different leaf node could overwrite
             // the buffers assigned to the graph out node.
-            self.schedule.push(ScheduledNode::new(self.graph_out_id));
+            self.schedule
+                .push(ScheduledNode::new(self.graph_out_id, "graph_out"));
         }
 
         // If not all vertices are visited, cycle
@@ -283,7 +297,7 @@ impl<'a> GraphIR<'a> {
         for entry in &mut self.schedule {
             // Collect the inputs to the algorithm, the incoming/outgoing edges of this node.
 
-            let node_entry = &self.nodes[entry.id.idx];
+            let node_entry = &self.nodes[entry.id.0];
 
             let num_inputs = node_entry.channel_config.num_inputs.get() as usize;
             let num_outputs = node_entry.channel_config.num_outputs.get() as usize;

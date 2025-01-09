@@ -1,17 +1,16 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::EventDelay,
     dsp::decibel::normalized_volume_to_raw_gain,
-    node::{
-        AudioNodeProcessor, NodeEventIter, NodeEventType, NodeHandle, NodeID, ProcInfo,
-        ProcessStatus,
-    },
+    event::{NodeEventList, NodeEventType},
+    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
-use crate::FirewheelCtx;
-
+/// A simple node that outputs a sine wave, used for testing purposes.
+///
+/// Note that because this node is for testing purposes, it does not
+/// bother with parameter smoothing.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Params {
+pub struct BeepTestParams {
     /// The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
     /// value for testing is `440` (middle C).
     pub freq_hz: f32,
@@ -25,7 +24,40 @@ pub struct Params {
     pub enabled: bool,
 }
 
-impl Default for Params {
+impl BeepTestParams {
+    /// The ID of the volume parameter.
+    pub const ID_VOLUME: u32 = 0;
+    /// The ID of the frequency parameter.
+    pub const ID_FREQUENCY: u32 = 1;
+    /// The ID of the enabled parameter.
+    pub const ID_ENABLED: u32 = 2;
+
+    /// Return an event type to sync the volume parameter.
+    pub fn sync_volume_event(&self) -> NodeEventType {
+        NodeEventType::F32Param {
+            id: Self::ID_VOLUME,
+            value: self.normalized_volume,
+        }
+    }
+
+    /// Return an event type to sync the frequency parameter.
+    pub fn sync_freq_hz_event(&self) -> NodeEventType {
+        NodeEventType::F32Param {
+            id: Self::ID_FREQUENCY,
+            value: self.freq_hz,
+        }
+    }
+
+    /// Return an event type to sync the enabled parameter.
+    pub fn sync_enabled_event(&mut self) -> NodeEventType {
+        NodeEventType::BoolParam {
+            id: Self::ID_ENABLED,
+            value: self.enabled,
+        }
+    }
+}
+
+impl Default for BeepTestParams {
     fn default() -> Self {
         Self {
             freq_hz: 440.0,
@@ -35,94 +67,30 @@ impl Default for Params {
     }
 }
 
-/// A simple node that outputs a sine wave, used for testing purposes.
-///
-/// Note that because this node is for testing purposes, it does not
-/// bother with parameter smoothing.
-pub struct BeepTestNode {
-    params: Params,
-    handle: NodeHandle,
-}
-
-impl BeepTestNode {
-    /// The ID of the volume parameter.
-    pub const PARAM_VOLUME: u32 = 0;
-    /// The ID of the frequency parameter.
-    pub const PARAM_FREQUENCY: u32 = 1;
-
-    /// Create a new [`BeepTestNode`].
-    pub fn new(params: Params, cx: &mut FirewheelCtx) -> Self {
-        let sample_rate = cx.stream_info().sample_rate;
-        let sample_rate_recip = cx.stream_info().sample_rate_recip;
-
-        let handle = cx.add_node(
-            "beep_test",
-            ChannelConfig {
-                num_inputs: ChannelCount::ZERO,
-                num_outputs: ChannelCount::MONO,
-            },
-            true,
-            Box::new(BeepTestProcessor {
-                phasor: 0.0,
-                phasor_inc: params.freq_hz.clamp(20.0, 20_000.0) * sample_rate_recip as f32,
-                gain: normalized_volume_to_raw_gain(params.normalized_volume),
-                sample_rate_recip: (sample_rate.get() as f32).recip(),
-                enabled: params.enabled,
-            }),
-        );
-
-        Self { params, handle }
+impl AudioNodeConstructor for BeepTestParams {
+    fn debug_name(&self) -> &'static str {
+        "beep_test"
     }
 
-    /// The ID of this node
-    pub fn id(&self) -> NodeID {
-        self.handle.id
+    fn channel_config(&self) -> ChannelConfig {
+        ChannelConfig {
+            num_inputs: ChannelCount::ZERO,
+            num_outputs: ChannelCount::MONO,
+        }
     }
 
-    /// Get the current parameters.
-    pub fn params(&self) -> &Params {
-        &self.params
+    fn uses_events(&self) -> bool {
+        true
     }
 
-    /// Set the volume parameter.
-    ///
-    /// * `normalized_volume` - The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    ///
-    /// NOTE, a sine wave at `1.0` volume is *LOUD*, prefer to use a value like`0.5`.
-    pub fn set_volume(&mut self, normalized_volume: f32, delay: EventDelay) {
-        self.params.normalized_volume = normalized_volume;
-        self.handle.queue_event(
-            NodeEventType::F32Param {
-                id: Self::PARAM_VOLUME,
-                value: normalized_volume,
-                smoothing: false,
-            },
-            delay,
-        );
-    }
-
-    /// Set the frequency parameter.
-    ///
-    /// * `freq_hz` - The frequency of the sine wave in the range `[20.0, 20_000.0]`.
-    ///
-    /// A good value for testing is `440` (middle C).
-    pub fn set_freq_hz(&mut self, freq_hz: f32, delay: EventDelay) {
-        self.params.freq_hz = freq_hz;
-        self.handle.queue_event(
-            NodeEventType::F32Param {
-                id: Self::PARAM_VOLUME,
-                value: freq_hz,
-                smoothing: false,
-            },
-            delay,
-        );
-    }
-
-    /// Enable/disable this node.
-    pub fn set_enabled(&mut self, enabled: bool, delay: EventDelay) {
-        self.params.enabled = enabled;
-        self.handle
-            .queue_event(NodeEventType::SetEnabled(enabled), delay);
+    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(BeepTestProcessor {
+            phasor: 0.0,
+            phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,
+            gain: normalized_volume_to_raw_gain(self.normalized_volume),
+            sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
+            enabled: self.enabled,
+        })
     }
 }
 
@@ -139,40 +107,36 @@ impl AudioNodeProcessor for BeepTestProcessor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        events: NodeEventIter,
-        proc_info: ProcInfo,
+        mut events: NodeEventList,
+        _proc_info: ProcInfo,
     ) -> ProcessStatus {
-        let Some((out1, outputs)) = outputs.split_first_mut() else {
+        let Some(out) = outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        for event in events {
-            match event {
-                NodeEventType::SetEnabled(enabled) => {
-                    self.enabled = *enabled;
+        events.for_each(|event| match event {
+            NodeEventType::BoolParam { id, value } => {
+                if *id == BeepTestParams::ID_ENABLED {
+                    self.enabled = *value;
                 }
-                NodeEventType::F32Param { id, value, .. } => match *id {
-                    BeepTestNode::PARAM_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
-                    BeepTestNode::PARAM_FREQUENCY => {
-                        self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip
-                    }
-                    _ => {}
-                },
-                _ => {}
             }
-        }
+            NodeEventType::F32Param { id, value } => match *id {
+                BeepTestParams::ID_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
+                BeepTestParams::ID_FREQUENCY => {
+                    self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip
+                }
+                _ => {}
+            },
+            _ => {}
+        });
 
         if !self.enabled {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in out1[..proc_info.frames].iter_mut() {
+        for s in out.iter_mut() {
             *s = (self.phasor * std::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
-        }
-
-        for out2 in outputs.iter_mut() {
-            out2[..proc_info.frames].copy_from_slice(&out1[..proc_info.frames]);
         }
 
         ProcessStatus::outputs_not_silent()

@@ -2,68 +2,94 @@ use std::num::NonZeroU32;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
+    event::NodeEventList,
+    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
-use crate::FirewheelCtx;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MixNodeConfig {
+    channels: NonZeroU32,
+    num_in_streams: NonZeroU32,
+}
 
-pub struct MixNode {
-    handle: NodeHandle,
+impl MixNodeConfig {
+    pub fn new(channels: NonZeroU32, num_in_streams: NonZeroU32) -> Result<Self, MixConfigError> {
+        if channels.get() * num_in_streams.get() > 64 {
+            return Err(MixConfigError::TooManyChannels {
+                channels,
+                num_in_streams,
+            });
+        }
+
+        Ok(Self {
+            channels,
+            num_in_streams,
+        })
+    }
+
+    pub fn channels(&self) -> NonZeroU32 {
+        self.channels
+    }
+
+    pub fn num_in_streams(&self) -> NonZeroU32 {
+        self.num_in_streams
+    }
+}
+
+impl Default for MixNodeConfig {
+    fn default() -> Self {
+        Self {
+            channels: NonZeroU32::new(2).unwrap(),
+            num_in_streams: NonZeroU32::new(4).unwrap(),
+        }
+    }
+}
+
+impl AudioNodeConstructor for MixNodeConfig {
+    fn debug_name(&self) -> &'static str {
+        "mix"
+    }
+
+    fn channel_config(&self) -> ChannelConfig {
+        let num_inputs =
+            ChannelCount::new(self.channels.get() * self.num_in_streams.get()).unwrap();
+
+        ChannelConfig {
+            num_inputs,
+            num_outputs: ChannelCount::new(self.channels.get()).unwrap(),
+        }
+    }
+
+    fn uses_events(&self) -> bool {
+        false
+    }
+
+    fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(MixConfigProcessor {
+            num_in_streams: self.channels.get() as usize,
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MixNodeError {
-    #[error("The number of channels times the number of input streams on a MixNode cannot be greater than 64 (channels {channels}, num_in_streams: {num_in_streams}")]
+pub enum MixConfigError {
+    #[error("The number of channels times the number of input streams on a MixConfig cannot be greater than 64 (channels {channels}, num_in_streams: {num_in_streams}")]
     TooManyChannels {
         channels: NonZeroU32,
         num_in_streams: NonZeroU32,
     },
 }
 
-impl MixNode {
-    pub fn new(
-        channels: NonZeroU32,
-        num_in_streams: NonZeroU32,
-        cx: &mut FirewheelCtx,
-    ) -> Result<Self, MixNodeError> {
-        let num_inputs = ChannelCount::new(channels.get() * num_in_streams.get()).ok_or(
-            MixNodeError::TooManyChannels {
-                channels,
-                num_in_streams,
-            },
-        )?;
-
-        let handle = cx.add_node(
-            "mix",
-            ChannelConfig {
-                num_inputs,
-                num_outputs: ChannelCount::new(channels.get()).unwrap(),
-            },
-            false,
-            Box::new(MixNodeProcessor {
-                num_in_ports: channels.get() as usize,
-            }),
-        );
-
-        Ok(Self { handle })
-    }
-
-    /// The ID of this node
-    pub fn id(&self) -> NodeID {
-        self.handle.id
-    }
+struct MixConfigProcessor {
+    num_in_streams: usize,
 }
 
-struct MixNodeProcessor {
-    num_in_ports: usize,
-}
-
-impl AudioNodeProcessor for MixNodeProcessor {
+impl AudioNodeProcessor for MixConfigProcessor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        _events: NodeEventIter,
+        _events: NodeEventList,
         proc_info: ProcInfo,
     ) -> ProcessStatus {
         let num_inputs = inputs.len();
@@ -84,8 +110,8 @@ impl AudioNodeProcessor for MixNodeProcessor {
             return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
         }
 
-        match self.num_in_ports {
-            // Provide a few optimized loops for common number of input ports.
+        match self.num_in_streams {
+            // Provide a few optimized loops for common number of input streams.
             2 => {
                 assert!(num_inputs >= (num_outputs * 2));
 

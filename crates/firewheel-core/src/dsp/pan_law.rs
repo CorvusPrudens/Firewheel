@@ -1,6 +1,9 @@
 use std::f32::consts::FRAC_PI_2;
 
+/// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
+/// to the corresponding gain values for the left and right channels.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
 pub enum PanLaw {
     /// This pan law makes the signal appear to play at a constant volume across
     /// the entire panning range.
@@ -8,7 +11,7 @@ pub enum PanLaw {
     /// More specifically this a circular pan law with each channel at -3dB when
     /// panned center.
     #[default]
-    EqualPower3dB,
+    EqualPower3dB = 0,
     /// Same as [`PanLaw::EqualPower3dB`], but each channel will be at -6dB when
     /// panned center which may be better for some signals.
     EqualPower6dB,
@@ -51,6 +54,15 @@ impl PanLaw {
                 Self::SquareRoot => ((1.0 - pan).sqrt(), pan.sqrt()),
                 Self::Linear => ((1.0 - pan), pan),
             }
+        }
+    }
+
+    pub fn from_u32(val: u32) -> Self {
+        match val {
+            1 => Self::EqualPower6dB,
+            2 => Self::SquareRoot,
+            3 => Self::Linear,
+            _ => Self::EqualPower3dB,
         }
     }
 }

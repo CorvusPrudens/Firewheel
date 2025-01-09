@@ -1,32 +1,30 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    node::{AudioNodeProcessor, NodeEventIter, NodeHandle, NodeID, ProcInfo, ProcessStatus},
+    event::NodeEventList,
+    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
-use crate::FirewheelCtx;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StereoToMonoNode;
 
-pub struct StereoToMonoNode {
-    handle: NodeHandle,
-}
-
-impl StereoToMonoNode {
-    pub fn new(cx: &mut FirewheelCtx) -> Self {
-        let handle = cx.add_node(
-            "stereo_to_mono",
-            ChannelConfig {
-                num_inputs: ChannelCount::STEREO,
-                num_outputs: ChannelCount::MONO,
-            },
-            false,
-            Box::new(StereoToMonoProcessor {}),
-        );
-
-        Self { handle }
+impl AudioNodeConstructor for StereoToMonoNode {
+    fn debug_name(&self) -> &'static str {
+        "stereo_to_mono"
     }
 
-    /// The ID of this node
-    pub fn id(&self) -> NodeID {
-        self.handle.id
+    fn channel_config(&self) -> ChannelConfig {
+        ChannelConfig {
+            num_inputs: ChannelCount::STEREO,
+            num_outputs: ChannelCount::MONO,
+        }
+    }
+
+    fn uses_events(&self) -> bool {
+        false
+    }
+
+    fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(StereoToMonoProcessor {})
     }
 }
 
@@ -37,7 +35,7 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        _events: NodeEventIter,
+        _events: NodeEventList,
         proc_info: ProcInfo,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)

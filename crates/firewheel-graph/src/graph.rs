@@ -1,6 +1,5 @@
 mod compiler;
 
-use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -10,10 +9,10 @@ use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
-use crate::basic_nodes::dummy::DummyAudioNodeProcessor;
-use crate::context::FirewheelConfig;
+use crate::basic_nodes::dummy::DummyConfig;
 use crate::error::{AddEdgeError, CompileGraphError};
-use firewheel_core::node::{AudioNodeProcessor, NodeID};
+use crate::FirewheelConfig;
+use firewheel_core::node::{AudioNodeConstructor, NodeID};
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
@@ -27,10 +26,7 @@ struct EdgeHash {
     pub dst_port: PortIdx,
 }
 
-/// An audio graph implementation.
-///
-/// The generic is a custom global processing context that is available to
-/// node processors.
+/// The audio graph interface.
 pub(crate) struct AudioGraph {
     nodes: Arena<NodeEntry>,
     edges: Arena<Edge>,
@@ -43,7 +39,6 @@ pub(crate) struct AudioGraph {
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
     active_nodes_to_remove: AHashMap<NodeID, NodeEntry>,
-    new_node_processors: Vec<NodeHeapData>,
     event_queue_capacity: usize,
 }
 
@@ -51,37 +46,34 @@ impl AudioGraph {
     pub fn new(config: &FirewheelConfig) -> Self {
         let mut nodes = Arena::with_capacity(config.initial_node_capacity as usize);
 
-        let graph_in_id = NodeID {
-            idx: nodes.insert(NodeEntry::new(ChannelConfig {
+        let graph_in_config = DummyConfig {
+            channel_config: ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.num_graph_inputs,
-            })),
-            debug_name: "graph_in",
+            },
         };
-        nodes[graph_in_id.idx].id = graph_in_id;
-
-        let graph_out_id = NodeID {
-            idx: nodes.insert(NodeEntry::new(ChannelConfig {
+        let graph_out_config = DummyConfig {
+            channel_config: ChannelConfig {
                 num_inputs: config.num_graph_outputs,
                 num_outputs: ChannelCount::ZERO,
-            })),
-            debug_name: "graph_out",
+            },
         };
-        nodes[graph_out_id.idx].id = graph_out_id;
 
-        let mut new_node_processors = Vec::with_capacity(config.initial_node_capacity as usize);
-        new_node_processors.push(NodeHeapData::new(
-            graph_in_id,
-            Box::new(DummyAudioNodeProcessor {}),
-            config.event_queue_capacity as usize,
+        let graph_in_id = NodeID(nodes.insert(NodeEntry::new(
+            "graph_in",
+            graph_in_config.channel_config,
             false,
-        ));
-        new_node_processors.push(NodeHeapData::new(
-            graph_out_id,
-            Box::new(DummyAudioNodeProcessor {}),
-            config.event_queue_capacity as usize,
+            Box::new(graph_in_config),
+        )));
+        nodes[graph_in_id.0].id = graph_in_id;
+
+        let graph_out_id = NodeID(nodes.insert(NodeEntry::new(
+            "graph_out",
+            graph_out_config.channel_config,
             false,
-        ));
+            Box::new(graph_out_config),
+        )));
+        nodes[graph_out_id.0].id = graph_out_id;
 
         Self {
             nodes,
@@ -95,8 +87,7 @@ impl AudioGraph {
                 config.initial_node_capacity as usize,
             ),
             active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity as usize),
-            new_node_processors,
-            event_queue_capacity: config.event_queue_capacity as usize,
+            event_queue_capacity: 0, // This will be overwritten later once activated.
         }
     }
 
@@ -110,46 +101,50 @@ impl AudioGraph {
         self.graph_out_id
     }
 
-    pub fn add_node(
-        &mut self,
-        debug_name: &'static str,
-        channel_config: ChannelConfig,
-        uses_events: bool,
-        processor: Box<dyn AudioNodeProcessor>,
-    ) -> NodeID {
-        let new_id = NodeID {
-            idx: self.nodes.insert(NodeEntry::new(channel_config)),
-            debug_name,
-        };
-        self.nodes[new_id.idx].id = new_id;
+    /// Add a node to the audio graph.
+    pub fn add_node(&mut self, node: impl AudioNodeConstructor + 'static) -> NodeID {
+        let debug_name = node.debug_name();
+        let channel_config = node.channel_config();
+        let uses_events = node.uses_events();
 
-        self.new_node_processors.push(NodeHeapData::new(
-            new_id,
-            processor,
-            self.event_queue_capacity,
+        let new_id = NodeID(self.nodes.insert(NodeEntry::new(
+            debug_name,
+            channel_config,
             uses_events,
-        ));
+            Box::new(node),
+        )));
+        self.nodes[new_id.0].id = new_id;
 
         self.needs_compile = true;
 
         new_id
     }
 
-    /// Remove the given node from the graph.
-    pub fn remove_node(&mut self, node_id: NodeID) {
+    /// Remove the given node from the audio graph.
+    ///
+    /// This will automatically remove all edges from the graph that
+    /// were connected to this node.
+    ///
+    /// On success, this returns a list of all edges that were removed
+    /// from the graph as a result of removing this node.
+    ///
+    /// This will return an error if a node with the given ID does not
+    /// exist in the graph, or if the ID is of the graph input or graph
+    /// output node.
+    pub fn remove_node(&mut self, node_id: NodeID) -> Result<SmallVec<[EdgeID; 4]>, ()> {
         if node_id == self.graph_in_id || node_id == self.graph_out_id {
-            return;
+            return Err(());
         }
 
-        let Some(node_entry) = self.nodes.remove(node_id.idx) else {
-            return;
-        };
+        let node_entry = self.nodes.remove(node_id.0).ok_or(())?;
+
+        let mut removed_edges = SmallVec::new();
 
         for port_idx in 0..node_entry.channel_config.num_inputs.get() {
-            self.remove_edges_with_input_port(node_id, port_idx);
+            removed_edges.append(&mut self.remove_edges_with_input_port(node_id, port_idx));
         }
         for port_idx in 0..node_entry.channel_config.num_outputs.get() {
-            self.remove_edges_with_output_port(node_id, port_idx);
+            removed_edges.append(&mut self.remove_edges_with_output_port(node_id, port_idx));
         }
 
         for port_idx in 0..node_entry.channel_config.num_inputs.get() {
@@ -160,11 +155,13 @@ impl AudioGraph {
         self.active_nodes_to_remove.insert(node_id, node_entry);
 
         self.needs_compile = true;
+
+        Ok(removed_edges)
     }
 
-    #[allow(dead_code)]
-    fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
-        self.nodes.get(id.idx)
+    /// Get information about a node in the graph.
+    pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
+        self.nodes.get(id.0)
     }
 
     /// Get a list of all the existing nodes in the graph.
@@ -183,10 +180,10 @@ impl AudioGraph {
     pub fn set_graph_channel_config(
         &mut self,
         channel_config: ChannelConfig,
-    ) -> Result<Vec<EdgeID>, Box<dyn Error>> {
-        let mut removed_edges = Vec::new();
+    ) -> SmallVec<[EdgeID; 4]> {
+        let mut removed_edges = SmallVec::new();
 
-        let graph_in_node = self.nodes.get_mut(self.graph_in_id.idx).unwrap();
+        let graph_in_node = self.nodes.get_mut(self.graph_in_id.0).unwrap();
         if channel_config.num_inputs != graph_in_node.channel_config.num_outputs {
             let old_num_inputs = graph_in_node.channel_config.num_outputs;
             graph_in_node.channel_config.num_outputs = channel_config.num_inputs;
@@ -202,7 +199,7 @@ impl AudioGraph {
             self.needs_compile = true;
         }
 
-        let graph_out_node = self.nodes.get_mut(self.graph_in_id.idx).unwrap();
+        let graph_out_node = self.nodes.get_mut(self.graph_in_id.0).unwrap();
 
         if channel_config.num_outputs != graph_out_node.channel_config.num_inputs {
             let old_num_outputs = graph_out_node.channel_config.num_inputs;
@@ -221,7 +218,7 @@ impl AudioGraph {
             self.needs_compile = true;
         }
 
-        Ok(removed_edges)
+        removed_edges
     }
 
     /// Add connections (edges) between two nodes to the graph.
@@ -247,17 +244,17 @@ impl AudioGraph {
         dst_node: NodeID,
         ports_src_dst: &[(PortIdx, PortIdx)],
         check_for_cycles: bool,
-    ) -> Result<SmallVec<[EdgeID; 8]>, AddEdgeError> {
+    ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
         let src_node_entry = self
             .nodes
-            .get(src_node.idx)
+            .get(src_node.0)
             .ok_or(AddEdgeError::SrcNodeNotFound(src_node))?;
         let dst_node_entry = self
             .nodes
-            .get(dst_node.idx)
+            .get(dst_node.0)
             .ok_or(AddEdgeError::DstNodeNotFound(dst_node))?;
 
-        if src_node.idx == dst_node.idx {
+        if src_node.0 == dst_node.0 {
             return Err(AddEdgeError::CycleDetected);
         }
 
@@ -400,8 +397,12 @@ impl AudioGraph {
         self.edges.get(edge_id.0)
     }
 
-    fn remove_edges_with_input_port(&mut self, node_id: NodeID, port_idx: PortIdx) -> Vec<EdgeID> {
-        let mut edges_to_remove: Vec<EdgeID> = Vec::new();
+    fn remove_edges_with_input_port(
+        &mut self,
+        node_id: NodeID,
+        port_idx: PortIdx,
+    ) -> SmallVec<[EdgeID; 4]> {
+        let mut edges_to_remove = SmallVec::new();
 
         // Remove all existing edges which have this port.
         for (edge_id, edge) in self.edges.iter() {
@@ -417,8 +418,12 @@ impl AudioGraph {
         edges_to_remove
     }
 
-    fn remove_edges_with_output_port(&mut self, node_id: NodeID, port_idx: PortIdx) -> Vec<EdgeID> {
-        let mut edges_to_remove: Vec<EdgeID> = Vec::new();
+    fn remove_edges_with_output_port(
+        &mut self,
+        node_id: NodeID,
+        port_idx: PortIdx,
+    ) -> SmallVec<[EdgeID; 4]> {
+        let mut edges_to_remove = SmallVec::new();
 
         // Remove all existing edges which have this port.
         for (edge_id, edge) in self.edges.iter() {
@@ -443,26 +448,69 @@ impl AudioGraph {
         )
     }
 
-    pub fn needs_compile(&self) -> bool {
+    pub(crate) fn needs_compile(&self) -> bool {
         self.needs_compile
+    }
+
+    pub(crate) fn on_schedule_send_failed(&mut self, failed_schedule: Box<ScheduleHeapData>) {
+        self.needs_compile = true;
+
+        for node in failed_schedule.new_node_processors.iter() {
+            if let Some(node_entry) = &mut self.nodes.get_mut(node.id.0) {
+                node_entry.activated = false;
+            }
+        }
+    }
+
+    pub(crate) fn node_capacity(&self) -> usize {
+        self.nodes.capacity()
+    }
+
+    pub(crate) fn deactivate(&mut self) {
+        for (_, entry) in self.nodes.iter_mut() {
+            entry.activated = false;
+        }
+        self.needs_compile = true;
     }
 
     pub(crate) fn compile(
         &mut self,
-        stream_info: StreamInfo,
-    ) -> Result<ScheduleHeapData, CompileGraphError> {
+        stream_info: &StreamInfo,
+    ) -> Result<Box<ScheduleHeapData>, CompileGraphError> {
         let schedule = self.compile_internal(stream_info.max_block_frames.get() as usize)?;
 
-        let new_node_processors = self.new_node_processors.drain(..).collect::<Vec<_>>();
+        let mut new_node_processors = Vec::new();
+        for (_, entry) in self.nodes.iter_mut() {
+            if !entry.activated {
+                entry.activated = true;
 
-        let schedule_data = ScheduleHeapData::new(
-            schedule,
-            self.nodes_to_remove_from_schedule.clone(),
-            new_node_processors,
+                let event_buffer_indices = if entry.uses_events {
+                    Vec::with_capacity(self.event_queue_capacity)
+                } else {
+                    Vec::new()
+                };
+
+                new_node_processors.push(NodeHeapData {
+                    id: entry.id,
+                    processor: entry.constructor.processor(&stream_info),
+                    event_buffer_indices,
+                });
+            }
+        }
+
+        let mut nodes_to_remove = Vec::new();
+        std::mem::swap(
+            &mut self.nodes_to_remove_from_schedule,
+            &mut nodes_to_remove,
         );
 
+        let schedule_data = Box::new(ScheduleHeapData::new(
+            schedule,
+            nodes_to_remove,
+            new_node_processors,
+        ));
+
         self.needs_compile = false;
-        self.nodes_to_remove_from_schedule.clear();
 
         log::debug!("compiled new audio graph: {:?}", &schedule_data);
 

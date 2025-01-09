@@ -1,11 +1,15 @@
+use std::num::NonZeroU32;
+
 use firewheel::{
-    basic_nodes::{beep_test::BeepTestNode, MixNode, StereoToMonoNode, VolumeNode, VolumePanNode},
-    clock::EventDelay,
-    dsp::pan_law::PanLaw,
-    error::AddEdgeError,
-    graph::AudioGraph,
-    node::{AudioNode, NodeEvent, NodeID},
-    ChannelConfig, FirewheelCpalCtx, UpdateStatus,
+    basic_nodes::{
+        beep_test::BeepTestParams, mix::MixNodeConfig, StereoToMonoNode, VolumePanParams,
+        VolumeParams,
+    },
+    channel_config::NonZeroChannelCount,
+    error::{AddEdgeError, UpdateError},
+    event::{NodeEvent, NodeEventType},
+    node::NodeID,
+    FirewheelContext,
 };
 
 use crate::ui::GuiAudioNode;
@@ -23,51 +27,49 @@ pub enum NodeType {
 }
 
 pub struct AudioSystem {
-    cx: FirewheelCpalCtx,
+    cx: FirewheelContext,
 }
 
 impl AudioSystem {
     pub fn new() -> Self {
-        let mut cx = FirewheelCpalCtx::new(Default::default());
-        cx.activate(Default::default()).unwrap();
+        let mut cx = FirewheelContext::new(Default::default());
+        cx.start_stream(Default::default()).unwrap();
 
         Self { cx }
     }
 
-    fn graph(&self) -> &AudioGraph {
-        self.cx.graph()
-    }
-
-    fn graph_mut(&mut self) -> &mut AudioGraph {
-        self.cx.graph_mut().unwrap()
-    }
-
     pub fn remove_node(&mut self, node_id: NodeID) {
-        if let Err(_) = self.graph_mut().remove_node(node_id) {
+        if let Err(_) = self.cx.remove_node(node_id) {
             log::error!("Node already removed!");
         }
     }
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
-        let (node, num_inputs, num_outputs): (Box<dyn AudioNode>, usize, usize) = match node_type {
-            NodeType::BeepTest => (Box::new(BeepTestNode::new(0.4, 440.0, true)), 0, 1),
-            NodeType::StereoToMono => (Box::new(StereoToMonoNode), 2, 1),
-            NodeType::MixMono4Ins => (Box::new(MixNode), 4, 1),
-            NodeType::MixStereo2Ins => (Box::new(MixNode), 4, 2),
-            NodeType::MixStereo4Ins => (Box::new(MixNode), 8, 2),
-            NodeType::VolumeMono => (Box::new(VolumeNode::new(1.0)), 1, 1),
-            NodeType::VolumeStereo => (Box::new(VolumeNode::new(1.0)), 2, 2),
-            NodeType::VolumePan => (
-                Box::new(VolumePanNode::new(1.0, 0.0, PanLaw::default())),
-                2,
-                2,
+        let id = match node_type {
+            NodeType::BeepTest => self.cx.add_node(BeepTestParams::default()),
+            NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode),
+            NodeType::MixMono4Ins => self.cx.add_node(
+                MixNodeConfig::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(4).unwrap())
+                    .unwrap(),
             ),
+            NodeType::MixStereo2Ins => self.cx.add_node(
+                MixNodeConfig::new(NonZeroU32::new(2).unwrap(), NonZeroU32::new(2).unwrap())
+                    .unwrap(),
+            ),
+            NodeType::MixStereo4Ins => self.cx.add_node(
+                MixNodeConfig::new(NonZeroU32::new(2).unwrap(), NonZeroU32::new(4).unwrap())
+                    .unwrap(),
+            ),
+            NodeType::VolumeMono => self.cx.add_node(VolumeParams {
+                channels: NonZeroChannelCount::MONO,
+                ..Default::default()
+            }),
+            NodeType::VolumeStereo => self.cx.add_node(VolumeParams {
+                channels: NonZeroChannelCount::STEREO,
+                ..Default::default()
+            }),
+            NodeType::VolumePan => self.cx.add_node(VolumePanParams::default()),
         };
-
-        let id = self
-            .graph_mut()
-            .add_node(node, Some(ChannelConfig::new(num_inputs, num_outputs)))
-            .unwrap();
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest { id },
@@ -92,67 +94,61 @@ impl AudioSystem {
         src_port: u32,
         dst_port: u32,
     ) -> Result<(), AddEdgeError> {
-        self.graph_mut()
+        self.cx
             .connect(src_node, dst_node, &[(src_port, dst_port)], true)?;
 
         Ok(())
     }
 
     pub fn disconnect(&mut self, src_node: NodeID, dst_node: NodeID, src_port: u32, dst_port: u32) {
-        self.graph_mut()
+        self.cx
             .disconnect(src_node, dst_node, &[(src_port, dst_port)]);
     }
 
     pub fn graph_in_node(&self) -> NodeID {
-        self.graph().graph_in_node()
+        self.cx.graph_in_node()
     }
 
     pub fn graph_out_node(&self) -> NodeID {
-        self.graph().graph_out_node()
+        self.cx.graph_out_node()
     }
 
     pub fn is_activated(&self) -> bool {
-        self.cx.is_activated()
+        self.cx.is_audio_stream_running()
     }
 
     pub fn update(&mut self) {
-        match self.cx.update() {
-            UpdateStatus::Inactive => {}
-            UpdateStatus::Active { graph_error } => {
-                if let Some(e) = graph_error {
-                    log::error!("audio graph error: {}", e);
-                }
-            }
-            UpdateStatus::Deactivated { error, .. } => {
-                if let Some(e) = error {
-                    log::error!("Stream disconnected: {}", e);
-                } else {
-                    log::error!("Stream disconnected");
-                }
+        if let Err(e) = self.cx.update() {
+            log::error!("{:?}", &e);
+
+            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
+                // The stream has stopped unexpectedly (i.e the user has
+                // unplugged their headphones.)
+                //
+                // Typically you should start a new stream as soon as
+                // possible to resume processing (event if it's a dummy
+                // output device).
+                //
+                // In this example we just quit the application.
+                panic!("Stream stopped unexpectedly.");
             }
         }
-
-        self.cx.flush_events();
     }
 
     pub fn reset(&mut self) {
-        self.graph_mut().reset();
+        let nodes: Vec<NodeID> = self.cx.nodes().map(|n| n.id).collect();
+        for node_id in nodes {
+            let _ = self.cx.remove_node(node_id);
+        }
     }
 
     pub fn set_volume(&mut self, node_id: NodeID, percent_volume: f32) {
-        let graph = self.graph_mut();
-
-        let event = graph
-            .node_mut::<VolumeNode>(node_id)
-            .unwrap()
-            .set_volume(percent_volume / 100.0, true);
-
-        graph.queue_event(NodeEvent {
+        self.cx.queue_event(NodeEvent {
             node_id,
-            // Note, if you wanted to delay this event, use:
-            // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
-            delay: EventDelay::Immediate,
-            event,
+            event: NodeEventType::F32Param {
+                id: VolumeParams::ID_VOLUME,
+                value: percent_volume / 100.0,
+            },
         });
     }
 
@@ -162,31 +158,23 @@ impl AudioSystem {
         percent_volume: Option<f32>,
         pan: Option<f32>,
     ) {
-        let graph = self.graph_mut();
-        let node = graph.node_mut::<VolumePanNode>(node_id).unwrap();
-
         if let Some(percent_volume) = percent_volume {
-            let event = node.set_volume(percent_volume / 100.0, true);
-            graph.queue_event(NodeEvent {
+            self.cx.queue_event(NodeEvent {
                 node_id,
-                // Note, if you wanted to delay this event, use:
-                // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
-                delay: EventDelay::Immediate,
-                event,
+                event: NodeEventType::F32Param {
+                    id: VolumePanParams::ID_VOLUME,
+                    value: percent_volume / 100.0,
+                },
             });
         }
 
-        let graph = self.graph_mut();
-        let node = graph.node_mut::<VolumePanNode>(node_id).unwrap();
-
         if let Some(pan) = pan {
-            let event = node.set_pan(pan, true);
-            graph.queue_event(NodeEvent {
+            self.cx.queue_event(NodeEvent {
                 node_id,
-                // Note, if you wanted to delay this event, use:
-                // EventDelay::DelayUntilSeconds(graph.clock_now() + ClockSeconds(amount_of_delay))
-                delay: EventDelay::Immediate,
-                event,
+                event: NodeEventType::F32Param {
+                    id: VolumePanParams::ID_PAN,
+                    value: pan,
+                },
             });
         }
     }
