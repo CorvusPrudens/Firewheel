@@ -72,17 +72,25 @@ impl AudioSystem {
         };
 
         match node_type {
-            NodeType::BeepTest => GuiAudioNode::BeepTest { id },
+            NodeType::BeepTest => GuiAudioNode::BeepTest {
+                id,
+                params: BeepTestParams::default(),
+            },
             NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
             NodeType::MixMono4Ins => GuiAudioNode::MixMono4Ins { id },
             NodeType::MixStereo2Ins => GuiAudioNode::MixStereo2Ins { id },
             NodeType::MixStereo4Ins => GuiAudioNode::MixStereo4Ins { id },
-            NodeType::VolumeMono => GuiAudioNode::VolumeMono { id, percent: 100.0 },
-            NodeType::VolumeStereo => GuiAudioNode::VolumeStereo { id, percent: 100.0 },
+            NodeType::VolumeMono => GuiAudioNode::VolumeMono {
+                id,
+                params: VolumeParams::default(),
+            },
+            NodeType::VolumeStereo => GuiAudioNode::VolumeStereo {
+                id,
+                params: VolumeParams::default(),
+            },
             NodeType::VolumePan => GuiAudioNode::VolumePan {
                 id,
-                percent_volume: 100.0,
-                pan: 0.0,
+                params: VolumePanParams::default(),
             },
         }
     }
@@ -142,40 +150,7 @@ impl AudioSystem {
         }
     }
 
-    pub fn set_volume(&mut self, node_id: NodeID, percent_volume: f32) {
-        self.cx.queue_event(NodeEvent {
-            node_id,
-            event: NodeEventType::F32Param {
-                id: VolumeParams::ID_VOLUME,
-                value: percent_volume / 100.0,
-            },
-        });
-    }
-
-    pub fn set_volume_pan(
-        &mut self,
-        node_id: NodeID,
-        percent_volume: Option<f32>,
-        pan: Option<f32>,
-    ) {
-        if let Some(percent_volume) = percent_volume {
-            self.cx.queue_event(NodeEvent {
-                node_id,
-                event: NodeEventType::F32Param {
-                    id: VolumePanParams::ID_VOLUME,
-                    value: percent_volume / 100.0,
-                },
-            });
-        }
-
-        if let Some(pan) = pan {
-            self.cx.queue_event(NodeEvent {
-                node_id,
-                event: NodeEventType::F32Param {
-                    id: VolumePanParams::ID_PAN,
-                    value: pan,
-                },
-            });
-        }
+    pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
+        self.cx.queue_event(NodeEvent { node_id, event });
     }
 }
