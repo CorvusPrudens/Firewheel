@@ -2,7 +2,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     dsp::decibel::normalized_volume_to_raw_gain,
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
 /// A simple node that outputs a sine wave, used for testing purposes.
@@ -68,19 +68,15 @@ impl Default for BeepTestParams {
 }
 
 impl AudioNodeConstructor for BeepTestParams {
-    fn debug_name(&self) -> &'static str {
-        "beep_test"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
-        ChannelConfig {
-            num_inputs: ChannelCount::ZERO,
-            num_outputs: ChannelCount::MONO,
+    fn info(&self) -> AudioNodeInfo {
+        AudioNodeInfo {
+            debug_name: "beep_test",
+            channel_config: ChannelConfig {
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: ChannelCount::MONO,
+            },
+            uses_events: true,
         }
-    }
-
-    fn uses_events(&self) -> bool {
-        true
     }
 
     fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {

@@ -5,7 +5,7 @@ use firewheel_core::{
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,19 +39,15 @@ impl Default for VolumeParams {
 }
 
 impl AudioNodeConstructor for VolumeParams {
-    fn debug_name(&self) -> &'static str {
-        "volume"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
-        ChannelConfig {
-            num_inputs: self.channels.get(),
-            num_outputs: self.channels.get(),
+    fn info(&self) -> AudioNodeInfo {
+        AudioNodeInfo {
+            debug_name: "volume",
+            channel_config: ChannelConfig {
+                num_inputs: self.channels.get(),
+                num_outputs: self.channels.get(),
+            },
+            uses_events: true,
         }
-    }
-
-    fn uses_events(&self) -> bool {
-        true
     }
 
     fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {

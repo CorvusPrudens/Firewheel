@@ -1,26 +1,22 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StereoToMonoNode;
 
 impl AudioNodeConstructor for StereoToMonoNode {
-    fn debug_name(&self) -> &'static str {
-        "stereo_to_mono"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
-        ChannelConfig {
-            num_inputs: ChannelCount::STEREO,
-            num_outputs: ChannelCount::MONO,
+    fn info(&self) -> AudioNodeInfo {
+        AudioNodeInfo {
+            debug_name: "stereo_to_mono",
+            channel_config: ChannelConfig {
+                num_inputs: ChannelCount::STEREO,
+                num_outputs: ChannelCount::MONO,
+            },
+            uses_events: false,
         }
-    }
-
-    fn uses_events(&self) -> bool {
-        false
     }
 
     fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {

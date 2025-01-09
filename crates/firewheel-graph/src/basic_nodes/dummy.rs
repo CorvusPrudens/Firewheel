@@ -1,7 +1,7 @@
 use firewheel_core::{
     channel_config::ChannelConfig,
     event::NodeEventList,
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
     StreamInfo,
 };
 
@@ -11,16 +11,12 @@ pub struct DummyConfig {
 }
 
 impl AudioNodeConstructor for DummyConfig {
-    fn debug_name(&self) -> &'static str {
-        "dummy"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
-        self.channel_config
-    }
-
-    fn uses_events(&self) -> bool {
-        false
+    fn info(&self) -> AudioNodeInfo {
+        AudioNodeInfo {
+            debug_name: "dummy",
+            channel_config: self.channel_config,
+            uses_events: false,
+        }
     }
 
     fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {

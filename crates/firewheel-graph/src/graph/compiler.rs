@@ -1,7 +1,4 @@
-use firewheel_core::{
-    channel_config::ChannelConfig,
-    node::{AudioNodeConstructor, NodeID},
-};
+use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, NodeID};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
@@ -15,12 +12,9 @@ use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
 pub struct NodeEntry {
     pub id: NodeID,
-    pub debug_name: &'static str,
-    /// The number of input and output ports used by the node
-    pub channel_config: ChannelConfig,
+    pub info: AudioNodeInfo,
     pub constructor: Box<dyn AudioNodeConstructor>,
     pub activated: bool,
-    pub uses_events: bool,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
     /// The edges connected to this node's output ports.
@@ -28,19 +22,12 @@ pub struct NodeEntry {
 }
 
 impl NodeEntry {
-    pub fn new(
-        debug_name: &'static str,
-        channel_config: ChannelConfig,
-        uses_events: bool,
-        constructor: Box<dyn AudioNodeConstructor>,
-    ) -> Self {
+    pub fn new(info: AudioNodeInfo, constructor: Box<dyn AudioNodeConstructor>) -> Self {
         Self {
             id: NodeID::DANGLING,
-            debug_name,
-            channel_config,
+            info,
             constructor,
             activated: false,
-            uses_events,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
         }
@@ -265,8 +252,10 @@ impl<'a> GraphIR<'a> {
 
             if build_schedule {
                 if node_slot != self.graph_out_id.0.slot() {
-                    self.schedule
-                        .push(ScheduledNode::new(node_entry.id, node_entry.debug_name));
+                    self.schedule.push(ScheduledNode::new(
+                        node_entry.id,
+                        node_entry.info.debug_name,
+                    ));
                 }
             }
         }
@@ -299,8 +288,8 @@ impl<'a> GraphIR<'a> {
 
             let node_entry = &self.nodes[entry.id.0];
 
-            let num_inputs = node_entry.channel_config.num_inputs.get() as usize;
-            let num_outputs = node_entry.channel_config.num_outputs.get() as usize;
+            let num_inputs = node_entry.info.channel_config.num_inputs.get() as usize;
+            let num_outputs = node_entry.info.channel_config.num_outputs.get() as usize;
 
             buffers_to_release.clear();
             if buffers_to_release.capacity() < num_inputs + num_outputs {

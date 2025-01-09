@@ -22,26 +22,26 @@ impl Default for NodeID {
     }
 }
 
-pub trait AudioNodeConstructor {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioNodeInfo {
     /// A unique name for this type of node, used for debugging purposes.
-    ///
-    /// This is only called once when the node is added to the audio graph.
-    fn debug_name(&self) -> &'static str;
+    pub debug_name: &'static str,
 
     /// The channel configuration of this node.
-    ///
-    /// This is only called once when the node is added to the audio graph.
-    fn channel_config(&self) -> ChannelConfig;
+    pub channel_config: ChannelConfig,
 
-    /// Return `true` if this node type uses events, `false` otherwise.
+    /// Set to `true` if this node type uses events, `false` otherwise.
     ///
-    /// Returning `false` will help the system save some memory by not
+    /// Setting to `false` will help the system save some memory by not
     /// allocating an event buffer for this node.
+    pub uses_events: bool,
+}
+
+pub trait AudioNodeConstructor {
+    /// Get information about this node.
     ///
-    /// By default this returns `true`.
-    fn uses_events(&self) -> bool {
-        true
-    }
+    /// This method is only called once after node is added to the audio graph.
+    fn info(&self) -> AudioNodeInfo;
 
     /// Construct a processor for this node.
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;

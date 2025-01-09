@@ -719,8 +719,8 @@ mod tests {
         let node = graph.node_info(node_id).unwrap();
         let scheduled_node = schedule.schedule.iter().find(|&s| s.id == node_id).unwrap();
 
-        let num_inputs = node.channel_config.num_inputs.get() as usize;
-        let num_outputs = node.channel_config.num_outputs.get() as usize;
+        let num_inputs = node.info.channel_config.num_inputs.get() as usize;
+        let num_outputs = node.info.channel_config.num_outputs.get() as usize;
 
         assert_eq!(scheduled_node.id, node_id);
         assert_eq!(scheduled_node.input_buffers.len(), num_inputs);

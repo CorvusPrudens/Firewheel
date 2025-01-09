@@ -6,7 +6,7 @@ use firewheel_core::{
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
 // TODO: Option for true stereo panning.
@@ -77,19 +77,15 @@ impl Default for VolumePanParams {
 }
 
 impl AudioNodeConstructor for VolumePanParams {
-    fn debug_name(&self) -> &'static str {
-        "volume_pan"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
-        ChannelConfig {
-            num_inputs: ChannelCount::STEREO,
-            num_outputs: ChannelCount::STEREO,
+    fn info(&self) -> AudioNodeInfo {
+        AudioNodeInfo {
+            debug_name: "volume_pan",
+            channel_config: ChannelConfig {
+                num_inputs: ChannelCount::STEREO,
+                num_outputs: ChannelCount::STEREO,
+            },
+            uses_events: true,
         }
-    }
-
-    fn uses_events(&self) -> bool {
-        true
     }
 
     fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {

@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
-    node::{AudioNodeConstructor, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,22 +46,18 @@ impl Default for MixNodeConfig {
 }
 
 impl AudioNodeConstructor for MixNodeConfig {
-    fn debug_name(&self) -> &'static str {
-        "mix"
-    }
-
-    fn channel_config(&self) -> ChannelConfig {
+    fn info(&self) -> AudioNodeInfo {
         let num_inputs =
             ChannelCount::new(self.channels.get() * self.num_in_streams.get()).unwrap();
 
-        ChannelConfig {
-            num_inputs,
-            num_outputs: ChannelCount::new(self.channels.get()).unwrap(),
+        AudioNodeInfo {
+            debug_name: "mix",
+            channel_config: ChannelConfig {
+                num_inputs,
+                num_outputs: ChannelCount::new(self.channels.get()).unwrap(),
+            },
+            uses_events: false,
         }
-    }
-
-    fn uses_events(&self) -> bool {
-        false
     }
 
     fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {

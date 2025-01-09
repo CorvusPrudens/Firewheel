@@ -12,7 +12,7 @@ use thunderdome::Arena;
 use crate::basic_nodes::dummy::DummyConfig;
 use crate::error::{AddEdgeError, CompileGraphError};
 use crate::FirewheelConfig;
-use firewheel_core::node::{AudioNodeConstructor, NodeID};
+use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, NodeID};
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
@@ -60,17 +60,21 @@ impl AudioGraph {
         };
 
         let graph_in_id = NodeID(nodes.insert(NodeEntry::new(
-            "graph_in",
-            graph_in_config.channel_config,
-            false,
+            AudioNodeInfo {
+                debug_name: "graph_in",
+                channel_config: graph_in_config.channel_config,
+                uses_events: false,
+            },
             Box::new(graph_in_config),
         )));
         nodes[graph_in_id.0].id = graph_in_id;
 
         let graph_out_id = NodeID(nodes.insert(NodeEntry::new(
-            "graph_out",
-            graph_out_config.channel_config,
-            false,
+            AudioNodeInfo {
+                debug_name: "graph_out",
+                channel_config: graph_out_config.channel_config,
+                uses_events: false,
+            },
             Box::new(graph_out_config),
         )));
         nodes[graph_out_id.0].id = graph_out_id;
@@ -103,16 +107,9 @@ impl AudioGraph {
 
     /// Add a node to the audio graph.
     pub fn add_node(&mut self, node: impl AudioNodeConstructor + 'static) -> NodeID {
-        let debug_name = node.debug_name();
-        let channel_config = node.channel_config();
-        let uses_events = node.uses_events();
+        let info = node.info();
 
-        let new_id = NodeID(self.nodes.insert(NodeEntry::new(
-            debug_name,
-            channel_config,
-            uses_events,
-            Box::new(node),
-        )));
+        let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
         self.nodes[new_id.0].id = new_id;
 
         self.needs_compile = true;
@@ -140,14 +137,14 @@ impl AudioGraph {
 
         let mut removed_edges = SmallVec::new();
 
-        for port_idx in 0..node_entry.channel_config.num_inputs.get() {
+        for port_idx in 0..node_entry.info.channel_config.num_inputs.get() {
             removed_edges.append(&mut self.remove_edges_with_input_port(node_id, port_idx));
         }
-        for port_idx in 0..node_entry.channel_config.num_outputs.get() {
+        for port_idx in 0..node_entry.info.channel_config.num_outputs.get() {
             removed_edges.append(&mut self.remove_edges_with_output_port(node_id, port_idx));
         }
 
-        for port_idx in 0..node_entry.channel_config.num_inputs.get() {
+        for port_idx in 0..node_entry.info.channel_config.num_inputs.get() {
             self.connected_input_ports.remove(&(node_id, port_idx));
         }
 
@@ -184,9 +181,9 @@ impl AudioGraph {
         let mut removed_edges = SmallVec::new();
 
         let graph_in_node = self.nodes.get_mut(self.graph_in_id.0).unwrap();
-        if channel_config.num_inputs != graph_in_node.channel_config.num_outputs {
-            let old_num_inputs = graph_in_node.channel_config.num_outputs;
-            graph_in_node.channel_config.num_outputs = channel_config.num_inputs;
+        if channel_config.num_inputs != graph_in_node.info.channel_config.num_outputs {
+            let old_num_inputs = graph_in_node.info.channel_config.num_outputs;
+            graph_in_node.info.channel_config.num_outputs = channel_config.num_inputs;
 
             if channel_config.num_inputs < old_num_inputs {
                 for port_idx in channel_config.num_inputs.get()..old_num_inputs.get() {
@@ -201,9 +198,9 @@ impl AudioGraph {
 
         let graph_out_node = self.nodes.get_mut(self.graph_in_id.0).unwrap();
 
-        if channel_config.num_outputs != graph_out_node.channel_config.num_inputs {
-            let old_num_outputs = graph_out_node.channel_config.num_inputs;
-            graph_out_node.channel_config.num_inputs = channel_config.num_outputs;
+        if channel_config.num_outputs != graph_out_node.info.channel_config.num_inputs {
+            let old_num_outputs = graph_out_node.info.channel_config.num_inputs;
+            graph_out_node.info.channel_config.num_inputs = channel_config.num_outputs;
 
             if channel_config.num_outputs < old_num_outputs {
                 for port_idx in channel_config.num_outputs.get()..old_num_outputs.get() {
@@ -259,18 +256,18 @@ impl AudioGraph {
         }
 
         for (src_port, dst_port) in ports_src_dst.iter().copied() {
-            if src_port >= src_node_entry.channel_config.num_outputs.get() {
+            if src_port >= src_node_entry.info.channel_config.num_outputs.get() {
                 return Err(AddEdgeError::OutPortOutOfRange {
                     node: src_node,
                     port_idx: src_port,
-                    num_out_ports: src_node_entry.channel_config.num_outputs,
+                    num_out_ports: src_node_entry.info.channel_config.num_outputs,
                 });
             }
-            if dst_port >= dst_node_entry.channel_config.num_inputs.get() {
+            if dst_port >= dst_node_entry.info.channel_config.num_inputs.get() {
                 return Err(AddEdgeError::InPortOutOfRange {
                     node: dst_node,
                     port_idx: dst_port,
-                    num_in_ports: dst_node_entry.channel_config.num_inputs,
+                    num_in_ports: dst_node_entry.info.channel_config.num_inputs,
                 });
             }
 
@@ -484,7 +481,7 @@ impl AudioGraph {
             if !entry.activated {
                 entry.activated = true;
 
-                let event_buffer_indices = if entry.uses_events {
+                let event_buffer_indices = if entry.info.uses_events {
                     Vec::with_capacity(self.event_queue_capacity)
                 } else {
                     Vec::new()
