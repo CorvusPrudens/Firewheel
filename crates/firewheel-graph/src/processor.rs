@@ -269,14 +269,6 @@ impl FirewheelProcessorInner {
                 .to_graph_tx
                 .push(ProcessorToContextMsg::ReturnEventGroup(event_group));
         }
-
-        /*
-        if self.running {
-            FirewheelProcessorInnerStatus::Ok
-        } else {
-            FirewheelProcessorInnerStatus::DropProcessor
-        }
-        */
     }
 
     fn poll_messages(&mut self) {
@@ -413,25 +405,6 @@ impl FirewheelProcessorInner {
     }
 }
 
-/*
-impl Drop for FirewheelProcessorInner {
-    fn drop(&mut self) {
-        // Make sure data is not deallocated in the audio thread.
-        let mut nodes = Arena::new();
-        std::mem::swap(&mut nodes, &mut self.nodes);
-
-        let mut s = ChannelBuffer::empty();
-        std::mem::swap(&mut s, &mut self.scratch_buffers);
-
-        let _ = self.to_graph_tx.push(ProcessorToContextMsg::Dropped {
-            _nodes: nodes,
-            _schedule_data: self.schedule_data.take(),
-            _scratch_buffers: s,
-        });
-    }
-}
-*/
-
 pub(crate) struct NodeEntry {
     pub processor: Box<dyn AudioNodeProcessor>,
     pub event_indices: Vec<u32>,
@@ -441,26 +414,9 @@ pub(crate) enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
     HardClipOutputs(bool),
-    //Stop,
 }
 
 pub(crate) enum ProcessorToContextMsg {
     ReturnEventGroup(Vec<NodeEvent>),
     ReturnSchedule(Box<ScheduleHeapData>),
-    /*
-    Dropped {
-        _nodes: Arena<NodeEntry>,
-        _schedule_data: Option<Box<ScheduleHeapData>>,
-        _scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
-    },
-    */
 }
-
-/*
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FirewheelProcessorInnerStatus {
-    Ok,
-    /// If this is returned, then the [`FirewheelProcessorInner`] must be dropped.
-    DropProcessor,
-}
-*/

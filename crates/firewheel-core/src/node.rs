@@ -70,7 +70,7 @@ pub trait AudioNodeProcessor: 'static + Send {
     fn stream_stopped(&mut self) {}
 
     /// Called when a new audio stream has been started after a previous
-    /// call to `stream_stopped`.
+    /// call to [`AudioNodeProcessor::stream_stopped`].
     ///
     /// Note, this method gets called on the main thread, not the audio
     /// thread. So it is safe to allocate/deallocate here.

@@ -3,7 +3,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds},
     dsp::declick::DeclickValues,
-    event::NodeEvent,
+    event::{NodeEvent, NodeEventType},
     node::{AudioNodeConstructor, NodeID},
     StreamInfo,
 };
@@ -327,6 +327,24 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         }
 
         if self.is_audio_stream_running() {
+            if self.graph.needs_compile() {
+                let schedule_data = self
+                    .graph
+                    .compile(&self.active_state.as_ref().unwrap().stream_info)?;
+
+                if let Err((msg, e)) = self
+                    .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule_data))
+                {
+                    let ContextToProcessorMsg::NewSchedule(schedule) = msg else {
+                        unreachable!();
+                    };
+
+                    self.graph.on_schedule_send_failed(schedule);
+
+                    return Err(e);
+                }
+            }
+
             if !self.event_group.is_empty() {
                 let mut next_event_group = self
                     .event_group_pool
@@ -343,24 +361,6 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
                     std::mem::swap(&mut event_group, &mut self.event_group);
                     self.event_group_pool.push(event_group);
-
-                    return Err(e);
-                }
-            }
-
-            if self.graph.needs_compile() {
-                let schedule_data = self
-                    .graph
-                    .compile(&self.active_state.as_ref().unwrap().stream_info)?;
-
-                if let Err((msg, e)) = self
-                    .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule_data))
-                {
-                    let ContextToProcessorMsg::NewSchedule(schedule) = msg else {
-                        unreachable!();
-                    };
-
-                    self.graph.on_schedule_send_failed(schedule);
 
                     return Err(e);
                 }
@@ -497,6 +497,14 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// in [`FirewheelCtx::update`].
     pub fn queue_event(&mut self, event: NodeEvent) {
         self.event_group.push(event);
+    }
+
+    /// Queue an event to be sent to an audio node's processor.
+    ///
+    /// Note, this event will not be sent until the event queue is flushed
+    /// in [`FirewheelCtx::update`].
+    pub fn queue_event_for(&mut self, node_id: NodeID, event: NodeEventType) {
+        self.queue_event(NodeEvent { node_id, event });
     }
 
     fn send_message_to_processor(

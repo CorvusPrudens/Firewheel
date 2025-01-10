@@ -2,11 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use firewheel::{
-    clock::EventDelay,
-    node::RepeatMode,
+    error::UpdateError,
     sample_resource::SampleResource,
-    sampler::{Sampler, SamplerNode},
-    FirewheelCpalCtx, UpdateStatus,
+    sampler::{PlaybackState, RepeatMode, SamplerState},
+    FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
 
@@ -23,62 +22,68 @@ fn main() {
 
     let args = Cli::parse();
 
-    let mut loader = SymphoniumLoader::new();
+    // --- Start the context and get the sample rate of the audio stream. ----------------
 
-    let mut cx = FirewheelCpalCtx::new(Default::default());
-    cx.activate(Default::default()).unwrap();
+    let mut cx = FirewheelContext::new(Default::default());
+    cx.start_stream(Default::default()).unwrap();
 
     let sample_rate = cx.stream_info().unwrap().sample_rate;
 
+    // --- Create a sampler state, and add it as a node in the audio graph. --------------
+
+    let mut sampler_state = SamplerState::default();
+
+    let sampler_id = cx.add_node(sampler_state.clone());
+    let graph_out_id = cx.graph_out_node();
+
+    cx.connect(sampler_id, graph_out_id, &[(0, 0), (1, 1)], false)
+        .unwrap();
+
+    // --- Load a sample into memory, and tell the node to use it and play it. -----------
+
+    let mut loader = SymphoniumLoader::new();
     let sample: Arc<dyn SampleResource> = Arc::new(
         firewheel::load_audio_file(&mut loader, args.path, sample_rate, Default::default())
             .unwrap(),
     );
 
-    let graph = cx.graph_mut().unwrap();
-    let sampler_node_id = graph
-        .add_node(SamplerNode::new(Default::default()).into(), None)
-        .unwrap();
-    graph
-        .connect(
-            sampler_node_id,
-            graph.graph_out_node(),
-            &[(0, 0), (1, 1)],
-            false,
-        )
-        .unwrap();
+    sampler_state.use_sample(sample, 1.0, RepeatMode::PlayOnce);
 
-    let mut sampler = Sampler::new(sampler_node_id);
-    sampler.set_sample(
-        Some(&sample),
-        1.0,
-        RepeatMode::PlayOnce,
-        EventDelay::Immediate,
-        graph,
-    );
-    sampler.start_or_restart(EventDelay::Immediate, graph);
+    cx.queue_event_for(sampler_id, sampler_state.sync_state_event(true));
+
+    // Alternatively, instead of setting `start_immediately` to `true`, you can
+    // tell the sampler to start playing its sequence like this:
+    //
+    // cx.queue_event_for(
+    //    sampler_id,
+    //    sampler_state.start_or_restart_event(EventDelay::Immediate),
+    // );
+
+    // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        std::thread::sleep(UPDATE_INTERVAL);
-
-        if sampler.status(cx.graph()).finished() {
+        if sampler_state.playback_state() == PlaybackState::Stopped {
+            // Sample has finished playing.
             break;
         }
 
-        match cx.update() {
-            UpdateStatus::Inactive => {}
-            UpdateStatus::Active { graph_error } => {
-                if let Some(e) = graph_error {
-                    log::error!("graph error: {}", e);
-                }
-            }
-            UpdateStatus::Deactivated { error, .. } => {
-                log::error!("Deactivated unexpectedly: {:?}", error);
+        if let Err(e) = cx.update() {
+            log::error!("{:?}", &e);
 
+            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
+                // The stream has stopped unexpectedly (i.e the user has
+                // unplugged their headphones.)
+                //
+                // Typically you should start a new stream as soon as
+                // possible to resume processing (event if it's a dummy
+                // output device).
+                //
+                // In this example we just quit the application.
                 break;
             }
         }
-        cx.flush_events();
+
+        std::thread::sleep(UPDATE_INTERVAL);
     }
 
     println!("finished");

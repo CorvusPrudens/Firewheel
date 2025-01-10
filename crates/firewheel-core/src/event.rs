@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::node::NodeID;
+use crate::{clock::EventDelay, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`].
 pub struct NodeEvent {
@@ -62,10 +62,32 @@ pub enum NodeEventType {
         /// The parameter value.
         value: [f32; 3],
     },
+    /// A command to control the current sequence in a node.
+    ///
+    /// This only has an effect on certain nodes.
+    SequenceCommand(SequenceCommand),
     /// Custom event type.
     Custom(Box<dyn Any + Send>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 16]),
+}
+
+/// A command to control the current sequence in a node.
+///
+/// This only has an effect on certain nodes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SequenceCommand {
+    /// Start/restart the current sequence.
+    StartOrRestart {
+        /// The exact moment when the sequence should start.
+        delay: EventDelay,
+    },
+    /// Pause the current sequence.
+    Pause,
+    /// Resume the current sequence.
+    Resume,
+    /// Stop the current sequence.
+    Stop,
 }
 
 /// A list of events for an [`AudioNodeProcessor`].
