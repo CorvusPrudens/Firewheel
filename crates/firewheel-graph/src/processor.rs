@@ -91,6 +91,10 @@ pub(crate) struct FirewheelProcessorInner {
     clock_samples: ClockSamples,
     clock_shared: Arc<ClockValues>,
 
+    last_clock_seconds: ClockSeconds,
+    clock_seconds_offset: f64,
+    is_new_stream: bool,
+
     //running: bool,
     hard_clip_outputs: bool,
 
@@ -124,6 +128,9 @@ impl FirewheelProcessorInner {
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: ClockSamples(0),
             clock_shared,
+            last_clock_seconds: ClockSeconds(0.0),
+            clock_seconds_offset: 0.0,
+            is_new_stream: false,
             //running: true,
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
@@ -158,6 +165,8 @@ impl FirewheelProcessorInner {
 
             self.scratch_buffers = ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
         }
+
+        self.is_new_stream = true;
     }
 
     // TODO: Add a `process_deinterleaved` method.
@@ -173,21 +182,30 @@ impl FirewheelProcessorInner {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        mut clock_seconds: ClockSeconds,
+        clock_seconds: ClockSeconds,
         stream_status: StreamStatus,
     ) {
         self.poll_messages();
 
         let mut clock_samples = self.clock_samples;
         self.clock_samples += ClockSamples(frames as u64);
-
         self.clock_shared
             .samples
             .store(self.clock_samples.0, Ordering::Relaxed);
-        self.clock_shared.seconds.store(
-            clock_seconds.0 + (frames as f64 * self.sample_rate_recip),
-            Ordering::Relaxed,
-        );
+
+        if self.is_new_stream {
+            self.is_new_stream = false;
+
+            // Apply an offset so that the clock appears to be steady for nodes.
+            self.clock_seconds_offset = self.last_clock_seconds.0 - clock_seconds.0;
+        }
+
+        let mut clock_seconds = ClockSeconds(clock_seconds.0 + self.clock_seconds_offset);
+        self.last_clock_seconds =
+            ClockSeconds(clock_seconds.0 + (frames as f64 * self.sample_rate_recip));
+        self.clock_shared
+            .seconds
+            .store(self.last_clock_seconds.0, Ordering::Relaxed);
 
         /*
         if !self.running {
