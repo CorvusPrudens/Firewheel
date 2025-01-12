@@ -1,10 +1,5 @@
-use std::num::NonZeroU32;
-
 use firewheel::{
-    basic_nodes::{
-        beep_test::BeepTestParams, mix::MixNodeConfig, StereoToMonoNode, VolumePanParams,
-        VolumeParams,
-    },
+    basic_nodes::{beep_test::BeepTestParams, StereoToMonoNode, VolumePanParams, VolumeParams},
     channel_config::NonZeroChannelCount,
     error::{AddEdgeError, UpdateError},
     event::{NodeEvent, NodeEventType},
@@ -18,9 +13,6 @@ use crate::ui::GuiAudioNode;
 pub enum NodeType {
     BeepTest,
     StereoToMono,
-    MixMono4Ins,
-    MixStereo2Ins,
-    MixStereo4Ins,
     VolumeMono,
     VolumeStereo,
     VolumePan,
@@ -48,18 +40,6 @@ impl AudioSystem {
         let id = match node_type {
             NodeType::BeepTest => self.cx.add_node(BeepTestParams::default()),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode),
-            NodeType::MixMono4Ins => self.cx.add_node(
-                MixNodeConfig::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(4).unwrap())
-                    .unwrap(),
-            ),
-            NodeType::MixStereo2Ins => self.cx.add_node(
-                MixNodeConfig::new(NonZeroU32::new(2).unwrap(), NonZeroU32::new(2).unwrap())
-                    .unwrap(),
-            ),
-            NodeType::MixStereo4Ins => self.cx.add_node(
-                MixNodeConfig::new(NonZeroU32::new(2).unwrap(), NonZeroU32::new(4).unwrap())
-                    .unwrap(),
-            ),
             NodeType::VolumeMono => self.cx.add_node(VolumeParams {
                 channels: NonZeroChannelCount::MONO,
                 ..Default::default()
@@ -77,9 +57,6 @@ impl AudioSystem {
                 params: BeepTestParams::default(),
             },
             NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
-            NodeType::MixMono4Ins => GuiAudioNode::MixMono4Ins { id },
-            NodeType::MixStereo2Ins => GuiAudioNode::MixStereo2Ins { id },
-            NodeType::MixStereo4Ins => GuiAudioNode::MixStereo4Ins { id },
             NodeType::VolumeMono => GuiAudioNode::VolumeMono {
                 id,
                 params: VolumeParams::default(),

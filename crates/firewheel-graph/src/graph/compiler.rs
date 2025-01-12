@@ -314,7 +314,7 @@ impl<'a> GraphIR<'a> {
                     let buffer = allocator.acquire();
                     entry.input_buffers.push(InBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                         should_clear: true,
                     });
                     buffers_to_release.push(buffer);
@@ -327,12 +327,52 @@ impl<'a> GraphIR<'a> {
                         .expect("No buffer assigned to edge!");
                     entry.input_buffers.push(InBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                         should_clear: false,
                     });
                     buffers_to_release.push(buffer);
                 } else {
-                    return Err(CompileGraphError::ManyToOneError(entry.id, port_idx));
+                    // Case 3: The port is an input with multiple incoming edges. Compute the
+                    //         summing point, and assign the input buffer assignment to the output
+                    //         of the summing point.
+
+                    let sum_buffer = allocator.acquire();
+                    let sum_output = OutBufferAssignment {
+                        buffer_index: sum_buffer.idx,
+                        //generation: sum_buffer.generation,
+                    };
+
+                    // The sum inputs are the corresponding output buffers of the incoming edges.
+                    let sum_inputs = edges
+                        .iter()
+                        .map(|edge| {
+                            let buf = assignment_table
+                                .remove(edge.id.0)
+                                .expect("No buffer assigned to edge!");
+                            let assignment = InBufferAssignment {
+                                buffer_index: buf.idx,
+                                //generation: buf.generation,
+                                should_clear: false,
+                            };
+                            allocator.release(buf);
+                            assignment
+                        })
+                        .collect();
+
+                    entry.sum_inputs.push(InsertedSum {
+                        input_buffers: sum_inputs,
+                        output_buffer: sum_output,
+                    });
+
+                    // This node's input buffer is the sum output buffer. Release it once the node
+                    // assignments are done.
+                    entry.input_buffers.push(InBufferAssignment {
+                        buffer_index: sum_output.buffer_index,
+                        //generation: sum_output.generation,
+                        should_clear: false,
+                    });
+
+                    buffers_to_release.push(sum_buffer);
                 }
             }
 
@@ -350,7 +390,7 @@ impl<'a> GraphIR<'a> {
                     let buffer = allocator.acquire();
                     entry.output_buffers.push(OutBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                     });
                     buffers_to_release.push(buffer);
                 } else {
@@ -363,7 +403,7 @@ impl<'a> GraphIR<'a> {
                     }
                     entry.output_buffers.push(OutBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                     });
                 }
             }
@@ -384,4 +424,10 @@ impl<'a> GraphIR<'a> {
     fn merge(self) -> CompiledSchedule {
         CompiledSchedule::new(self.schedule, self.max_num_buffers, self.max_block_frames)
     }
+}
+
+#[derive(Debug, Clone)]
+struct InsertedSum {
+    input_buffers: SmallVec<[InBufferAssignment; 4]>,
+    output_buffer: OutBufferAssignment,
 }

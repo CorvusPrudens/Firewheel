@@ -3,7 +3,7 @@ mod compiler;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use ahash::{AHashMap, AHashSet};
+use ahash::AHashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
@@ -30,7 +30,6 @@ struct EdgeHash {
 pub(crate) struct AudioGraph {
     nodes: Arena<NodeEntry>,
     edges: Arena<Edge>,
-    connected_input_ports: AHashSet<(NodeID, PortIdx)>,
     existing_edges: AHashMap<EdgeHash, EdgeID>,
 
     graph_in_id: NodeID,
@@ -82,7 +81,6 @@ impl AudioGraph {
         Self {
             nodes,
             edges: Arena::with_capacity(config.initial_edge_capacity as usize),
-            connected_input_ports: AHashSet::with_capacity(config.initial_edge_capacity as usize),
             existing_edges: AHashMap::with_capacity(config.initial_edge_capacity as usize),
             graph_in_id,
             graph_out_id,
@@ -144,10 +142,6 @@ impl AudioGraph {
             removed_edges.append(&mut self.remove_edges_with_output_port(node_id, port_idx));
         }
 
-        for port_idx in 0..node_entry.info.channel_config.num_inputs.get() {
-            self.connected_input_ports.remove(&(node_id, port_idx));
-        }
-
         self.nodes_to_remove_from_schedule.push(node_id);
         self.active_nodes_to_remove.insert(node_id, node_entry);
 
@@ -207,8 +201,6 @@ impl AudioGraph {
                     removed_edges.append(
                         &mut self.remove_edges_with_input_port(self.graph_out_id, port_idx),
                     );
-                    self.connected_input_ports
-                        .remove(&(self.graph_out_id, port_idx));
                 }
             }
 
@@ -279,10 +271,6 @@ impl AudioGraph {
             }) {
                 return Err(AddEdgeError::EdgeAlreadyExists);
             }
-
-            if self.connected_input_ports.contains(&(dst_node, dst_port)) {
-                return Err(AddEdgeError::InputPortAlreadyConnected(dst_node, dst_port));
-            }
         }
 
         let mut edge_ids = SmallVec::new();
@@ -297,8 +285,6 @@ impl AudioGraph {
                 // The caller gave us more than one of the same edge.
                 continue;
             }
-
-            self.connected_input_ports.insert((dst_node, dst_port));
 
             let new_edge_id = EdgeID(self.edges.insert(Edge {
                 id: EdgeID(thunderdome::Index::DANGLING),
@@ -378,8 +364,6 @@ impl AudioGraph {
                 dst_node: edge.dst_node,
                 dst_port: edge.dst_port,
             });
-            self.connected_input_ports
-                .remove(&(edge.dst_node, edge.dst_port));
 
             self.needs_compile = true;
 

@@ -1,7 +1,6 @@
-use std::{num::NonZeroU32, sync::Arc};
+use std::sync::Arc;
 
 use firewheel::{
-    basic_nodes::mix::MixNodeConfig,
     clock::EventDelay,
     error::UpdateError,
     node::NodeID,
@@ -40,20 +39,9 @@ impl AudioSystem {
 
         let graph_out = cx.graph_out_node();
 
-        let mix_node_id = cx.add_node(
-            MixNodeConfig::new(
-                NonZeroU32::new(2).unwrap(),
-                NonZeroU32::new(SAMPLE_PATHS.len() as u32).unwrap(),
-            )
-            .unwrap(),
-        );
-        cx.connect(mix_node_id, graph_out, &[(0, 0), (1, 1)], false)
-            .unwrap();
-
         let samplers = SAMPLE_PATHS
             .iter()
-            .enumerate()
-            .map(|(i, path)| {
+            .map(|path| {
                 let sample: Arc<dyn SampleResource> = Arc::new(
                     firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
                         .unwrap(),
@@ -70,13 +58,8 @@ impl AudioSystem {
 
                 let node_id = cx.add_node(state.clone());
 
-                cx.connect(
-                    node_id,
-                    mix_node_id,
-                    &[(0, i as u32 * 2), (1, (i as u32 * 2) + 1)],
-                    false,
-                )
-                .unwrap();
+                cx.connect(node_id, graph_out, &[(0, 0), (1, 1)], false)
+                    .unwrap();
 
                 Sampler { state, node_id }
             })

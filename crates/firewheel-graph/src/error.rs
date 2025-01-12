@@ -29,11 +29,6 @@ pub enum AddEdgeError {
     /// The edge already exists in the graph.
     #[error("Could not add edge: edge already exists in the graph")]
     EdgeAlreadyExists,
-    /// The input port is already connected.
-    #[error(
-        "Could not add edge: input port with ID {1:?} on node with ID {0:?} is already connected"
-    )]
-    InputPortAlreadyConnected(NodeID, PortIdx),
     /// This edge would have created a cycle in the graph.
     #[error("Could not add edge: cycle was detected")]
     CycleDetected,
@@ -59,9 +54,6 @@ pub enum CompileGraphError {
         "Failed to compile audio graph: input data contains multiple edges with the same ID {0:?}"
     )]
     EdgeIDNotUnique(EdgeID),
-    /// The input port has more than one connection.
-    #[error("Failed to compile audio graph: input data contains multiple edges that go to the same input port with ID {1:?} on node with id {0:?}")]
-    ManyToOneError(NodeID, PortIdx),
 }
 
 /// An error occurred while attempting to activate an audio stream in

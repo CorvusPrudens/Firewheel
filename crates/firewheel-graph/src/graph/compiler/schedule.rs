@@ -7,7 +7,7 @@ use firewheel_core::{
     SilenceMask,
 };
 
-use super::NodeID;
+use super::{InsertedSum, NodeID};
 
 /// A [ScheduledNode] is a [Node] that has been assigned buffers
 /// and a place in the schedule.
@@ -21,6 +21,8 @@ pub(super) struct ScheduledNode {
     pub input_buffers: SmallVec<[InBufferAssignment; 4]>,
     /// The assigned output buffers.
     pub output_buffers: SmallVec<[OutBufferAssignment; 4]>,
+
+    pub sum_inputs: Vec<InsertedSum>,
 }
 
 impl ScheduledNode {
@@ -30,6 +32,7 @@ impl ScheduledNode {
             debug_name,
             input_buffers: SmallVec::new(),
             output_buffers: SmallVec::new(),
+            sum_inputs: Vec::new(),
         }
     }
 }
@@ -43,6 +46,26 @@ impl Debug for ScheduledNode {
             self.id.0.slot(),
             self.id.0.generation()
         )?;
+
+        if !self.sum_inputs.is_empty() {
+            write!(f, " | sums: [")?;
+
+            for (i, sum_input) in self.sum_inputs.iter().enumerate() {
+                write!(f, "{{ in: [")?;
+                write!(f, "{}", sum_input.input_buffers[0].buffer_index)?;
+                for in_buf in sum_input.input_buffers.iter().skip(1) {
+                    write!(f, ", {}", in_buf.buffer_index)?;
+                }
+
+                write!(f, "], out: {} }}", sum_input.output_buffer.buffer_index)?;
+
+                if i != self.sum_inputs.len() - 1 && self.sum_inputs.len() > 1 {
+                    write!(f, ", ")?;
+                }
+            }
+
+            write!(f, "]")?;
+        }
 
         if !self.input_buffers.is_empty() {
             write!(f, " | in: [")?;
@@ -85,6 +108,7 @@ impl Debug for ScheduledNode {
             write!(f, "]")?;
         }
 
+        /*
         if !self.input_buffers.is_empty() {
             write!(f, " | in_gen: [")?;
 
@@ -106,6 +130,7 @@ impl Debug for ScheduledNode {
 
             write!(f, "]")?;
         }
+        */
 
         write!(f, " }}")
     }
@@ -119,10 +144,12 @@ pub(super) struct InBufferAssignment {
     /// Whether the engine should clear the buffer before
     /// passing it to a process
     pub should_clear: bool,
+    /*
     /// Buffers are reused, the "generation" represents
     /// how many times this buffer has been used before
     /// this assignment. Kept for debugging and visualization.
     pub generation: usize,
+    */
 }
 
 /// Represents a single buffer assigned to an output port
@@ -130,10 +157,12 @@ pub(super) struct InBufferAssignment {
 pub(super) struct OutBufferAssignment {
     /// The index of the buffer assigned
     pub buffer_index: usize,
+    /*
     /// Buffers are reused, the "generation" represents
     /// how many times this buffer has been used before
     /// this assignment. Kept for debugging and visualization.
     pub generation: usize,
+    */
 }
 
 pub struct NodeHeapData {
@@ -258,7 +287,7 @@ impl CompiledSchedule {
 
         for i in 0..fill_input_len {
             let buffer_index = graph_in_node.output_buffers[i].buffer_index;
-            *silence_mask_mut(&mut self.buffer_silence_flags, buffer_index) =
+            *silence_flag_mut(&mut self.buffer_silence_flags, buffer_index) =
                 silence_mask.is_channel_silent(i);
         }
 
@@ -268,7 +297,7 @@ impl CompiledSchedule {
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 buf_slice.fill(0.0);
 
-                *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) = true;
+                *silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index) = true;
             }
         }
     }
@@ -292,7 +321,7 @@ impl CompiledSchedule {
         for i in 0..read_output_len {
             let buffer_index = graph_out_node.input_buffers[i].buffer_index;
 
-            if *silence_mask_mut(&mut self.buffer_silence_flags, buffer_index) {
+            if *silence_flag_mut(&mut self.buffer_silence_flags, buffer_index) {
                 silence_mask.set_channel(i, true);
             }
 
@@ -324,6 +353,16 @@ impl CompiledSchedule {
         let mut outputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
 
         for scheduled_node in self.schedule.iter() {
+            for inserted_sum in scheduled_node.sum_inputs.iter() {
+                sum_inputs(
+                    inserted_sum,
+                    &self.buffers,
+                    &mut self.buffer_silence_flags,
+                    self.max_block_frames,
+                    frames,
+                );
+            }
+
             let mut in_silence_mask = SilenceMask::NONE_SILENT;
             let mut out_silence_mask = SilenceMask::NONE_SILENT;
 
@@ -333,7 +372,7 @@ impl CompiledSchedule {
             for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
                 let buf =
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
-                let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if b.should_clear {
                     buf[..frames].fill(0.0);
@@ -350,7 +389,7 @@ impl CompiledSchedule {
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
                 let buf =
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
-                let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if *s {
                     out_silence_mask.set_channel(i, true);
@@ -379,7 +418,7 @@ impl CompiledSchedule {
                 ProcessStatus::ClearAllOutputs => {
                     // Clear output buffers which need cleared.
                     for b in scheduled_node.output_buffers.iter() {
-                        let s = silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                        let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                         clear_buffer(b.buffer_index, s);
                     }
@@ -391,9 +430,9 @@ impl CompiledSchedule {
                         .zip(scheduled_node.output_buffers.iter())
                     {
                         let in_s =
-                            *silence_mask_mut(&mut self.buffer_silence_flags, in_buf.buffer_index);
+                            *silence_flag_mut(&mut self.buffer_silence_flags, in_buf.buffer_index);
                         let out_s =
-                            silence_mask_mut(&mut self.buffer_silence_flags, out_buf.buffer_index);
+                            silence_flag_mut(&mut self.buffer_silence_flags, out_buf.buffer_index);
 
                         if in_s {
                             clear_buffer(out_buf.buffer_index, out_s);
@@ -423,7 +462,7 @@ impl CompiledSchedule {
                             .skip(scheduled_node.input_buffers.len())
                         {
                             let s =
-                                silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                                silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                             clear_buffer(b.buffer_index, s);
                         }
@@ -431,13 +470,77 @@ impl CompiledSchedule {
                 }
                 ProcessStatus::OutputsModified { out_silence_mask } => {
                     for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                        *silence_mask_mut(&mut self.buffer_silence_flags, b.buffer_index) =
+                        *silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index) =
                             out_silence_mask.is_channel_silent(i);
                     }
                 }
             }
         }
     }
+}
+
+fn sum_inputs(
+    inserted_sum: &InsertedSum,
+    buffers: &Vec<f32>,
+    buffer_silence_flags: &mut [bool],
+    max_block_frames: usize,
+    frames: usize,
+) {
+    let mut all_buffers_silent = true;
+
+    let out_slice = buffer_slice_mut(
+        buffers,
+        inserted_sum.output_buffer.buffer_index,
+        max_block_frames,
+        frames,
+    );
+
+    if *silence_flag_mut(
+        buffer_silence_flags,
+        inserted_sum.input_buffers[0].buffer_index,
+    ) {
+        if !*silence_flag_mut(
+            buffer_silence_flags,
+            inserted_sum.output_buffer.buffer_index,
+        ) {
+            buffer_slice_mut(
+                buffers,
+                inserted_sum.output_buffer.buffer_index,
+                max_block_frames,
+                frames,
+            )
+            .fill(0.0);
+        }
+    } else {
+        let in_slice = buffer_slice_mut(
+            buffers,
+            inserted_sum.input_buffers[0].buffer_index,
+            max_block_frames,
+            frames,
+        );
+        out_slice.copy_from_slice(in_slice);
+
+        all_buffers_silent = false;
+    }
+
+    for buf_id in inserted_sum.input_buffers.iter().skip(1) {
+        if *silence_flag_mut(buffer_silence_flags, buf_id.buffer_index) {
+            // Input channel is silent, no need to add it.
+            continue;
+        }
+
+        all_buffers_silent = false;
+
+        let in_slice = buffer_slice_mut(buffers, buf_id.buffer_index, max_block_frames, frames);
+        for (os, &is) in out_slice.iter_mut().zip(in_slice.iter()) {
+            *os += is;
+        }
+    }
+
+    *silence_flag_mut(
+        buffer_silence_flags,
+        inserted_sum.output_buffer.buffer_index,
+    ) = all_buffers_silent;
 }
 
 #[inline]
@@ -476,7 +579,7 @@ fn buffer_slice_mut<'a>(
 }
 
 #[inline]
-fn silence_mask_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usize) -> &'a mut bool {
+fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usize) -> &'a mut bool {
     // SAFETY
     //
     // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]
@@ -493,7 +596,7 @@ mod tests {
 
     use crate::{
         basic_nodes::dummy::DummyConfig,
-        graph::{AddEdgeError, AudioGraph, EdgeID},
+        graph::{AudioGraph, EdgeID},
         FirewheelConfig,
     };
 
@@ -529,10 +632,10 @@ mod tests {
         // Last node must be node 1
         assert_eq!(schedule.schedule[1].id, node1);
 
-        verify_node(node0, &[], &schedule, &graph);
-        verify_node(node1, &[false], &schedule, &graph);
+        verify_node(node0, &[], 0, &schedule, &graph);
+        verify_node(node1, &[false], 0, &schedule, &graph);
 
-        verify_edge(edge0, &graph, &schedule);
+        verify_edge(edge0, &graph, &schedule, None);
     }
 
     // Graph compile test 1:
@@ -602,30 +705,31 @@ mod tests {
         // Last node must be 6
         assert_eq!(schedule.schedule[6].id, node6);
 
-        verify_node(node0, &[], &schedule, &graph);
-        verify_node(node1, &[false], &schedule, &graph);
-        verify_node(node2, &[false], &schedule, &graph);
-        verify_node(node3, &[false, true], &schedule, &graph);
-        verify_node(node4, &[true, false], &schedule, &graph);
+        verify_node(node0, &[], 0, &schedule, &graph);
+        verify_node(node1, &[false], 0, &schedule, &graph);
+        verify_node(node2, &[false], 0, &schedule, &graph);
+        verify_node(node3, &[false, true], 0, &schedule, &graph);
+        verify_node(node4, &[true, false], 0, &schedule, &graph);
         verify_node(
             node5,
             &[false, false, false, false, false],
+            0,
             &schedule,
             &graph,
         );
-        verify_node(node6, &[false, false], &schedule, &graph);
+        verify_node(node6, &[false, false], 0, &schedule, &graph);
 
-        verify_edge(edge0, &graph, &schedule);
-        verify_edge(edge1, &graph, &schedule);
-        verify_edge(edge2, &graph, &schedule);
-        verify_edge(edge3, &graph, &schedule);
-        verify_edge(edge4, &graph, &schedule);
-        verify_edge(edge5, &graph, &schedule);
-        verify_edge(edge6, &graph, &schedule);
-        verify_edge(edge7, &graph, &schedule);
-        verify_edge(edge8, &graph, &schedule);
-        verify_edge(edge9, &graph, &schedule);
-        verify_edge(edge10, &graph, &schedule);
+        verify_edge(edge0, &graph, &schedule, None);
+        verify_edge(edge1, &graph, &schedule, None);
+        verify_edge(edge2, &graph, &schedule, None);
+        verify_edge(edge3, &graph, &schedule, None);
+        verify_edge(edge4, &graph, &schedule, None);
+        verify_edge(edge5, &graph, &schedule, None);
+        verify_edge(edge6, &graph, &schedule, None);
+        verify_edge(edge7, &graph, &schedule, None);
+        verify_edge(edge8, &graph, &schedule, None);
+        verify_edge(edge9, &graph, &schedule, None);
+        verify_edge(edge10, &graph, &schedule, None);
     }
 
     // Graph compile test 2:
@@ -636,7 +740,7 @@ mod tests {
     //   |   │   └───┘  │   ┼──►   │
     //   │ 0 │   ┌───┐  │ 4 ┼  ┼ 5 │
     //   └─┬─┘ ┌─►   ┼  ┼   │  └───┘
-    //     └─────► 3 ┼──►   │  ┌───┐
+    //     └───●─► 3 ┼──►   │  ┌───┐
     //         │ └───┘  │   ┼──► 6 ┼
     //   ┌───┐ │        │   │  └───┘
     //   ┼ 1 ┼─●────────►   ┼
@@ -661,10 +765,11 @@ mod tests {
         let edge1 = graph.connect(node0, node3, &[(0, 1)], false).unwrap()[0];
         let edge2 = graph.connect(node2, node4, &[(0, 0)], false).unwrap()[0];
         let edge3 = graph.connect(node3, node4, &[(1, 3)], false).unwrap()[0];
-        let edge4 = graph.connect(node1, node4, &[(0, 4)], false).unwrap()[0];
-        let edge5 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
-        let edge6 = graph.connect(node4, node5, &[(0, 0)], false).unwrap()[0];
-        let edge7 = graph.connect(node4, node6, &[(2, 0)], false).unwrap()[0];
+        let edge4 = graph.connect(node1, node3, &[(0, 1)], false).unwrap()[0];
+        let edge5 = graph.connect(node1, node4, &[(0, 4)], false).unwrap()[0];
+        let edge6 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
+        let edge7 = graph.connect(node4, node5, &[(0, 0)], false).unwrap()[0];
+        let edge8 = graph.connect(node4, node6, &[(2, 0)], false).unwrap()[0];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -686,22 +791,29 @@ mod tests {
         assert!(schedule.schedule[5].id == node5 || schedule.schedule[5].id == node6);
         assert!(schedule.schedule[6].id == node5 || schedule.schedule[6].id == node6);
 
-        verify_edge(edge0, &graph, &schedule);
-        verify_edge(edge1, &graph, &schedule);
-        verify_edge(edge2, &graph, &schedule);
-        verify_edge(edge3, &graph, &schedule);
-        verify_edge(edge4, &graph, &schedule);
-        verify_edge(edge5, &graph, &schedule);
-        verify_edge(edge6, &graph, &schedule);
-        verify_edge(edge7, &graph, &schedule);
+        verify_edge(edge0, &graph, &schedule, None);
+        verify_edge(edge1, &graph, &schedule, Some(0));
+        verify_edge(edge2, &graph, &schedule, None);
+        verify_edge(edge3, &graph, &schedule, None);
+        verify_edge(edge4, &graph, &schedule, Some(0));
+        verify_edge(edge5, &graph, &schedule, None);
+        verify_edge(edge6, &graph, &schedule, None);
+        verify_edge(edge7, &graph, &schedule, None);
+        verify_edge(edge8, &graph, &schedule, None);
 
-        verify_node(node0, &[], &schedule, &graph);
-        verify_node(node1, &[true], &schedule, &graph);
-        verify_node(node2, &[false, true], &schedule, &graph);
-        verify_node(node3, &[false, false], &schedule, &graph);
-        verify_node(node4, &[false, true, true, false, false], &schedule, &graph);
-        verify_node(node5, &[false, true], &schedule, &graph);
-        verify_node(node6, &[false], &schedule, &graph);
+        verify_node(node0, &[], 0, &schedule, &graph);
+        verify_node(node1, &[true], 0, &schedule, &graph);
+        verify_node(node2, &[false, true], 0, &schedule, &graph);
+        verify_node(node3, &[false, false], 1, &schedule, &graph);
+        verify_node(
+            node4,
+            &[false, true, true, false, false],
+            0,
+            &schedule,
+            &graph,
+        );
+        verify_node(node5, &[false, true], 0, &schedule, &graph);
+        verify_node(node6, &[false], 0, &schedule, &graph);
     }
 
     fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
@@ -713,6 +825,7 @@ mod tests {
     fn verify_node(
         node_id: NodeID,
         in_ports_that_should_clear: &[bool],
+        num_sum_ins: usize,
         schedule: &CompiledSchedule,
         graph: &AudioGraph,
     ) {
@@ -725,6 +838,7 @@ mod tests {
         assert_eq!(scheduled_node.id, node_id);
         assert_eq!(scheduled_node.input_buffers.len(), num_inputs);
         assert_eq!(scheduled_node.output_buffers.len(), num_outputs);
+        assert_eq!(scheduled_node.sum_inputs.len(), num_sum_ins);
 
         assert_eq!(in_ports_that_should_clear.len(), num_inputs);
 
@@ -738,6 +852,16 @@ mod tests {
 
         let mut buffer_alias_check: AHashSet<usize> = AHashSet::default();
 
+        for inserted_sum in scheduled_node.sum_inputs.iter() {
+            buffer_alias_check.insert(inserted_sum.output_buffer.buffer_index);
+
+            for in_buf in inserted_sum.input_buffers.iter() {
+                assert!(buffer_alias_check.insert(in_buf.buffer_index));
+            }
+
+            buffer_alias_check.clear();
+        }
+
         for buffer in scheduled_node.input_buffers.iter() {
             assert!(buffer_alias_check.insert(buffer.buffer_index));
         }
@@ -747,7 +871,12 @@ mod tests {
         }
     }
 
-    fn verify_edge(edge_id: EdgeID, graph: &AudioGraph, schedule: &CompiledSchedule) {
+    fn verify_edge(
+        edge_id: EdgeID,
+        graph: &AudioGraph,
+        schedule: &CompiledSchedule,
+        inserted_sum_idx: Option<usize>,
+    ) {
         let edge = graph.edge(edge_id).unwrap();
 
         let mut src_buffer_idx = None;
@@ -755,10 +884,10 @@ mod tests {
         for node in schedule.schedule.iter() {
             if node.id == edge.src_node {
                 src_buffer_idx = Some(node.output_buffers[edge.src_port as usize].buffer_index);
-                if dst_buffer_idx.is_some() {
+                if dst_buffer_idx.is_some() || inserted_sum_idx.is_some() {
                     break;
                 }
-            } else if node.id == edge.dst_node {
+            } else if node.id == edge.dst_node && inserted_sum_idx.is_none() {
                 dst_buffer_idx = Some(node.input_buffers[edge.dst_port as usize].buffer_index);
                 if src_buffer_idx.is_some() {
                     break;
@@ -767,31 +896,28 @@ mod tests {
         }
 
         let src_buffer_idx = src_buffer_idx.unwrap();
-        let dst_buffer_idx = dst_buffer_idx.unwrap();
 
-        assert_eq!(src_buffer_idx, dst_buffer_idx);
-    }
+        if let Some(inserted_sum_idx) = inserted_sum_idx {
+            // Assert that the source buffer appears in one of the sum's input.
+            for node in schedule.schedule.iter() {
+                if node.id == edge.dst_node {
+                    let mut found = false;
+                    for in_buf in node.sum_inputs[inserted_sum_idx].input_buffers.iter() {
+                        if in_buf.buffer_index == src_buffer_idx {
+                            found = true;
+                            break;
+                        }
+                    }
 
-    #[test]
-    fn many_to_one_detection() {
-        let mut graph = AudioGraph::new(&FirewheelConfig {
-            num_graph_inputs: ChannelCount::STEREO,
-            num_graph_outputs: ChannelCount::MONO,
-            ..Default::default()
-        });
+                    assert!(found);
 
-        let node1 = graph.graph_in_node();
-        let node2 = graph.graph_out_node();
-
-        graph.connect(node1, node2, &[(0, 0)], false).unwrap();
-
-        if let Err(AddEdgeError::InputPortAlreadyConnected(node_id, port_id)) =
-            graph.connect(node1, node2, &[(1, 0)], false)
-        {
-            assert_eq!(node_id, node2);
-            assert_eq!(port_id, 0);
+                    break;
+                }
+            }
         } else {
-            panic!("expected error");
+            let dst_buffer_idx = dst_buffer_idx.unwrap();
+
+            assert_eq!(src_buffer_idx, dst_buffer_idx);
         }
     }
 

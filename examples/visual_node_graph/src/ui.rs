@@ -21,15 +21,6 @@ pub enum GuiAudioNode {
     StereoToMono {
         id: firewheel::node::NodeID,
     },
-    MixMono4Ins {
-        id: firewheel::node::NodeID,
-    },
-    MixStereo2Ins {
-        id: firewheel::node::NodeID,
-    },
-    MixStereo4Ins {
-        id: firewheel::node::NodeID,
-    },
     VolumeMono {
         id: firewheel::node::NodeID,
         params: VolumeParams,
@@ -51,9 +42,6 @@ impl GuiAudioNode {
             &Self::SystemOut => audio_system.graph_out_node(),
             &Self::BeepTest { id, .. } => id,
             &Self::StereoToMono { id } => id,
-            &Self::MixMono4Ins { id } => id,
-            &Self::MixStereo2Ins { id } => id,
-            &Self::MixStereo4Ins { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
             &Self::VolumePan { id, .. } => id,
@@ -66,9 +54,6 @@ impl GuiAudioNode {
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
             &Self::StereoToMono { .. } => "Stereo To Mono",
-            &Self::MixMono4Ins { .. } => "Mix (Mono, 4 Ins)",
-            &Self::MixStereo2Ins { .. } => "Mix (Stereo, 2 Ins)",
-            &Self::MixStereo4Ins { .. } => "Mix (Stereo, 4 Ins)",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
             &Self::VolumePan { .. } => "Volume & Pan",
@@ -82,9 +67,6 @@ impl GuiAudioNode {
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
             &Self::StereoToMono { .. } => 2,
-            &Self::MixMono4Ins { .. } => 4,
-            &Self::MixStereo2Ins { .. } => 4,
-            &Self::MixStereo4Ins { .. } => 8,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
@@ -97,9 +79,6 @@ impl GuiAudioNode {
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
             &Self::StereoToMono { .. } => 1,
-            &Self::MixMono4Ins { .. } => 1,
-            &Self::MixStereo2Ins { .. } => 2,
-            &Self::MixStereo4Ins { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
@@ -220,21 +199,6 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
-            snarl.insert_node(pos, node);
-            ui.close_menu();
-        }
-        if ui.button("Mix (mono, 4 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixMono4Ins);
-            snarl.insert_node(pos, node);
-            ui.close_menu();
-        }
-        if ui.button("Mix (stereo, 2 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixStereo2Ins);
-            snarl.insert_node(pos, node);
-            ui.close_menu();
-        }
-        if ui.button("Mix (stereo, 4 ins)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixStereo4Ins);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
