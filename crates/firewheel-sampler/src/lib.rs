@@ -15,7 +15,7 @@ use firewheel_core::{
     dsp::{
         buffer::InstanceBuffer,
         decibel::normalized_volume_to_raw_gain,
-        declick::{DeclickValues, Declicker},
+        declick::{DeclickValues, Declicker, FadeType},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
     node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
@@ -450,8 +450,13 @@ impl SamplerProcessor {
         };
 
         if !self.declicker.is_settled() {
-            self.declicker
-                .process(buffers, 0..frames, declick_values, state.gain);
+            self.declicker.process(
+                buffers,
+                0..frames,
+                declick_values,
+                state.gain,
+                FadeType::EqualPower3dB,
+            );
         } else if state.gain != 1.0 {
             for b in buffers[..channels_filled].iter_mut() {
                 for s in b[..frames].iter_mut() {
