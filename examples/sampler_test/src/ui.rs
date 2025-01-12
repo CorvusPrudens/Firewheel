@@ -1,5 +1,5 @@
 use eframe::App;
-use firewheel::node::RepeatMode;
+use firewheel::sampler::RepeatMode;
 
 use crate::system::{AudioSystem, SAMPLE_PATHS};
 
@@ -63,7 +63,7 @@ impl App for DemoApp {
                         );
                     }
 
-                    if self.audio_system.sampler_status(i).is_playing() {
+                    if self.audio_system.playback_state(i).is_playing() {
                         if ui.button("Pause").clicked() {
                             self.audio_system.pause(i);
                         }

@@ -14,6 +14,8 @@ pub struct MixNodeConfig {
 
 impl MixNodeConfig {
     pub fn new(channels: NonZeroU32, num_in_streams: NonZeroU32) -> Result<Self, MixConfigError> {
+        dbg!(num_in_streams);
+
         if channels.get() * num_in_streams.get() > 64 {
             return Err(MixConfigError::TooManyChannels {
                 channels,
@@ -62,7 +64,7 @@ impl AudioNodeConstructor for MixNodeConfig {
 
     fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(MixConfigProcessor {
-            num_in_streams: self.channels.get() as usize,
+            num_in_streams: self.num_in_streams.get() as usize,
         })
     }
 }

@@ -8,9 +8,12 @@ use firewheel_core::{
     StreamInfo,
 };
 use smallvec::SmallVec;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    num::NonZeroU32,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use crate::{
@@ -196,8 +199,14 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             return Err(StartStreamError::OldStreamNotFinishedStopping);
         }
 
-        let (mut backend_handle, stream_info) =
+        let (mut backend_handle, mut stream_info) =
             B::start_stream(config).map_err(|e| StartStreamError::BackendError(e))?;
+
+        stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
+        stream_info.declick_frames = NonZeroU32::new(
+            (self.config.declick_seconds * stream_info.sample_rate.get() as f32).round() as u32,
+        )
+        .unwrap_or(NonZeroU32::MIN);
 
         let schedule = self.graph.compile(&stream_info)?;
 

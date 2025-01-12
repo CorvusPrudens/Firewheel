@@ -27,9 +27,9 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [ ] simple spatial positioning (only the simplest implementation for first release)
 * [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
 * [x] Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
-* [ ] Basic tweening support for volume, pan, and spatial positioning nodes
+* [ ] Basic sequencing (automation) support for sampler, volume, pan, and spatial positioning nodes
 * [ ] A general purpose "preset" graph with an easy-to-use interface
-* [ ] Support for loading a wide variety of audio formats (using [Symphonium](https://github.com/MeadowlarkDAW/symphonium))
+* [x] Support for loading a wide variety of audio formats (using [Symphonium](https://github.com/MeadowlarkDAW/symphonium))
 * [x] Fault tolerance for audio streams (The game shouldn't crash just because the player accidentally unplugged their headphones.)
 * [x] Option to hard clip outputs at 0dB to help protect the system's speakers.
 * [x] Properly respect realtime constraints (no mutexes!)
@@ -99,24 +99,23 @@ Audio backends should have the following features:
 * Retrieve a list of audio output and/or audio input devices so games can let the user choose which audio devices to use in the game's setting GUI.
 * Spawn an audio stream with the chosen input/output devices (or `None` which specifies to use the default device).
     * If the device is not found, try falling back to the default audio device first before returning an error (if the user specified that they want to fall back).
-    * If no default device is found, try falling back to a "dummy" audio device first before returning an error (if the user specified that they want to fall back). If the backend does not support dummy devices, then emulate an audio stream by spawning a thread manually.
+    * If no default device is found, try falling back to a "dummy" audio device first before returning an error (if the user specified that they want to fall back).
 * While the stream is running, the internal clock should be updated accordingly before calling `FirewheelProcessor::process()`. (See the `Clocks and Events` section below.)
 * If an error occurs, notify the user of the error when they call the `update()` method. From there the user can decide how to respond to the error (try to reconnect, fallback to a different device, etc.)
 
 ## Engine Lifecycle
 
-1. A context with an audio graph is initialized. This context is currently "inactive", and the audio graph cannot be mutated.
+1. A context with an audio graph is initialized.
 2. The context is "activated" using an audio stream given to it by the backend. A realtime-safe message channel is created, along with a processor (executor) that is sent to the audio stream. Then the audio graph is "compiled" into a schedule and sent to the executor over the message channel. If compiling fails, then the context will be deactivated again and return an error.
 3. "Active" state:
-    * 3.1 - Users can add, remove, mutate, and connect nodes in this state.
-    * 3.2 - The user periodically calls the `update` method on the context (i.e. once every frame). This method checks for any changes in the graph, and compiles a new schedule if a change is detected. If there was an error compiling the graph, then the update method will return an error and a new schedule will not be created.
+    - The user periodically calls the `update` method on the context (i.e. once every frame). This method checks for any changes in the graph, and compiles a new schedule if a change is detected. If there was an error compiling the graph, then the update method will return an error and a new schedule will not be created.
 4. The context can become deactivated in one of two ways:
     * a. The user requests to deactivate the context. This is necessary, for example, when changing the audio io devices in the game's settings. Dropping the context will also automatically deactivate it first.
     * b. The audio stream is interrupted (i.e. the user unplugged the audio device). In this case, it is up to the developer/backend to decide how to respond (i.e. automatically try to activate again with a different device, or falling back to a "dummy" audio device).
 
 ## Clocks and Events
 
-There are two clocks in the audio stream: the seconds clock and the sample clock.
+There are three clocks in the audio stream: the seconds clock, the sample clock, and the musical clock.
 
 ### Seconds Clock
 
@@ -126,7 +125,10 @@ Usage of the clock works like this:
 
 1. Before sending an event to an audio node, the user calls `AudioGraph::clock_now()` to retrieve the current clock time.
 2. For any event type that accepts an `EventDelay` parameter, the user will schedule the event like so: `EventDelay::DelayUntilSeconds(AudioGraph::clock_now() + desired_amount_of_delay)`.
-3. When the engine processor receives the event, it waits for the event to elapse. Once reached, it then sends the event to the node at the resulting sample offset.
+
+### Sample clock
+
+The works the same as `Seconds Clock`, except it simply counts the total number of samples that have been processed since the stream was started. The is very accurate, but it does not correctly account for any output underflows that may occur.
 
 ### Musical Clock
 

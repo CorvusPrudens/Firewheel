@@ -1,12 +1,13 @@
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 
 use firewheel::{
-    basic_nodes::MixNode,
+    basic_nodes::mix::MixNodeConfig,
     clock::EventDelay,
-    node::RepeatMode,
+    error::UpdateError,
+    node::NodeID,
     sample_resource::SampleResource,
-    sampler::{Sampler, SamplerNode, SamplerStatus},
-    ChannelConfig, FirewheelCpalCtx, UpdateStatus,
+    sampler::{PlaybackState, RepeatMode, SamplerState, SequenceType},
+    FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
 
@@ -17,35 +18,36 @@ pub const SAMPLE_PATHS: [&'static str; 4] = [
     "assets/test_files/bird_ambiance.ogg",
 ];
 
-pub struct AudioSystem {
-    cx: FirewheelCpalCtx,
+struct Sampler {
+    pub state: SamplerState,
+    pub node_id: NodeID,
+}
 
-    pub samplers: Vec<Sampler>,
+pub struct AudioSystem {
+    cx: FirewheelContext,
+
+    samplers: Vec<Sampler>,
 }
 
 impl AudioSystem {
     pub fn new() -> Self {
-        let mut cx = FirewheelCpalCtx::new(Default::default());
-        cx.activate(Default::default()).unwrap();
+        let mut cx = FirewheelContext::new(Default::default());
+        cx.start_stream(Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
         let mut loader = SymphoniumLoader::new();
 
-        let graph = cx.graph_mut().unwrap();
-        let graph_out = graph.graph_out_node();
+        let graph_out = cx.graph_out_node();
 
-        let mix_node_id = graph
-            .add_node(
-                Box::new(MixNode),
-                Some(ChannelConfig {
-                    num_inputs: (2 * SAMPLE_PATHS.len()).into(),
-                    num_outputs: 2.into(),
-                }),
+        let mix_node_id = cx.add_node(
+            MixNodeConfig::new(
+                NonZeroU32::new(2).unwrap(),
+                NonZeroU32::new(SAMPLE_PATHS.len() as u32).unwrap(),
             )
-            .unwrap();
-        graph
-            .connect(mix_node_id, graph_out, &[(0, 0), (1, 1)], false)
+            .unwrap(),
+        );
+        cx.connect(mix_node_id, graph_out, &[(0, 0), (1, 1)], false)
             .unwrap();
 
         let samplers = SAMPLE_PATHS
@@ -57,29 +59,26 @@ impl AudioSystem {
                         .unwrap(),
                 );
 
-                let node_id = graph
-                    .add_node(Box::new(SamplerNode::new(Default::default())), None)
-                    .unwrap();
-                graph
-                    .connect(
-                        node_id,
-                        mix_node_id,
-                        &[(0, i as u32 * 2), (1, (i as u32 * 2) + 1)],
-                        false,
-                    )
-                    .unwrap();
-
-                let mut sampler = Sampler::new(node_id);
-
-                sampler.set_sample(
-                    Some(&sample),
-                    1.0,
-                    RepeatMode::PlayOnce,
-                    EventDelay::Immediate,
-                    graph,
+                let state = SamplerState::new(
+                    Some(SequenceType::SingleSample {
+                        sample,
+                        normalized_volume: 1.0,
+                        repeat_mode: RepeatMode::PlayOnce,
+                    }),
+                    Default::default(),
                 );
 
-                sampler
+                let node_id = cx.add_node(state.clone());
+
+                cx.connect(
+                    node_id,
+                    mix_node_id,
+                    &[(0, i as u32 * 2), (1, (i as u32 * 2) + 1)],
+                    false,
+                )
+                .unwrap();
+
+                Sampler { state, node_id }
             })
             .collect();
 
@@ -87,7 +86,7 @@ impl AudioSystem {
     }
 
     pub fn is_activated(&self) -> bool {
-        self.cx.is_activated()
+        self.cx.is_audio_stream_running()
     }
 
     pub fn start_or_restart(
@@ -96,59 +95,71 @@ impl AudioSystem {
         normalized_volume: f32,
         repeat_mode: RepeatMode,
     ) {
-        let graph = self.cx.graph_mut().unwrap();
         let sampler = &mut self.samplers[sampler_i];
 
-        if normalized_volume != sampler.normalized_volume() || repeat_mode != sampler.repeat_mode()
-        {
-            sampler.set_sample(
-                None,
-                normalized_volume,
-                repeat_mode,
-                EventDelay::Immediate,
-                graph,
+        let Some(SequenceType::SingleSample {
+            normalized_volume: old_normalized_volume,
+            repeat_mode: old_repeat_mode,
+            ..
+        }) = &mut sampler.state.sequence
+        else {
+            return;
+        };
+
+        if normalized_volume != *old_normalized_volume || repeat_mode != *old_repeat_mode {
+            *old_normalized_volume = normalized_volume;
+            *old_repeat_mode = repeat_mode;
+
+            self.cx
+                .queue_event_for(sampler.node_id, sampler.state.sync_sequence_event(true));
+        } else {
+            self.cx.queue_event_for(
+                sampler.node_id,
+                sampler.state.start_or_restart_event(EventDelay::Immediate),
             );
         }
-
-        sampler.start_or_restart(EventDelay::Immediate, graph);
     }
 
     pub fn pause(&mut self, sampler_i: usize) {
-        let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].pause(EventDelay::Immediate, graph);
+        let sampler = &self.samplers[sampler_i];
+
+        self.cx
+            .queue_event_for(sampler.node_id, sampler.state.pause_event());
     }
 
     pub fn resume(&mut self, sampler_i: usize) {
-        let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].resume(EventDelay::Immediate, graph);
+        let sampler = &self.samplers[sampler_i];
+
+        self.cx
+            .queue_event_for(sampler.node_id, sampler.state.resume_event());
     }
 
     pub fn stop(&mut self, sampler_i: usize) {
-        let graph = self.cx.graph_mut().unwrap();
-        self.samplers[sampler_i].stop(graph);
+        let sampler = &self.samplers[sampler_i];
+
+        self.cx
+            .queue_event_for(sampler.node_id, sampler.state.stop_event());
     }
 
-    pub fn sampler_status(&self, sampler_i: usize) -> SamplerStatus {
-        self.samplers[sampler_i].status(self.cx.graph())
+    pub fn playback_state(&self, sampler_i: usize) -> PlaybackState {
+        self.samplers[sampler_i].state.playback_state()
     }
 
     pub fn update(&mut self) {
-        match self.cx.update() {
-            UpdateStatus::Inactive => {}
-            UpdateStatus::Active { graph_error } => {
-                if let Some(e) = graph_error {
-                    log::error!("audio graph error: {}", e);
-                }
-            }
-            UpdateStatus::Deactivated { error, .. } => {
-                if let Some(e) = error {
-                    log::error!("Stream disconnected: {}", e);
-                } else {
-                    log::error!("Stream disconnected");
-                }
+        if let Err(e) = self.cx.update() {
+            log::error!("{:?}", &e);
+
+            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
+                // The stream has stopped unexpectedly (i.e the user has
+                // unplugged their headphones.)
+                //
+                // Typically you should start a new stream as soon as
+                // possible to resume processing (event if it's a dummy
+                // output device).
+                //
+                // In this example we just quit the application.
+                panic!("Stream stopped unexpectedly!");
             }
         }
-
-        self.cx.flush_events();
     }
 }

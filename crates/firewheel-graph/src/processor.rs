@@ -1,4 +1,5 @@
 use std::{
+    num::NonZeroU32,
     ops::Range,
     sync::{atomic::Ordering, Arc},
 };
@@ -83,6 +84,7 @@ pub(crate) struct FirewheelProcessorInner {
     to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
     event_buffer: Vec<NodeEvent>,
 
+    sample_rate: NonZeroU32,
     sample_rate_recip: f64,
     max_block_frames: usize,
 
@@ -117,6 +119,7 @@ impl FirewheelProcessorInner {
             from_graph_rx,
             to_graph_tx,
             event_buffer: Vec::new(),
+            sample_rate: stream_info.sample_rate,
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: ClockSamples(0),
@@ -141,6 +144,19 @@ impl FirewheelProcessorInner {
     pub fn new_stream(&mut self, stream_info: &StreamInfo) {
         for (_, node) in self.nodes.iter_mut() {
             node.processor.new_stream(stream_info);
+        }
+
+        if self.sample_rate != stream_info.sample_rate {
+            self.sample_rate = stream_info.sample_rate;
+            self.sample_rate_recip = stream_info.sample_rate_recip;
+
+            self.declick_values = DeclickValues::new(stream_info.declick_frames);
+        }
+
+        if self.max_block_frames != stream_info.max_block_frames.get() as usize {
+            self.max_block_frames = stream_info.max_block_frames.get() as usize;
+
+            self.scratch_buffers = ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
         }
     }
 

@@ -47,9 +47,9 @@ fn main() {
             .unwrap(),
     );
 
-    sampler_state.use_sample(sample, 1.0, RepeatMode::PlayOnce);
+    sampler_state.set_sample(sample, 1.0, RepeatMode::PlayOnce);
 
-    cx.queue_event_for(sampler_id, sampler_state.sync_state_event(true));
+    cx.queue_event_for(sampler_id, sampler_state.sync_sequence_event(true));
 
     // Alternatively, instead of setting `start_immediately` to `true`, you can
     // tell the sampler to start playing its sequence like this:
