@@ -3,8 +3,9 @@ use bevy_math::prelude::{Curve, Ease, EaseFunction, EasingCurve};
 use core::any::Any;
 use fixed_vec::FixedVec;
 use smallvec::SmallVec;
+use std::sync::Arc;
 
-mod fixed_vec;
+pub mod fixed_vec;
 pub mod range;
 pub mod smoother;
 
@@ -64,6 +65,15 @@ pub enum ParamData {
     I64(TimelineEvent<i64>),
     Bool(DeferredEvent<bool>),
     Any(Box<dyn Any + Sync + Send>),
+}
+
+impl ParamData {
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        match self {
+            Self::Any(any) => any.downcast_ref(),
+            _ => None,
+        }
+    }
 }
 
 /// A path of indeces that uniquely describes an arbitrarily nested field.
@@ -585,6 +595,28 @@ impl AudioParam for Deferred<i32> {
 
     fn tick(&mut self, time: ClockSeconds) {
         self.value = self.value_at(time);
+    }
+}
+
+// This may be questionable.
+impl<T: ?Sized + Send + Sync + 'static> AudioParam for Arc<T> {
+    fn diff(&self, cmp: &Self, mut writer: impl FnMut(ParamEvent), path: ParamPath) {
+        if Arc::ptr_eq(self, cmp) {
+            writer(ParamEvent {
+                data: ParamData::Any(Box::new(Arc::clone(self))),
+                path,
+            });
+        }
+    }
+
+    fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
+        match data.downcast_ref::<Self>() {
+            Some(data) => {
+                *self = Arc::clone(data);
+                Ok(())
+            }
+            None => Err(PatchError::InvalidData),
+        }
     }
 }
 

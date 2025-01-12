@@ -28,7 +28,6 @@ impl<T> Default for FixedVec<T> {
     }
 }
 
-#[expect(dead_code)]
 impl<T> FixedVec<T> {
     /// Construct a new [`FixedVec`] with a fixed capacity.
     pub fn new(capacity: usize) -> Self {
