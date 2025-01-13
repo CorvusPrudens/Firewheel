@@ -20,11 +20,18 @@ pub enum EventDelay {
     ///
     /// This is more accurate than `DelayUntilSeconds`, but it does not
     /// account for any output underflows that may occur. This clock is
-    /// ideal for syncing events to a musical transport.
+    /// ideal for syncing events to a custom musical transport.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
     /// [`FirewheelCtx::clock_samples`] to get the current time of the clock.
     DelayUntilSamples(ClockSamples),
+
+    /// The event should happen when the musical clock reaches the given
+    /// musical time.
+    ///
+    /// Like `DelayUntilSamples`, this is very accurate, but note it also
+    /// does not account for any output underflows that may occur.
+    DelayUntilMusical(MusicalTime),
 }
 
 impl EventDelay {
@@ -44,10 +51,21 @@ impl EventDelay {
                     Some(*self)
                 }
             }
+            EventDelay::DelayUntilMusical(musical) => {
+                if let Some(transport) = &proc_info.transport_info {
+                    if transport.paused || *musical <= transport.musical_clock.start {
+                        None
+                    } else {
+                        Some(*self)
+                    }
+                } else {
+                    None
+                }
+            }
         }
     }
 
-    pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: f64) -> Option<usize> {
+    pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: u32) -> Option<usize> {
         match self {
             EventDelay::DelayUntilSeconds(seconds) => {
                 if *seconds <= proc_info.clock_seconds.start {
@@ -55,8 +73,9 @@ impl EventDelay {
                 } else if *seconds >= proc_info.clock_seconds.end {
                     None
                 } else {
-                    let frame = ((seconds.0 - proc_info.clock_seconds.start.0) * sample_rate)
-                        .round() as usize;
+                    let frame = ((seconds.0 - proc_info.clock_seconds.start.0)
+                        * f64::from(sample_rate))
+                    .round() as usize;
 
                     if frame >= proc_info.frames {
                         None
@@ -71,11 +90,31 @@ impl EventDelay {
                 } else {
                     let frame = samples.0 - proc_info.clock_samples.0;
 
-                    if frame >= proc_info.frames as u64 {
+                    if frame >= proc_info.frames as i64 {
                         None
                     } else {
                         Some(frame as usize)
                     }
+                }
+            }
+            EventDelay::DelayUntilMusical(musical) => {
+                if let Some(transport) = &proc_info.transport_info {
+                    if transport.paused || *musical >= transport.musical_clock.end {
+                        None
+                    } else if *musical <= transport.musical_clock.start {
+                        Some(0)
+                    } else {
+                        let frame = transport.transport.musical_to_sample(*musical, sample_rate)
+                            - proc_info.clock_samples;
+
+                        if frame.0 >= proc_info.frames as i64 {
+                            None
+                        } else {
+                            Some(frame.0 as usize)
+                        }
+                    }
+                } else {
+                    None
                 }
             }
         }
@@ -128,46 +167,45 @@ impl Into<f64> for ClockSeconds {
 /// An absolute clock time in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClockSamples(pub u64);
+pub struct ClockSamples(pub i64);
 
 impl ClockSamples {
-    pub const fn new(samples: u64) -> Self {
+    pub const fn new(samples: i64) -> Self {
         Self(samples)
     }
 
     pub fn from_secs_f64(seconds: f64, sample_rate: u32) -> Self {
-        assert!(seconds >= 0.0);
+        let seconds_i64 = seconds.floor() as i64;
+        let fract_samples_i64 = (seconds.fract() * f64::from(sample_rate)).round() as i64;
 
-        let seconds_u64 = seconds.floor() as u64;
-        let fract_samples_u64 = (seconds.fract() * f64::from(sample_rate)).round() as u64;
+        Self((seconds_i64 * i64::from(sample_rate)) + fract_samples_i64)
+    }
 
-        Self((seconds_u64 * u64::from(sample_rate)) + fract_samples_u64)
+    /// (whole seconds, samples *after* whole seconds)
+    pub fn whole_seconds_and_fract(&self, sample_rate: u32) -> (i64, u32) {
+        let whole_seconds = self.0 / i64::from(sample_rate);
+        let fract_samples = self.0 % i64::from(sample_rate);
+
+        if fract_samples < 0 {
+            (
+                whole_seconds - 1,
+                sample_rate - (fract_samples.abs() as u32),
+            )
+        } else {
+            (whole_seconds, fract_samples as u32)
+        }
     }
 
     #[inline]
-    pub fn seconds(&self, sample_rate: u32) -> u32 {
-        (self.0 / u64::from(sample_rate)) as u32
-    }
-
-    #[inline]
-    pub fn fract_samples(&self, sample_rate: u32) -> u32 {
-        (self.0 % u64::from(sample_rate)) as u32
+    pub fn fract_second_samples(&self, sample_rate: u32) -> u32 {
+        (self.0 % i64::from(sample_rate)) as u32
     }
 
     pub fn as_secs_f64(&self, sample_rate: u32, sample_rate_recip: f64) -> f64 {
-        let seconds = self.seconds(sample_rate);
-        let fract_samples = self.fract_samples(sample_rate);
+        let whole_seconds = self.0 / i64::from(sample_rate);
+        let fract_samples = self.0 % i64::from(sample_rate);
 
-        f64::from(seconds) + (f64::from(fract_samples) * sample_rate_recip)
-    }
-
-    pub fn add_secs_f64(self, seconds: f64, sample_rate: u32) -> Self {
-        assert!(seconds >= 0.0);
-
-        let seconds_u64 = seconds.floor() as u64;
-        let fract_samples_u64 = (seconds.fract() * f64::from(sample_rate)).round() as u64;
-
-        Self(self.0 + (seconds_u64 * u64::from(sample_rate)) + fract_samples_u64)
+        whole_seconds as f64 + (fract_samples as f64 * sample_rate_recip)
     }
 }
 
@@ -197,14 +235,14 @@ impl SubAssign for ClockSamples {
     }
 }
 
-impl From<u64> for ClockSamples {
-    fn from(value: u64) -> Self {
+impl From<i64> for ClockSamples {
+    fn from(value: i64) -> Self {
         Self(value)
     }
 }
 
-impl Into<u64> for ClockSamples {
-    fn into(self) -> u64 {
+impl Into<i64> for ClockSamples {
+    fn into(self) -> i64 {
         self.0
     }
 }
@@ -213,7 +251,7 @@ impl Into<u64> for ClockSamples {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MusicalTime {
     /// The amount of sub-beats (where 1 beat = 1920 sub-beats)
-    pub sub_beats: u64,
+    pub sub_beats: i64,
 }
 
 impl MusicalTime {
@@ -223,40 +261,72 @@ impl MusicalTime {
     /// common factors such as 2, 3, 4, 5, 6, 8, 16, 32, 64, and 128.
     pub const SUBBEATS_PER_BEAT: u32 = 1920;
 
-    pub const fn new(sub_beats: u64) -> Self {
+    pub const fn new(sub_beats: i64) -> Self {
         Self { sub_beats }
     }
 
     pub fn from_beats_f64(beats: f64) -> Self {
         assert!(beats >= 0.0);
 
-        let beats_u64 = beats.floor() as u64;
-        let fract_sub_beats = (beats.fract() * f64::from(Self::SUBBEATS_PER_BEAT)).round() as u64;
+        let beats_i64 = beats.floor() as i64;
+        let fract_sub_beats = (beats.fract() * f64::from(Self::SUBBEATS_PER_BEAT)).round() as i64;
 
         Self {
-            sub_beats: (beats_u64 * u64::from(Self::SUBBEATS_PER_BEAT)) + fract_sub_beats,
+            sub_beats: (beats_i64 * i64::from(Self::SUBBEATS_PER_BEAT)) + fract_sub_beats,
         }
     }
 
     pub fn as_beats_f64(&self) -> f64 {
-        let beats_u64 = self.beats();
-        let fract_sub_beats_u32 = self.fract_sub_beats();
+        let whole_beats = self.sub_beats / i64::from(Self::SUBBEATS_PER_BEAT);
+        let sub_beats = self.sub_beats % i64::from(Self::SUBBEATS_PER_BEAT);
 
-        beats_u64 as f64
-            + (f64::from(fract_sub_beats_u32) * (1.0 / f64::from(Self::SUBBEATS_PER_BEAT)))
+        whole_beats as f64 + (sub_beats as f64 * (1.0 / f64::from(Self::SUBBEATS_PER_BEAT)))
     }
 
-    /// The number of whole-beats
+    /// (number of whole-beats, number of sub-beats *after* whole-beats)
     #[inline]
-    pub fn beats(&self) -> u64 {
-        self.sub_beats / u64::from(Self::SUBBEATS_PER_BEAT)
+    pub fn whole_beats_and_fract(&self) -> (i64, u32) {
+        let whole_beats = self.sub_beats / i64::from(Self::SUBBEATS_PER_BEAT);
+        let sub_beats = self.sub_beats % i64::from(Self::SUBBEATS_PER_BEAT);
+
+        if sub_beats < 0 {
+            (
+                whole_beats - 1,
+                Self::SUBBEATS_PER_BEAT - sub_beats.abs() as u32,
+            )
+        } else {
+            (whole_beats, sub_beats as u32)
+        }
     }
 
-    /// The number of sub-beats *after* [`Self::beats()`]
-    #[inline]
-    pub fn fract_sub_beats(&self) -> u32 {
-        (self.sub_beats % u64::from(Self::SUBBEATS_PER_BEAT)) as u32
+    /// Convert to the corresponding time in samples.
+    pub fn to_sample_time(&self, seconds_per_beat: f64, sample_rate: u32) -> ClockSamples {
+        let beats_f64 = self.as_beats_f64();
+        let secs_f64 = beats_f64 * seconds_per_beat;
+
+        ClockSamples::from_secs_f64(secs_f64, sample_rate)
     }
+
+    /// Convert from the corresponding time in samples.
+    pub fn from_sample_time(
+        sample_time: ClockSamples,
+        beats_per_second: f64,
+        sample_rate: u32,
+        sample_rate_recip: f64,
+    ) -> Self {
+        let secs_f64 = sample_time.as_secs_f64(sample_rate, sample_rate_recip);
+        let beats_f64 = secs_f64 * beats_per_second;
+
+        MusicalTime::from_beats_f64(beats_f64)
+    }
+}
+
+pub fn seconds_per_beat(beats_per_minute: f64) -> f64 {
+    60.0 / beats_per_minute
+}
+
+pub fn beats_per_second(beats_per_minute: f64) -> f64 {
+    beats_per_minute * (1.0 / 60.0)
 }
 
 impl Add for MusicalTime {
@@ -289,57 +359,48 @@ impl SubAssign for MusicalTime {
     }
 }
 
-/// Describes how to translate real time to musical time
-#[derive(Debug, Clone, PartialEq)]
-pub enum TempoMap {
-    Constant { beats_per_minute: f64 },
-    PieceWise { parts: Vec<TempoPart> },
-}
-
-/// A single part in a [`TempoMap`]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TempoPart {
-    /// The tempo in beats per minute
-    pub beats_per_minute: f64,
-    /// The length of this part in sub-beats (where 1 beat = 1920 sub-beats)
-    pub len_sub_beats: u64,
+pub struct MusicalTransport {
+    beats_per_minute: f64,
+    seconds_per_beat: f64,
+    // TODO: Automated tempo?
 }
 
-impl TempoMap {
-    pub fn musical_to_clock_time(&self, time: MusicalTime, sample_rate: u32) -> ClockSamples {
-        match self {
-            &TempoMap::Constant { beats_per_minute } => {
-                let seconds_per_beat = 60.0 / beats_per_minute;
-
-                let beats_f64 = time.as_beats_f64();
-                let secs_f64 = beats_f64 * seconds_per_beat;
-
-                ClockSamples::from_secs_f64(secs_f64, sample_rate)
-            }
-            TempoMap::PieceWise { parts: _ } => {
-                todo!()
-            }
+impl MusicalTransport {
+    pub fn new(beats_per_minute: f64) -> Self {
+        Self {
+            beats_per_minute,
+            seconds_per_beat: seconds_per_beat(beats_per_minute),
         }
     }
 
-    pub fn clock_time_to_musical(
+    pub fn beats_per_minute(&self) -> f64 {
+        self.beats_per_minute
+    }
+
+    pub fn seconds_per_beat(&self) -> f64 {
+        self.seconds_per_beat
+    }
+}
+
+impl MusicalTransport {
+    /// Convert from musical time the corresponding time in samples.
+    pub fn musical_to_sample(&self, musical: MusicalTime, sample_rate: u32) -> ClockSamples {
+        musical.to_sample_time(self.seconds_per_beat, sample_rate)
+    }
+
+    /// Convert from the time in samples to the corresponding musical time.
+    pub fn sample_to_musical(
         &self,
-        time: ClockSamples,
+        sample_time: ClockSamples,
         sample_rate: u32,
         sample_rate_recip: f64,
     ) -> MusicalTime {
-        match self {
-            &TempoMap::Constant { beats_per_minute } => {
-                let beats_per_second = beats_per_minute * (1.0 / 60.0);
-
-                let secs_f64 = time.as_secs_f64(sample_rate, sample_rate_recip);
-                let beats_f64 = secs_f64 * beats_per_second;
-
-                MusicalTime::from_beats_f64(beats_f64)
-            }
-            TempoMap::PieceWise { parts: _ } => {
-                todo!()
-            }
-        }
+        MusicalTime::from_sample_time(
+            sample_time,
+            self.beats_per_minute * (1.0 / 60.0),
+            sample_rate,
+            sample_rate_recip,
+        )
     }
 }

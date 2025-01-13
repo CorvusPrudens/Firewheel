@@ -1,7 +1,10 @@
 use firewheel_core::{
     channel_config::ChannelConfig,
     event::NodeEventList,
-    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
+    },
     StreamInfo,
 };
 
@@ -32,7 +35,8 @@ impl AudioNodeProcessor for DummyProcessor {
         _inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
         _events: NodeEventList,
-        _proc_info: ProcInfo,
+        _proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }

@@ -1,7 +1,7 @@
 use atomic_float::AtomicF64;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{ClockSamples, ClockSeconds},
+    clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNodeConstructor, NodeID},
@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use std::{
     num::NonZeroU32,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicI64, Ordering},
         Arc,
     },
 };
@@ -119,7 +119,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn new(config: FirewheelConfig) -> Self {
         let clock_shared = Arc::new(ClockValues {
             seconds: AtomicF64::new(0.0),
-            samples: AtomicU64::new(0),
+            samples: AtomicI64::new(0),
+            musical: AtomicI64::new(0),
         });
 
         let (to_processor_tx, from_context_rx) =
@@ -272,14 +273,79 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
     /// The current time of the clock in the number of seconds since the stream
     /// was started.
+    ///
+    /// Note, this clock is not perfectly accurate, but it is good enough for
+    /// most use cases. This clock also correctly accounts for any output
+    /// underflows that may occur.
     pub fn clock_now(&self) -> ClockSeconds {
         ClockSeconds(self.clock_shared.seconds.load(Ordering::Relaxed))
     }
 
-    /// The current time of the sample clock in the number of samples that have
-    /// been processed since the beginning of the stream.
+    /// The current time of the sample clock in the number of samples (of a single
+    /// channel of audio) that have been processed since the beginning of the
+    /// stream.
+    ///
+    /// This is more accurate than the seconds clock, and is ideal for syncing
+    /// events to a musical transport. Though note that this clock does not
+    /// account for any output underflows that may occur.
     pub fn clock_samples(&self) -> ClockSamples {
         ClockSamples(self.clock_shared.samples.load(Ordering::Relaxed))
+    }
+
+    /// The current musical time of the transport.
+    ///
+    /// If no transport is currently active, then this will have a value of `0`.
+    pub fn clock_musical(&self) -> MusicalTime {
+        MusicalTime {
+            sub_beats: self.clock_shared.musical.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Set the musical transport to use.
+    ///
+    /// If an existing musical transport is already running, then the new
+    /// transport will pick up where the old one left off. This allows you
+    /// to, for example, change the tempo dynamically at runtime.
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn set_transport(
+        &mut self,
+        transport: Option<MusicalTransport>,
+    ) -> Result<(), UpdateError<B::StreamError>> {
+        self.send_message_to_processor(ContextToProcessorMsg::SetTransport(transport))
+            .map_err(|(_, e)| e)
+    }
+
+    /// Start or restart the musical transport.
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn start_or_restart_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        self.send_message_to_processor(ContextToProcessorMsg::StartOrRestartTransport)
+            .map_err(|(_, e)| e)
+    }
+
+    /// Pause the musical transport.
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn pause_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        self.send_message_to_processor(ContextToProcessorMsg::PauseTransport)
+            .map_err(|(_, e)| e)
+    }
+
+    /// Resume the musical transport.
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn resume_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        self.send_message_to_processor(ContextToProcessorMsg::ResumeTransport)
+            .map_err(|(_, e)| e)
+    }
+
+    /// Stop the musical transport.
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn stop_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        self.send_message_to_processor(ContextToProcessorMsg::StopTransport)
+            .map_err(|(_, e)| e)
     }
 
     /// Whether or not outputs are being hard clipped at 0dB.
@@ -293,14 +359,19 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Note that most operating systems already hard clip the output,
     /// so this is usually not needed (TODO: Do research to see if this
     /// assumption is true.)
-    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) {
+    ///
+    /// If the message channel is full, then this will return an error.
+    pub fn set_hard_clip_outputs(
+        &mut self,
+        hard_clip_outputs: bool,
+    ) -> Result<(), UpdateError<B::StreamError>> {
         if self.config.hard_clip_outputs == hard_clip_outputs {
-            return;
+            return Ok(());
         }
         self.config.hard_clip_outputs = hard_clip_outputs;
 
-        let _ = self
-            .send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs));
+        self.send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs))
+            .map_err(|(_, e)| e)
     }
 
     /// Update the firewheel context.
@@ -535,5 +606,6 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
 
 pub(crate) struct ClockValues {
     pub seconds: AtomicF64,
-    pub samples: AtomicU64,
+    pub samples: AtomicI64,
+    pub musical: AtomicI64,
 }

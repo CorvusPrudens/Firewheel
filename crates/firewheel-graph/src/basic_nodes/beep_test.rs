@@ -2,7 +2,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     dsp::decibel::normalized_volume_to_raw_gain,
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
+    },
 };
 
 /// A simple node that outputs a sine wave, used for testing purposes.
@@ -104,7 +107,8 @@ impl AudioNodeProcessor for BeepTestProcessor {
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
-        _proc_info: ProcInfo,
+        _proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         let Some(out) = outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;

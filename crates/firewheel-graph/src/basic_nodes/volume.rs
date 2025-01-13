@@ -5,7 +5,10 @@ use firewheel_core::{
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,7 +83,8 @@ impl AudioNodeProcessor for VolumeProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
-        proc_info: ProcInfo,
+        proc_info: &ProcInfo,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::F32Param { id, value } = event {
@@ -178,7 +182,7 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         } else {
             gain = smoothing_filter::process_into_buffer(
-                &mut proc_info.scratch_buffers[0][..proc_info.frames],
+                &mut scratch_buffers[0][..proc_info.frames],
                 gain,
                 self.filter_target,
                 self.smooth_filter_coeff,
@@ -195,7 +199,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 for ((os, &is), &g) in out_ch
                     .iter_mut()
                     .zip(in_ch.iter())
-                    .zip(proc_info.scratch_buffers[0][..proc_info.frames].iter())
+                    .zip(scratch_buffers[0][..proc_info.frames].iter())
                 {
                     *os = is * g;
                 }

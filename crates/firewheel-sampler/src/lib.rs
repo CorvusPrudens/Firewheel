@@ -18,7 +18,10 @@ use firewheel_core::{
         declick::{DeclickValues, Declicker, FadeType},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
-    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
+    },
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
 };
@@ -393,10 +396,10 @@ impl AudioNodeConstructor for SamplerState {
             stop_declicker_buffers,
             stop_declickers: smallvec::smallvec![StopDeclickerState::default(); self.config.num_declickers as usize],
             num_active_stop_declickers: 0,
-            playback_start_time_seconds: 0.0,
-            playback_pause_time_seconds: 0.0,
-            playback_start_time_frames: 0,
-            playback_pause_time_frames: 0,
+            playback_start_time_seconds: ClockSeconds::default(),
+            playback_pause_time_seconds: ClockSeconds::default(),
+            playback_start_time_frames: ClockSamples::default(),
+            playback_pause_time_frames: ClockSamples::default(),
             start_delay: None,
             sample_rate: stream_info.sample_rate.get() as f64,
         });
@@ -424,10 +427,10 @@ pub struct SamplerProcessor {
     stop_declickers: SmallVec<[StopDeclickerState; DEFAULT_NUM_DECLICKERS]>,
     num_active_stop_declickers: usize,
 
-    playback_start_time_seconds: f64,
-    playback_pause_time_seconds: f64,
-    playback_start_time_frames: u64,
-    playback_pause_time_frames: u64,
+    playback_start_time_seconds: ClockSeconds,
+    playback_pause_time_seconds: ClockSeconds,
+    playback_start_time_frames: ClockSamples,
+    playback_pause_time_frames: ClockSamples,
 
     start_delay: Option<EventDelay>,
 
@@ -736,7 +739,8 @@ impl AudioNodeProcessor for SamplerProcessor {
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
-        proc_info: ProcInfo,
+        proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         events.for_each(|event| match event {
             NodeEventType::SequenceCommand(command) => {
@@ -763,8 +767,8 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.start_delay = delay.and_then(|delay| delay.elapsed_or_get(&proc_info));
 
                         if self.start_delay.is_none() {
-                            self.playback_start_time_seconds = proc_info.clock_seconds.start.0;
-                            self.playback_start_time_frames = proc_info.clock_samples.0;
+                            self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_start_time_frames = proc_info.clock_samples;
                         }
                     }
                     SequenceCommand::Pause => {
@@ -773,8 +777,8 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                             self.declicker.fade_to_0(proc_info.declick_values);
 
-                            self.playback_pause_time_seconds = proc_info.clock_seconds.start.0;
-                            self.playback_pause_time_frames = proc_info.clock_samples.0;
+                            self.playback_pause_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_pause_time_frames = proc_info.clock_samples;
                         }
                     }
                     SequenceCommand::Resume => {
@@ -786,23 +790,22 @@ impl AudioNodeProcessor for SamplerProcessor {
                             if let Some(delay) = &mut self.start_delay {
                                 match delay {
                                     EventDelay::DelayUntilSeconds(seconds) => {
-                                        *seconds += ClockSeconds(
-                                            proc_info.clock_seconds.start.0
-                                                - self.playback_pause_time_seconds,
-                                        );
+                                        *seconds += proc_info.clock_seconds.start
+                                            - self.playback_pause_time_seconds;
                                     }
                                     EventDelay::DelayUntilSamples(samples) => {
-                                        *samples += ClockSamples(
-                                            proc_info.clock_samples.0
-                                                - self.playback_pause_time_frames,
-                                        );
+                                        *samples += proc_info.clock_samples
+                                            - self.playback_pause_time_frames;
+                                    }
+                                    EventDelay::DelayUntilMusical(_) => {
+                                        // The engine takes care of pausing the transport for us.
                                     }
                                 }
                             } else {
-                                self.playback_start_time_seconds += proc_info.clock_seconds.start.0
+                                self.playback_start_time_seconds += proc_info.clock_seconds.start
                                     - self.playback_pause_time_seconds;
                                 self.playback_start_time_frames +=
-                                    proc_info.clock_samples.0 - self.playback_pause_time_frames;
+                                    proc_info.clock_samples - self.playback_pause_time_frames;
                             }
                         }
                     }
@@ -847,8 +850,8 @@ impl AudioNodeProcessor for SamplerProcessor {
                                 self.declicker.fade_to_1(proc_info.declick_values);
                             }
 
-                            self.playback_start_time_seconds = proc_info.clock_seconds.start.0;
-                            self.playback_start_time_frames = proc_info.clock_samples.0;
+                            self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_start_time_frames = proc_info.clock_samples;
                         } else {
                             self.shared_state
                                 .playback_state
@@ -878,11 +881,11 @@ impl AudioNodeProcessor for SamplerProcessor {
         });
 
         let start_on_frame = if let Some(delay) = self.start_delay {
-            if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate) {
+            if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate as u32) {
                 self.start_delay = None;
 
-                self.playback_start_time_seconds = proc_info.clock_seconds.start.0;
-                self.playback_start_time_frames = proc_info.clock_samples.0;
+                self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                self.playback_start_time_frames = proc_info.clock_samples;
 
                 Some(frame)
             } else {
@@ -931,7 +934,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                             .store(PlaybackState::Stopped);
                     }
                 }
-                Some(SequenceType::Sequence { sequence: _, timing: _ }) => {
+                Some(SequenceType::Sequence {
+                    sequence: _,
+                    timing: _,
+                }) => {
                     todo!()
                 }
             }

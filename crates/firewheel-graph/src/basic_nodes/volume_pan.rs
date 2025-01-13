@@ -6,7 +6,10 @@ use firewheel_core::{
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
     event::{NodeEventList, NodeEventType},
-    node::{AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus},
+    node::{
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
+    },
 };
 
 // TODO: Option for true stereo panning.
@@ -125,7 +128,8 @@ impl AudioNodeProcessor for VolumePanProcessor {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
-        proc_info: ProcInfo,
+        proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         let mut params_changed = false;
 

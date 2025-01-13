@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, ops::Range};
 
 use crate::{
     channel_config::ChannelConfig,
-    clock::{ClockSamples, ClockSeconds},
+    clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     dsp::declick::DeclickValues,
     event::NodeEventList,
     SilenceMask, StreamInfo,
@@ -58,12 +58,23 @@ pub trait AudioNodeProcessor: 'static + Send {
     ///
     /// If any output buffers contain all zeros up to `samples` (silent),
     /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
+    ///
+    /// * `inputs` - The input buffers.
+    /// * `outputs` - The output buffers,
+    /// * `events` - A list of events for this node to process.
+    /// * `proc_info` - Additional information about the process.
+    /// * `scratch_buffers` - A list of extra scratch buffers that can be
+    /// used for processing. This removes the need for nodes to allocate
+    /// their own scratch buffers. Each buffer has a length of
+    /// [`StreamInfo::max_block_samples`]. These buffers are shared across
+    /// all nodes, so assume that they contain junk data.
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         events: NodeEventList,
-        proc_info: ProcInfo,
+        proc_info: &ProcInfo,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
@@ -82,7 +93,7 @@ pub trait AudioNodeProcessor: 'static + Send {
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
 /// Additional information for processing audio
-pub struct ProcInfo<'a, 'b> {
+pub struct ProcInfo<'a> {
     /// The number of samples (in a single channel of audio) in this
     /// processing block.
     ///
@@ -117,23 +128,36 @@ pub struct ProcInfo<'a, 'b> {
     /// output underflows that may occur.
     pub clock_samples: ClockSamples,
 
+    /// Information about the musical transport.
+    ///
+    /// This will be `None` if no musical transport is currently active,
+    /// or if the current transport is currently paused.
+    pub transport_info: Option<TransportInfo<'a>>,
+
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
-
-    /// A list of extra scratch buffers that can be used for processing.
-    /// This removes the need for nodes to allocate their own scratch
-    /// buffers.
-    ///
-    /// Each buffer has a length of [`StreamInfo::max_block_samples`].
-    ///
-    /// These buffers are shared across all nodes, so assume that they
-    /// contain junk data.
-    pub scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
 
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when
     /// pausing/resuming/stopping.
     pub declick_values: &'a DeclickValues,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransportInfo<'a> {
+    /// The current transport.
+    pub transport: &'a MusicalTransport,
+
+    /// The current interval of time of the internal clock in units of
+    /// musical time. The start of the range is the instant of time at the
+    /// first sample in the block (inclusive), and the end of the range
+    /// is the instant of time at the end of the block (exclusive).
+    ///
+    /// This will be `None` if no musical clock is currently present.
+    pub musical_clock: Range<MusicalTime>,
+
+    /// Whether or not the transport is currently paused.
+    pub paused: bool,
 }
 
 bitflags::bitflags! {
