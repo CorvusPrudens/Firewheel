@@ -393,8 +393,14 @@ impl FirewheelProcessorInner {
                                 // Update the playhead so that the new transport resumes after
                                 // where the previous left off.
 
+                                let sample_time = if old_transport.paused {
+                                    old_transport.paused_at_frame - old_transport.start_frame
+                                } else {
+                                    self.clock_samples - old_transport.start_frame
+                                };
+
                                 let current_musical = old_transport.transport.sample_to_musical(
-                                    self.clock_samples - old_transport.start_frame,
+                                    sample_time,
                                     self.sample_rate.get(),
                                     self.sample_rate_recip,
                                 );
@@ -402,6 +408,8 @@ impl FirewheelProcessorInner {
                                 old_transport.start_frame = self.clock_samples
                                     - new_transport
                                         .musical_to_sample(current_musical, self.sample_rate.get());
+
+                                old_transport.paused_at_frame = self.clock_samples;
                             }
 
                             old_transport.transport = *new_transport;
