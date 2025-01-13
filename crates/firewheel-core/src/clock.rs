@@ -1,18 +1,85 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
+use crate::node::ProcInfo;
+
 /// When a particular audio event should occur.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EventDelay {
-    /// The event should happen immediately when it is recieved.
-    #[default]
-    Immediate,
     /// The event should happen when the clock reaches the given time in
     /// seconds.
     ///
+    /// Note, this clock is not perfectly accurate, but it does correctly
+    /// account for any output underflows that may occur.
+    ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`AudioGraph::clock_now`] to get the current time of the clock.
+    /// [`FirewheelCtx::clock_now`] to get the current time of the clock.
     DelayUntilSeconds(ClockSeconds),
-    // TODO: Sample-accurate timing.
+
+    /// The event should happen when the clock reaches the given time in
+    /// samples (of a single channel of audio).
+    ///
+    /// This is more accurate than `DelayUntilSeconds`, but it does not
+    /// account for any output underflows that may occur. This clock is
+    /// ideal for syncing events to a musical transport.
+    ///
+    /// The value is an absolute time, *NOT* a delta time. Use
+    /// [`FirewheelCtx::clock_samples`] to get the current time of the clock.
+    DelayUntilSamples(ClockSamples),
+}
+
+impl EventDelay {
+    pub fn elapsed_or_get(&self, proc_info: &ProcInfo) -> Option<Self> {
+        match self {
+            EventDelay::DelayUntilSeconds(seconds) => {
+                if *seconds <= proc_info.clock_seconds.start {
+                    None
+                } else {
+                    Some(*self)
+                }
+            }
+            EventDelay::DelayUntilSamples(samples) => {
+                if *samples <= proc_info.clock_samples {
+                    None
+                } else {
+                    Some(*self)
+                }
+            }
+        }
+    }
+
+    pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: f64) -> Option<usize> {
+        match self {
+            EventDelay::DelayUntilSeconds(seconds) => {
+                if *seconds <= proc_info.clock_seconds.start {
+                    Some(0)
+                } else if *seconds >= proc_info.clock_seconds.end {
+                    None
+                } else {
+                    let frame = ((seconds.0 - proc_info.clock_seconds.start.0) * sample_rate)
+                        .round() as usize;
+
+                    if frame >= proc_info.frames {
+                        None
+                    } else {
+                        Some(frame)
+                    }
+                }
+            }
+            EventDelay::DelayUntilSamples(samples) => {
+                if *samples <= proc_info.clock_samples {
+                    Some(0)
+                } else {
+                    let frame = samples.0 - proc_info.clock_samples.0;
+
+                    if frame >= proc_info.frames as u64 {
+                        None
+                    } else {
+                        Some(frame as usize)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// An absolute clock time in units of seconds.

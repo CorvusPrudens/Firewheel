@@ -79,8 +79,9 @@ pub enum NodeEventType {
 pub enum SequenceCommand {
     /// Start/restart the current sequence.
     StartOrRestart {
-        /// The exact moment when the sequence should start.
-        delay: EventDelay,
+        /// The exact moment when the sequence should start. Set to `None`
+        /// to start as soon as the event is received.
+        delay: Option<EventDelay>,
     },
     /// Pause the current sequence.
     Pause,

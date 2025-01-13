@@ -11,7 +11,7 @@ use std::{
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
-    clock::EventDelay,
+    clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::{
         buffer::InstanceBuffer,
         decibel::normalized_volume_to_raw_gain,
@@ -212,8 +212,9 @@ impl SamplerState {
 
     /// Return an event type to start/restart the current sequence.
     ///
-    /// * `delay` - The exact moment when the sequence should start.
-    pub fn start_or_restart_event(&self, delay: EventDelay) -> NodeEventType {
+    /// * `delay` - The exact moment when the sequence should start. Set to
+    /// `None` to have the sequence start as soon as the event is recieved.
+    pub fn start_or_restart_event(&self, delay: Option<EventDelay>) -> NodeEventType {
         self._flag_playback_state(if self.sequence.is_some() {
             PlaybackState::Playing
         } else {
@@ -396,6 +397,7 @@ impl AudioNodeConstructor for SamplerState {
             playback_pause_time_seconds: 0.0,
             playback_start_time_frames: 0,
             playback_pause_time_frames: 0,
+            start_delay: None,
             sample_rate: stream_info.sample_rate.get() as f64,
         });
 
@@ -427,6 +429,8 @@ pub struct SamplerProcessor {
     playback_start_time_frames: u64,
     playback_pause_time_frames: u64,
 
+    start_delay: Option<EventDelay>,
+
     sample_rate: f64,
 }
 
@@ -439,11 +443,22 @@ impl SamplerProcessor {
         frames: usize,
         looping: bool,
         declick_values: &DeclickValues,
+        start_on_frame: Option<usize>,
     ) -> (bool, usize) {
+        let range_in_buffer = if let Some(frame) = start_on_frame {
+            for ch in buffers.iter_mut() {
+                ch[..frame].fill(0.0);
+            }
+
+            frame..frames
+        } else {
+            0..frames
+        };
+
         // TODO: effects like pitch (doppler) shifting
 
         let (finished_playing, mut channels_filled) =
-            self.copy_from_sample(buffers, 0..frames, looping);
+            self.copy_from_sample(buffers, range_in_buffer, looping);
 
         let Some(state) = self.loaded_sample_state.as_ref() else {
             return (true, 0);
@@ -511,16 +526,22 @@ impl SamplerProcessor {
 
         if first_copy_frames < block_frames {
             if looping {
-                let second_copy_frames = block_frames - first_copy_frames;
+                let mut frames_left = block_frames - first_copy_frames;
 
-                state.sample.fill_buffers(
-                    buffers,
-                    range_in_buffer.start + first_copy_frames..range_in_buffer.end,
-                    0,
-                );
+                while frames_left > 0 {
+                    let copy_frames = (frames_left as u64).min(state.sample_len_frames) as usize;
 
-                state.playhead = second_copy_frames as u64;
-                state.num_times_looped_back += 1;
+                    state.sample.fill_buffers(
+                        buffers,
+                        range_in_buffer.start + first_copy_frames..range_in_buffer.end,
+                        0,
+                    );
+
+                    state.playhead = copy_frames as u64;
+                    state.num_times_looped_back += 1;
+
+                    frames_left -= copy_frames;
+                }
             } else {
                 let n_channels = buffers.len().min(state.sample_num_channels.get());
                 for b in buffers[..n_channels].iter_mut() {
@@ -535,7 +556,7 @@ impl SamplerProcessor {
     }
 
     fn currently_processing_sample(&self) -> bool {
-        if self.sequence.is_none() {
+        if self.sequence.is_none() || self.start_delay.is_some() {
             false
         } else {
             self.playback_state == PlaybackState::Playing
@@ -583,7 +604,13 @@ impl SamplerProcessor {
                         .get_mut(declicker_i, n_channels, fade_out_frames)
                         .unwrap();
 
-                    self.process_internal(&mut tmp_buffers, fade_out_frames, false, declick_values);
+                    self.process_internal(
+                        &mut tmp_buffers,
+                        fade_out_frames,
+                        false,
+                        declick_values,
+                        None,
+                    );
 
                     self.num_active_stop_declickers += 1;
                 }
@@ -598,6 +625,7 @@ impl SamplerProcessor {
         }
 
         self.declicker.reset_to_1();
+        self.start_delay = None;
     }
 
     fn set_playhead(
@@ -732,11 +760,11 @@ impl AudioNodeProcessor for SamplerProcessor {
                             self.declicker.fade_to_1(proc_info.declick_values);
                         }
 
-                        if *delay == EventDelay::Immediate {
+                        self.start_delay = delay.and_then(|delay| delay.elapsed_or_get(&proc_info));
+
+                        if self.start_delay.is_none() {
                             self.playback_start_time_seconds = proc_info.clock_seconds.start.0;
                             self.playback_start_time_frames = proc_info.clock_samples.0;
-                        } else {
-                            todo!()
                         }
                     }
                     SequenceCommand::Pause => {
@@ -755,10 +783,27 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                             self.declicker.fade_to_1(proc_info.declick_values);
 
-                            self.playback_start_time_seconds +=
-                                proc_info.clock_seconds.start.0 - self.playback_pause_time_seconds;
-                            self.playback_start_time_frames +=
-                                proc_info.clock_samples.0 - self.playback_pause_time_frames;
+                            if let Some(delay) = &mut self.start_delay {
+                                match delay {
+                                    EventDelay::DelayUntilSeconds(seconds) => {
+                                        *seconds += ClockSeconds(
+                                            proc_info.clock_seconds.start.0
+                                                - self.playback_pause_time_seconds,
+                                        );
+                                    }
+                                    EventDelay::DelayUntilSamples(samples) => {
+                                        *samples += ClockSamples(
+                                            proc_info.clock_samples.0
+                                                - self.playback_pause_time_frames,
+                                        );
+                                    }
+                                }
+                            } else {
+                                self.playback_start_time_seconds += proc_info.clock_seconds.start.0
+                                    - self.playback_pause_time_seconds;
+                                self.playback_start_time_frames +=
+                                    proc_info.clock_samples.0 - self.playback_pause_time_frames;
+                            }
                         }
                     }
                     SequenceCommand::Stop => {
@@ -832,6 +877,21 @@ impl AudioNodeProcessor for SamplerProcessor {
             _ => {}
         });
 
+        let start_on_frame = if let Some(delay) = self.start_delay {
+            if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate) {
+                self.start_delay = None;
+
+                self.playback_start_time_seconds = proc_info.clock_seconds.start.0;
+                self.playback_start_time_frames = proc_info.clock_samples.0;
+
+                Some(frame)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let currently_processing_sample = self.currently_processing_sample();
 
         if !currently_processing_sample && self.num_active_stop_declickers == 0 {
@@ -854,6 +914,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         proc_info.frames,
                         looping,
                         proc_info.declick_values,
+                        start_on_frame,
                     );
 
                     num_filled_channels = n_channels;
@@ -870,7 +931,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                             .store(PlaybackState::Stopped);
                     }
                 }
-                Some(SequenceType::Sequence { sequence, timing }) => {
+                Some(SequenceType::Sequence { sequence: _, timing: _ }) => {
                     todo!()
                 }
             }

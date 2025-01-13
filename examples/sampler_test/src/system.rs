@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use firewheel::{
-    clock::EventDelay,
     error::UpdateError,
     node::NodeID,
     sample_resource::SampleResource,
@@ -96,10 +95,8 @@ impl AudioSystem {
             self.cx
                 .queue_event_for(sampler.node_id, sampler.state.sync_sequence_event(true));
         } else {
-            self.cx.queue_event_for(
-                sampler.node_id,
-                sampler.state.start_or_restart_event(EventDelay::Immediate),
-            );
+            self.cx
+                .queue_event_for(sampler.node_id, sampler.state.start_or_restart_event(None));
         }
     }
 
