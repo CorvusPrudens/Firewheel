@@ -216,7 +216,7 @@ impl FirewheelProcessorInner {
                     transport
                         .transport
                         .sample_to_musical(
-                            self.clock_samples - transport.paused_at_frame,
+                            self.clock_samples - transport.start_frame,
                             self.sample_rate.get(),
                             self.sample_rate_recip,
                         )
