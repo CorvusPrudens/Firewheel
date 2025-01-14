@@ -1,112 +1,100 @@
 use firewheel_core::{
+    channel_config::{ChannelConfig, ChannelCount},
     dsp::{
         decibel::normalized_volume_to_raw_gain,
         pan_law::PanLaw,
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
+    event::{NodeEventList, NodeEventType},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
-        ProcessStatus,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
     },
-    ChannelConfig, ChannelCount, StreamInfo,
 };
 
 // TODO: Option for true stereo panning.
 
-pub struct VolumePanNode {
-    normalized_volume: f32,
-    pan: f32,
-    pan_law: PanLaw,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumePanParams {
+    /// The percent volume where `0.0` is mute and `1.0` is unity gain.
+    pub normalized_volume: f32,
+    /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
+    /// fully right.
+    pub pan: f32,
+    /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
+    /// to the corresponding gain values for the left and right channels.
+    ///
+    /// Use `NodeEventType::U32Param` for this parameter.
+    pub pan_law: PanLaw,
 }
 
-impl VolumePanNode {
+impl VolumePanParams {
     /// The ID of the volume parameter.
-    pub const PARAM_VOLUME: u32 = 0;
+    pub const ID_VOLUME: u32 = 0;
     /// The ID of the pan parameter.
-    pub const PARAM_PAN: u32 = 1;
+    pub const ID_PAN: u32 = 1;
+    /// The ID of the "pan law" parameter.
+    pub const ID_PAN_LAW: u32 = 2;
 
-    /// Create a new volume node.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
-    /// fully right.
-    pub fn new(normalized_volume: f32, pan: f32, pan_law: PanLaw) -> Self {
-        let normalized_volume = normalized_volume.max(0.0);
-        let pan = pan.clamp(-1.0, 1.0);
+    pub fn compute_gains(&self) -> (f32, f32) {
+        let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
-        Self {
-            normalized_volume,
-            pan,
-            pan_law,
+        let (gain_l, gain_r) = self.pan_law.compute_gains(self.pan);
+
+        (gain_l * global_gain, gain_r * global_gain)
+    }
+
+    /// Return an event type to sync the volume parameter.
+    pub fn sync_volume_event(&self) -> NodeEventType {
+        NodeEventType::F32Param {
+            id: Self::ID_VOLUME,
+            value: self.normalized_volume,
         }
     }
 
-    /// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
-    }
-
-    /// Return an event type to set the volume parameter.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    /// * `smoothing` - Set this to `false` to have the node immediately jump to this new
-    /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
-    /// can be useful to preserve transients when playing a new sound at a different volume.
-    pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> NodeEventType {
-        self.normalized_volume = normalized_volume.max(0.0);
+    /// Return an event type to sync the pan parameter.
+    pub fn sync_pan_event(&self) -> NodeEventType {
         NodeEventType::F32Param {
-            id: Self::PARAM_VOLUME,
-            value: normalized_volume,
-            smoothing,
-        }
-    }
-
-    /// Return an event type to set the pan parameter.
-    ///
-    /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
-    /// fully right.
-    /// * `smoothing` - Set this to `false` to have the node immediately jump to this new
-    /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
-    /// can be useful to preserve transients when playing a new sound at a different volume.
-    pub fn set_pan(&mut self, pan: f32, smoothing: bool) -> NodeEventType {
-        self.pan = pan.clamp(-1.0, 1.0);
-        NodeEventType::F32Param {
-            id: Self::PARAM_PAN,
+            id: Self::ID_PAN,
             value: self.pan,
-            smoothing,
+        }
+    }
+
+    /// Return an event type to sync the pan law parameter.
+    pub fn sync_pan_law_event(&self) -> NodeEventType {
+        NodeEventType::U32Param {
+            id: Self::ID_PAN_LAW,
+            value: self.pan_law as u32,
         }
     }
 }
 
-impl AudioNode for VolumePanNode {
-    fn debug_name(&self) -> &'static str {
-        "volume_pan"
+impl Default for VolumePanParams {
+    fn default() -> Self {
+        Self {
+            normalized_volume: 1.0,
+            pan: 0.0,
+            pan_law: PanLaw::default(),
+        }
     }
+}
 
+impl AudioNodeConstructor for VolumePanParams {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::STEREO,
-            num_max_supported_inputs: ChannelCount::STEREO,
-            num_min_supported_outputs: ChannelCount::STEREO,
-            num_max_supported_outputs: ChannelCount::STEREO,
-            default_channel_config: ChannelConfig {
+            debug_name: "volume_pan",
+            channel_config: ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             },
-            equal_num_ins_and_outs: true,
-            updates: false,
             uses_events: true,
         }
     }
 
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        let (gain_l, gain_r) = compute_gains(self.normalized_volume, self.pan, self.pan_law);
+    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        let (gain_l, gain_r) = self.compute_gains();
 
-        Ok(Box::new(VolumePanProcessor {
+        Box::new(VolumePanProcessor {
             smooth_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
                 DEFAULT_SMOOTH_SECONDS,
@@ -115,10 +103,9 @@ impl AudioNode for VolumePanNode {
             gain_r,
             l_filter_target: gain_l,
             r_filter_target: gain_r,
-            normalized_volume: self.normalized_volume,
-            pan: self.pan,
-            pan_law: self.pan_law,
-        }))
+            params: *self,
+            prev_block_was_silent: true,
+        })
     }
 }
 
@@ -130,9 +117,9 @@ struct VolumePanProcessor {
     gain_l: f32,
     gain_r: f32,
 
-    normalized_volume: f32,
-    pan: f32,
-    pan_law: PanLaw,
+    params: VolumePanParams,
+
+    prev_block_was_silent: bool,
 }
 
 impl AudioNodeProcessor for VolumePanProcessor {
@@ -140,51 +127,51 @@ impl AudioNodeProcessor for VolumePanProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        events: NodeEventIter,
-        proc_info: ProcInfo,
+        mut events: NodeEventList,
+        proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         let mut params_changed = false;
-        let mut do_smooth = false;
 
-        for msg in events {
-            if let NodeEventType::F32Param {
-                id,
-                value,
-                smoothing,
-            } = msg
-            {
-                match *id {
-                    VolumePanNode::PARAM_VOLUME => {
-                        self.normalized_volume = value.max(0.0);
-                        params_changed = true;
-
-                        do_smooth = *smoothing;
-                    }
-                    VolumePanNode::PARAM_PAN => {
-                        self.pan = value.clamp(-1.0, 1.0);
-                        params_changed = true;
-
-                        do_smooth = *smoothing;
-                    }
-                    _ => {}
+        events.for_each(|event| match event {
+            NodeEventType::F32Param { id, value } => match *id {
+                VolumePanParams::ID_VOLUME => {
+                    self.params.normalized_volume = value.max(0.0);
+                    params_changed = true;
+                }
+                VolumePanParams::ID_PAN => {
+                    self.params.pan = value.clamp(-1.0, 1.0);
+                    params_changed = true;
+                }
+                _ => {}
+            },
+            NodeEventType::U32Param { id, value } => {
+                if *id == VolumePanParams::ID_PAN_LAW {
+                    self.params.pan_law = PanLaw::from_u32(*value);
+                    params_changed = true;
                 }
             }
-        }
+            _ => {}
+        });
 
         if params_changed {
-            let (gain_l, gain_r) = compute_gains(self.normalized_volume, self.pan, self.pan_law);
+            let (gain_l, gain_r) = self.params.compute_gains();
             self.l_filter_target = gain_l;
             self.r_filter_target = gain_r;
 
-            if !do_smooth {
+            if self.prev_block_was_silent {
+                // Previous block was silent, so no need to smooth.
                 self.gain_l = self.l_filter_target;
                 self.gain_r = self.r_filter_target;
             }
         }
 
+        self.prev_block_was_silent = false;
+
         if proc_info.in_silence_mask.all_channels_silent(2) {
             self.gain_l = self.l_filter_target;
             self.gain_r = self.r_filter_target;
+            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
@@ -238,6 +225,7 @@ impl AudioNodeProcessor for VolumePanProcessor {
         } else if self.gain_l == 0.0 && self.gain_r == 0.0 {
             self.gain_l = self.l_filter_target;
             self.gain_r = self.r_filter_target;
+            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         } else {
@@ -249,18 +237,9 @@ impl AudioNodeProcessor for VolumePanProcessor {
 
         return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
     }
-}
 
-impl Into<Box<dyn AudioNode>> for VolumePanNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
+    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+        self.smooth_filter_coeff =
+            smoothing_filter::Coeff::new(stream_info.sample_rate, DEFAULT_SMOOTH_SECONDS);
     }
-}
-
-fn compute_gains(normalized_volume: f32, pan: f32, pan_law: PanLaw) -> (f32, f32) {
-    let global_gain = normalized_volume_to_raw_gain(normalized_volume);
-
-    let (gain_l, gain_r) = pan_law.compute_gains(pan);
-
-    (gain_l * global_gain, gain_r * global_gain)
 }

@@ -6,23 +6,22 @@
 
 *Work In Progress, not ready for any kind of use*
 
-Firewheel aims to be a fully-featured libre open source audio engine for games!
+Firewheel aims to be a fully-featured libre open source audio graph engine for games and other applications!
 
 ## Key Planned Goals
 
 * Modular design that can be run on any backend that provides an audio stream
     * Default backend supporting Windows, Mac, Linux, Android, iOS, and WebAssembly
-* Flexible audio graph engine (supports any directed, acyclic graph with support for one-to-many connections)
+* Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * A suite of essential built-in audio nodes:
     * gain, stereo panning, and summing
-    * versatile sampler with seamless blending between tracks and disk/network streaming
-    * effects like filters, delays (echos), and reverbs
+    * versatile sampler
     * spatial positioning (make a sound "emanate" from a point in 3d space)
     * triple buffering for inserting/reading raw samples from any thread
 * Custom audio node API allowing for a plethora of 3rd party generators and effects
 * Basic [CLAP](https://cleveraudio.org/) plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
 * Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused)
-* Tweens and animation curves for various effects
+* Ability to add "sequences" to certain nodes (i.e. automation and sequences of events).
 * A general purpose "preset" graph with an easy-to-use interface
 * Support for loading a wide variety of audio formats
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)

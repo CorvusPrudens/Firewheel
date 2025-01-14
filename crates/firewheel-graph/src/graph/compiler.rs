@@ -1,4 +1,4 @@
-use firewheel_core::{node::NodeID, ChannelConfig};
+use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, NodeID};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
@@ -10,26 +10,24 @@ mod schedule;
 pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 
-pub struct NodeEntry<N> {
+pub struct NodeEntry {
     pub id: NodeID,
-    /// The number of input and output ports used by the node
-    pub channel_config: ChannelConfig,
-    pub weight: N,
+    pub info: AudioNodeInfo,
+    pub constructor: Box<dyn AudioNodeConstructor>,
+    pub activated: bool,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
     /// The edges connected to this node's output ports.
     outgoing: SmallVec<[Edge; 4]>,
 }
 
-impl<N> NodeEntry<N> {
-    pub fn new(channel_config: ChannelConfig, weight: N) -> Self {
+impl NodeEntry {
+    pub fn new(info: AudioNodeInfo, constructor: Box<dyn AudioNodeConstructor>) -> Self {
         Self {
-            id: NodeID {
-                idx: thunderdome::Index::DANGLING,
-                debug_name: "",
-            },
-            channel_config,
-            weight,
+            id: NodeID::DANGLING,
+            info,
+            constructor,
+            activated: false,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
         }
@@ -117,8 +115,8 @@ impl BufferAllocator {
 }
 
 /// Main compilation algorithm
-pub fn compile<'a, N>(
-    nodes: &mut Arena<NodeEntry<N>>,
+pub fn compile<'a>(
+    nodes: &mut Arena<NodeEntry>,
     edges: &mut Arena<Edge>,
     graph_in_id: NodeID,
     graph_out_id: NodeID,
@@ -132,15 +130,14 @@ pub fn compile<'a, N>(
     )
 }
 
-pub fn cycle_detected<'a, N>(
-    nodes: &'a mut Arena<NodeEntry<N>>,
+pub fn cycle_detected<'a>(
+    nodes: &'a mut Arena<NodeEntry>,
     edges: &'a mut Arena<Edge>,
     graph_in_id: NodeID,
     graph_out_id: NodeID,
 ) -> bool {
     if let Err(CompileGraphError::CycleDetected) =
-        GraphIR::<N>::preprocess(nodes, edges, graph_in_id, graph_out_id, 0)
-            .sort_topologically(false)
+        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0).sort_topologically(false)
     {
         true
     } else {
@@ -150,8 +147,8 @@ pub fn cycle_detected<'a, N>(
 
 /// Internal IR used by the compiler algorithm. Built incrementally
 /// via the compiler passes.
-struct GraphIR<'a, N> {
-    nodes: &'a mut Arena<NodeEntry<N>>,
+struct GraphIR<'a> {
+    nodes: &'a mut Arena<NodeEntry>,
     edges: &'a mut Arena<Edge>,
 
     /// The topologically sorted schedule of the graph. Built internally.
@@ -166,18 +163,18 @@ struct GraphIR<'a, N> {
     max_block_frames: usize,
 }
 
-impl<'a, N> GraphIR<'a, N> {
+impl<'a> GraphIR<'a> {
     /// Construct a [GraphIR] instance from lists of nodes and edges, building
     /// up the adjacency table and creating an empty schedule.
     fn preprocess(
-        nodes: &'a mut Arena<NodeEntry<N>>,
+        nodes: &'a mut Arena<NodeEntry>,
         edges: &'a mut Arena<Edge>,
         graph_in_id: NodeID,
         graph_out_id: NodeID,
         max_block_frames: usize,
     ) -> Self {
-        assert!(nodes.contains(graph_in_id.idx));
-        assert!(nodes.contains(graph_out_id.idx));
+        assert!(nodes.contains(graph_in_id.0));
+        assert!(nodes.contains(graph_out_id.0));
 
         for (_, node) in nodes.iter_mut() {
             node.incoming.clear();
@@ -185,8 +182,8 @@ impl<'a, N> GraphIR<'a, N> {
         }
 
         for (_, edge) in edges.iter() {
-            nodes[edge.src_node.idx].outgoing.push(*edge);
-            nodes[edge.dst_node.idx].incoming.push(*edge);
+            nodes[edge.src_node.0].outgoing.push(*edge);
+            nodes[edge.dst_node.0].incoming.push(*edge);
 
             debug_assert_ne!(edge.src_node, graph_out_id);
             debug_assert_ne!(edge.dst_node, graph_in_id);
@@ -220,21 +217,20 @@ impl<'a, N> GraphIR<'a, N> {
         // Calculate in-degree of each vertex
         for (_, node_entry) in self.nodes.iter() {
             for edge in node_entry.outgoing.iter() {
-                in_degree[edge.dst_node.idx.slot() as usize] += 1;
+                in_degree[edge.dst_node.0.slot() as usize] += 1;
             }
         }
 
         // Make sure that the graph in node is the first entry in the
         // schedule. Otherwise a different root node could overwrite
         // the buffers assigned to the graph in node.
-        queue.push_back(self.graph_in_id.idx.slot());
+        queue.push_back(self.graph_in_id.0.slot());
 
         // Enqueue all other nodes with 0 in-degree
         for (_, node_entry) in self.nodes.iter() {
-            if node_entry.incoming.is_empty()
-                && node_entry.id.idx.slot() != self.graph_in_id.idx.slot()
+            if node_entry.incoming.is_empty() && node_entry.id.0.slot() != self.graph_in_id.0.slot()
             {
-                queue.push_back(node_entry.id.idx.slot());
+                queue.push_back(node_entry.id.0.slot());
             }
         }
 
@@ -246,17 +242,20 @@ impl<'a, N> GraphIR<'a, N> {
 
             // Reduce in-degree of adjacent nodes
             for edge in node_entry.outgoing.iter() {
-                in_degree[edge.dst_node.idx.slot() as usize] -= 1;
+                in_degree[edge.dst_node.0.slot() as usize] -= 1;
 
                 // If in-degree becomes 0, enqueue it
-                if in_degree[edge.dst_node.idx.slot() as usize] == 0 {
-                    queue.push_back(edge.dst_node.idx.slot());
+                if in_degree[edge.dst_node.0.slot() as usize] == 0 {
+                    queue.push_back(edge.dst_node.0.slot());
                 }
             }
 
             if build_schedule {
-                if node_slot != self.graph_out_id.idx.slot() {
-                    self.schedule.push(ScheduledNode::new(node_entry.id));
+                if node_slot != self.graph_out_id.0.slot() {
+                    self.schedule.push(ScheduledNode::new(
+                        node_entry.id,
+                        node_entry.info.debug_name,
+                    ));
                 }
             }
         }
@@ -266,7 +265,8 @@ impl<'a, N> GraphIR<'a, N> {
             // schedule by waiting to push it after all other nodes have
             // been pushed. Otherwise a different leaf node could overwrite
             // the buffers assigned to the graph out node.
-            self.schedule.push(ScheduledNode::new(self.graph_out_id));
+            self.schedule
+                .push(ScheduledNode::new(self.graph_out_id, "graph_out"));
         }
 
         // If not all vertices are visited, cycle
@@ -286,10 +286,10 @@ impl<'a, N> GraphIR<'a, N> {
         for entry in &mut self.schedule {
             // Collect the inputs to the algorithm, the incoming/outgoing edges of this node.
 
-            let node_entry = &self.nodes[entry.id.idx];
+            let node_entry = &self.nodes[entry.id.0];
 
-            let num_inputs = node_entry.channel_config.num_inputs.get() as usize;
-            let num_outputs = node_entry.channel_config.num_outputs.get() as usize;
+            let num_inputs = node_entry.info.channel_config.num_inputs.get() as usize;
+            let num_outputs = node_entry.info.channel_config.num_outputs.get() as usize;
 
             buffers_to_release.clear();
             if buffers_to_release.capacity() < num_inputs + num_outputs {
@@ -314,7 +314,7 @@ impl<'a, N> GraphIR<'a, N> {
                     let buffer = allocator.acquire();
                     entry.input_buffers.push(InBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                         should_clear: true,
                     });
                     buffers_to_release.push(buffer);
@@ -327,12 +327,52 @@ impl<'a, N> GraphIR<'a, N> {
                         .expect("No buffer assigned to edge!");
                     entry.input_buffers.push(InBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                         should_clear: false,
                     });
                     buffers_to_release.push(buffer);
                 } else {
-                    return Err(CompileGraphError::ManyToOneError(entry.id, port_idx));
+                    // Case 3: The port is an input with multiple incoming edges. Compute the
+                    //         summing point, and assign the input buffer assignment to the output
+                    //         of the summing point.
+
+                    let sum_buffer = allocator.acquire();
+                    let sum_output = OutBufferAssignment {
+                        buffer_index: sum_buffer.idx,
+                        //generation: sum_buffer.generation,
+                    };
+
+                    // The sum inputs are the corresponding output buffers of the incoming edges.
+                    let sum_inputs = edges
+                        .iter()
+                        .map(|edge| {
+                            let buf = assignment_table
+                                .remove(edge.id.0)
+                                .expect("No buffer assigned to edge!");
+                            let assignment = InBufferAssignment {
+                                buffer_index: buf.idx,
+                                //generation: buf.generation,
+                                should_clear: false,
+                            };
+                            allocator.release(buf);
+                            assignment
+                        })
+                        .collect();
+
+                    entry.sum_inputs.push(InsertedSum {
+                        input_buffers: sum_inputs,
+                        output_buffer: sum_output,
+                    });
+
+                    // This node's input buffer is the sum output buffer. Release it once the node
+                    // assignments are done.
+                    entry.input_buffers.push(InBufferAssignment {
+                        buffer_index: sum_output.buffer_index,
+                        //generation: sum_output.generation,
+                        should_clear: false,
+                    });
+
+                    buffers_to_release.push(sum_buffer);
                 }
             }
 
@@ -350,7 +390,7 @@ impl<'a, N> GraphIR<'a, N> {
                     let buffer = allocator.acquire();
                     entry.output_buffers.push(OutBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                     });
                     buffers_to_release.push(buffer);
                 } else {
@@ -363,7 +403,7 @@ impl<'a, N> GraphIR<'a, N> {
                     }
                     entry.output_buffers.push(OutBufferAssignment {
                         buffer_index: buffer.idx,
-                        generation: buffer.generation,
+                        //generation: buffer.generation,
                     });
                 }
             }
@@ -384,4 +424,10 @@ impl<'a, N> GraphIR<'a, N> {
     fn merge(self) -> CompiledSchedule {
         CompiledSchedule::new(self.schedule, self.max_num_buffers, self.max_block_frames)
     }
+}
+
+#[derive(Debug, Clone)]
+struct InsertedSum {
+    input_buffers: SmallVec<[InBufferAssignment; 4]>,
+    output_buffer: OutBufferAssignment,
 }

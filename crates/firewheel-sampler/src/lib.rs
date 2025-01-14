@@ -10,26 +10,29 @@ use std::{
 };
 
 use firewheel_core::{
-    clock::EventDelay,
+    channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
+    clock::{ClockSamples, ClockSeconds, EventDelay},
     dsp::{
         buffer::InstanceBuffer,
         decibel::normalized_volume_to_raw_gain,
-        declick::{DeclickValues, Declicker},
+        declick::{DeclickValues, Declicker, FadeType},
     },
+    event::{NodeEventList, NodeEventType, SequenceCommand},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEvent, NodeEventIter, NodeEventType,
-        NodeID, ProcInfo, ProcessStatus, RepeatMode,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
     },
     sample_resource::SampleResource,
-    ChannelConfig, ChannelCount, SilenceMask, StreamInfo,
+    SilenceMask, StreamInfo,
 };
-use firewheel_graph::graph::AudioGraph;
 
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SamplerConfig {
+    /// The number of channels in this node.
+    pub channels: NonZeroChannelCount,
     /// If `true`, then mono samples will be converted to stereo during playback.
     ///
     /// By default this is set to `true`.
@@ -51,6 +54,7 @@ pub struct SamplerConfig {
 impl Default for SamplerConfig {
     fn default() -> Self {
         Self {
+            channels: NonZeroChannelCount::STEREO,
             mono_to_stereo: true,
             num_declickers: DEFAULT_NUM_DECLICKERS as u32,
             crossfade_on_restart: true,
@@ -58,584 +62,525 @@ impl Default for SamplerConfig {
     }
 }
 
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SamplerStatus {
-    pub playback: PlaybackStatus,
-    pub latest_queued_event: LatestQueuedEvent,
-}
-
-impl SamplerStatus {
-    pub fn is_playing(&self) -> bool {
-        match self.latest_queued_event {
-            LatestQueuedEvent::NewSampleEventQueued
-            | LatestQueuedEvent::StopEventQueued
-            | LatestQueuedEvent::DiscardEventQueued
-            | LatestQueuedEvent::PauseEventQueued => false,
-            LatestQueuedEvent::StartOrRestartEventQueued => true,
-            LatestQueuedEvent::ResumeEventQueued => {
-                self.playback != PlaybackStatus::Finished
-                    && self.playback != PlaybackStatus::NoSample
-                    && self.playback != PlaybackStatus::NotStartedYet
-            }
-            _ => match self.playback {
-                PlaybackStatus::Playing | PlaybackStatus::PlayingEndlessly => true,
-                _ => false,
-            },
-        }
-    }
-
-    pub fn finished(&self) -> bool {
-        self.playback == PlaybackStatus::Finished
-    }
-
-    /// Returns a `score` of how good of a candidate this node is to
-    /// be given new work. The higher the score, the better the candidate
-    /// for the work.
-    ///
-    /// This is useful when assigning work to a pool of sampler nodes.
-    /// If all nodes in the pool are currently working, then the one
-    /// with the highest score is the "oldest" one.
-    pub fn new_work_score(&self, playhead_frames: u64) -> u64 {
-        match self.latest_queued_event {
-            LatestQueuedEvent::NewSampleEventQueued => u64::MAX - 4,
-            LatestQueuedEvent::StopEventQueued => u64::MAX - 3,
-            LatestQueuedEvent::DiscardEventQueued => u64::MAX - 2,
-            LatestQueuedEvent::StartOrRestartEventQueued => playhead_frames,
-            _ => match self.playback {
-                PlaybackStatus::NoSample => u64::MAX,
-                PlaybackStatus::Finished => u64::MAX - 1,
-                PlaybackStatus::NotStartedYet => u64::MAX - 3,
-                _ => playhead_frames,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaybackStatus {
-    /// The sampler currently has no sample loaded.
-    NoSample,
-    /// The sampler has not currently started playing its sample yet.
-    NotStartedYet,
-    /// The sampler is currently paused.
-    Paused,
-    /// The sampler is currently playing a sample.
+pub enum PlaybackState {
+    Stopped,
     Playing,
-    /// The sampler is currently playing a sample on an endless loop.
-    PlayingEndlessly,
-    /// The sampler has finished playing the sample.
-    Finished,
+    Paused,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LatestQueuedEvent {
-    None,
-    NewSampleEventQueued,
-    StopEventQueued,
-    StartOrRestartEventQueued,
-    DiscardEventQueued,
-    PauseEventQueued,
-    ResumeEventQueued,
-}
-
-/// A wrapper around a [`SamplerNode`].
-pub struct Sampler {
-    pub node_id: NodeID,
-    sample: Option<Arc<dyn SampleResource>>,
-    normalized_volume: f32,
-    repeat_mode: RepeatMode,
-}
-
-impl Sampler {
-    pub fn new(node_id: NodeID) -> Self {
-        Self {
-            node_id,
-            sample: None,
-            normalized_volume: 1.0,
-            repeat_mode: RepeatMode::PlayOnce,
-        }
-    }
-
-    /// Use the given sample with the given settings. This will stop any
-    /// currently playing samples and reset the playhead to the beginning.
-    /// Call `start_or_restart` to begin playback.
-    ///
-    /// If this node already has this sample with the given settings, then
-    /// this will do nothing.
-    pub fn set_sample(
-        &mut self,
-        replace_with_sample: Option<&Arc<dyn SampleResource>>,
-        normalized_volume: f32,
-        repeat_mode: RepeatMode,
-        delay: EventDelay,
-        graph: &mut AudioGraph,
-    ) {
-        if let Some(new_sample) = replace_with_sample {
-            if let Some(old_sample) = self.sample.as_ref() {
-                if Arc::ptr_eq(old_sample, new_sample)
-                    && self.normalized_volume == normalized_volume
-                    && self.repeat_mode == repeat_mode
-                {
-                    return;
-                }
-            }
-
-            self.sample = Some(Arc::clone(new_sample));
-        } else if self.sample.is_none() {
-            return;
-        };
-
-        self.normalized_volume = normalized_volume;
-        self.repeat_mode = repeat_mode;
-        let sample = Arc::clone(self.sample.as_ref().unwrap());
-
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::NewSample {
-                sample,
-                normalized_volume,
-                repeat_mode,
-            },
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::NewSampleEventQueued);
-    }
-
-    /// Discard any sample data loaded in this node. This will stop any
-    /// currently playing samples and reset the playhead to the beginning.
-    pub fn discard_sample(&mut self, graph: &mut AudioGraph) {
-        if self.sample.is_some() {
-            self.sample = None;
-
-            graph.queue_event(NodeEvent {
-                node_id: self.node_id,
-                delay: EventDelay::Immediate,
-                event: NodeEventType::DiscardData,
-            });
-
-            graph
-                .node_mut::<SamplerNode>(self.node_id)
-                .unwrap()
-                .set_latest_queued_event(LatestQueuedEvent::DiscardEventQueued);
-        }
-    }
-
-    /// Start/restart playback.
-    pub fn start_or_restart(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        if self.sample.is_none() {
-            return;
-        }
-
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::StartOrRestart,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::StartOrRestartEventQueued);
-    }
-
-    /// Pause playback.
-    pub fn pause(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::Pause,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::PauseEventQueued);
-    }
-
-    /// Resume playback.
-    pub fn resume(&mut self, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::Resume,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::ResumeEventQueued);
-    }
-
-    /// Stop playback and reset the playhead back to the beginning.
-    ///
-    /// This will also discard any pending delayed events.
-    pub fn stop(&mut self, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay: EventDelay::Immediate,
-            event: NodeEventType::Stop,
-        });
-
-        graph
-            .node_mut::<SamplerNode>(self.node_id)
-            .unwrap()
-            .set_latest_queued_event(LatestQueuedEvent::StopEventQueued);
-    }
-
-    /// Set the playhead to the given time in seconds.
-    pub fn set_playhead_seconds(
-        &mut self,
-        seconds: f64,
-        delay: EventDelay,
-        graph: &mut AudioGraph,
-    ) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::F64Param {
-                id: SamplerNode::PARAM_PLAYHEAD_SECONDS,
-                value: seconds,
-                smoothing: false,
-            },
-        });
-    }
-
-    /// Set the playhead to the given time in frames (samples in a single
-    /// channel of audio, not to be confused with video frames).
-    pub fn set_playhead_frames(&mut self, frames: u64, delay: EventDelay, graph: &mut AudioGraph) {
-        graph.queue_event(NodeEvent {
-            node_id: self.node_id,
-            delay,
-            event: NodeEventType::U64Param {
-                id: SamplerNode::PARAM_PLAYHEAD_FRAMES,
-                value: frames,
-                smoothing: false,
-            },
-        });
-    }
-
-    /// The current sample loaded into this node.
-    pub fn sample(&self) -> Option<&Arc<dyn SampleResource>> {
-        self.sample.as_ref()
-    }
-
-    /// The current value of the playhead in units of frames (samples in a
-    /// single channel of audio, not to be confused with video frames).
-    pub fn playhead_frames(&self, graph: &AudioGraph) -> u64 {
-        graph
-            .node::<SamplerNode>(self.node_id)
-            .unwrap()
-            .playhead_frames()
-    }
-
-    /// The current value of the playhead in units of seconds.
-    ///
-    /// Returns `None` if the node does not exist in the graph.
-    pub fn playhead_seconds(&self, graph: &AudioGraph) -> f64 {
-        graph
-            .node::<SamplerNode>(self.node_id)
-            .unwrap()
-            .playhead_seconds()
-    }
-
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
-    }
-
-    pub fn repeat_mode(&self) -> RepeatMode {
-        self.repeat_mode
-    }
-
-    pub fn status(&self, graph: &AudioGraph) -> SamplerStatus {
-        graph.node::<SamplerNode>(self.node_id).unwrap().status()
-    }
-
-    pub fn exists_in_graph(&self, graph: &AudioGraph) -> bool {
-        graph.node::<SamplerNode>(self.node_id).is_some()
+impl PlaybackState {
+    pub fn is_playing(&self) -> bool {
+        self == &PlaybackState::Playing
     }
 }
 
 struct SharedState {
     playhead_frames: AtomicU64,
-    status: AtomicCell<SamplerStatus>,
+    playback_state: AtomicCell<PlaybackState>,
 }
 
-impl SharedState {
-    fn reset(&self) {
-        self.playhead_frames.store(0, Ordering::Relaxed);
-        self.status.store(SamplerStatus {
-            playback: PlaybackStatus::NoSample,
-            latest_queued_event: LatestQueuedEvent::None,
-        });
-    }
-}
-
-pub struct SamplerNode {
-    config: SamplerConfig,
-    shared_state: Arc<SharedState>,
-    sample_rate: NonZeroU32,
-    sample_rate_recip: f64,
-}
-
-impl SamplerNode {
-    pub const PARAM_PLAYHEAD_SECONDS: u32 = 0;
-    pub const PARAM_PLAYHEAD_FRAMES: u32 = 0;
-
-    pub fn new(config: SamplerConfig) -> Self {
+impl Default for SharedState {
+    fn default() -> Self {
         Self {
-            config,
-            shared_state: Arc::new(SharedState {
-                playhead_frames: AtomicU64::new(0),
-                status: AtomicCell::new(SamplerStatus {
-                    playback: PlaybackStatus::NoSample,
-                    latest_queued_event: LatestQueuedEvent::None,
-                }),
-            }),
-            sample_rate: NonZeroU32::MIN,
-            sample_rate_recip: 0.0,
-        }
-    }
-
-    /// Get the current playhead in units of frames (samples in a single channel
-    /// of audio).
-    pub fn playhead_frames(&self) -> u64 {
-        self.shared_state.playhead_frames.load(Ordering::Relaxed)
-    }
-
-    /// Get the current playhead in units of seconds.
-    pub fn playhead_seconds(&self) -> f64 {
-        let playhead_frames = self.playhead_frames();
-        let sample_rate_u64 = self.sample_rate.get() as u64;
-        let whole_seconds = playhead_frames / sample_rate_u64;
-        let fract_samples = playhead_frames % sample_rate_u64;
-
-        whole_seconds as f64 + (fract_samples as f64 * self.sample_rate_recip)
-    }
-
-    /// Returns the current status.
-    pub fn status(&self) -> SamplerStatus {
-        self.shared_state.status.load()
-    }
-
-    pub fn set_latest_queued_event(&mut self, latest_queued_event: LatestQueuedEvent) {
-        let playback = self.shared_state.status.load().playback;
-        self.shared_state.status.store(SamplerStatus {
-            playback,
-            latest_queued_event,
-        });
-    }
-
-    pub fn set_playhead_seconds_event(&self, seconds: f64) -> NodeEventType {
-        NodeEventType::F64Param {
-            id: Self::PARAM_PLAYHEAD_SECONDS,
-            value: seconds,
-            smoothing: false,
-        }
-    }
-
-    pub fn set_playhead_frames_event(&self, frames: u64) -> NodeEventType {
-        NodeEventType::U64Param {
-            id: Self::PARAM_PLAYHEAD_FRAMES,
-            value: frames,
-            smoothing: false,
+            playhead_frames: AtomicU64::new(0),
+            playback_state: AtomicCell::new(PlaybackState::Stopped),
         }
     }
 }
 
-impl AudioNode for SamplerNode {
-    fn debug_name(&self) -> &'static str {
-        "sampler"
+/// The state of a sampler node.
+#[derive(Clone)]
+pub struct SamplerState {
+    /// The current sequence loaded into the sampler.
+    pub sequence: Option<SequenceType>,
+    /// The configuration of this sampler node.
+    ///
+    /// This cannot be changed once the node is added to the audio graph.
+    pub config: SamplerConfig,
+    shared_state: Arc<SharedState>,
+}
+
+impl Default for SamplerState {
+    fn default() -> Self {
+        Self::new(None, SamplerConfig::default())
+    }
+}
+
+impl SamplerState {
+    pub fn new(sequence: Option<SequenceType>, config: SamplerConfig) -> Self {
+        Self {
+            sequence,
+            config,
+            shared_state: Arc::new(SharedState::default()),
+        }
     }
 
+    /// Set the sequence to a single sample.
+    ///
+    /// * `sample` - The sample resource to use.
+    /// * `normalized_volume` - The volume to play the sample at, where `0.0` is silence and
+    /// `1.0` is unity gain. Note that this node does not support changing the volume while
+    /// playing. Instead, use a node like the volume node for that.
+    /// * `repeat_mode` - How many times a sample/sequence should be repeated for each
+    /// `StartOrRestart` command.
+    pub fn set_sample(
+        &mut self,
+        sample: Arc<dyn SampleResource>,
+        normalized_volume: f32,
+        repeat_mode: RepeatMode,
+    ) {
+        self.sequence = Some(SequenceType::SingleSample {
+            sample,
+            normalized_volume,
+            repeat_mode,
+        });
+    }
+
+    /// Clear the sample resource from this state.
+    pub fn clear_sample(&mut self) {
+        self.sequence = None;
+    }
+
+    /// Get the current position of the playhead in seconds.
+    ///
+    /// Only returns `Some` when the sequence is [`SequenceType::SingleSample`].
+    ///
+    /// * `sample_rate` - The sample rate of the current audio stream.
+    pub fn playhead_seconds(&self, sample_rate: NonZeroU32) -> Option<f64> {
+        if let Some(SequenceType::SingleSample { .. }) = &self.sequence {
+            let frames = self.shared_state.playhead_frames.load(Ordering::Relaxed);
+
+            Some(frames as f64 / sample_rate.get() as f64)
+        } else {
+            None
+        }
+    }
+
+    /// Get the current position of the playhead in units of samples (of
+    /// a single channel of audio).
+    ///
+    /// Only returns `Some` when the sequence is [`SequenceType::SingleSample`].
+    pub fn playhead_samples(&self) -> Option<u64> {
+        if let Some(SequenceType::SingleSample { .. }) = &self.sequence {
+            Some(self.shared_state.playhead_frames.load(Ordering::Relaxed))
+        } else {
+            None
+        }
+    }
+
+    /// The current playback state.
+    pub fn playback_state(&self) -> PlaybackState {
+        self.shared_state.playback_state.load()
+    }
+
+    /// A score of how suitible this node is to start new work (Play a new sample). The
+    /// higher the score, the better the candidate.
+    pub fn worker_score(&self) -> u64 {
+        if self.sequence.is_some() {
+            match self.playback_state() {
+                PlaybackState::Stopped => u64::MAX - 1,
+                PlaybackState::Paused => u64::MAX - 2,
+                PlaybackState::Playing => {
+                    // The older the sample is, the better it is as a candidate to steal
+                    // work from.
+                    self.playhead_samples().unwrap_or(0)
+                }
+            }
+        } else {
+            u64::MAX
+        }
+    }
+
+    /// Return an event type to sync the new sequence to the processor.
+    ///
+    /// * `start_immediately` - If `true`, then the new sequence will be started
+    /// immediately when the processor receives the event.
+    pub fn sync_sequence_event(&self, start_immediately: bool) -> NodeEventType {
+        if start_immediately {
+            self._flag_playback_state(if self.sequence.is_some() {
+                PlaybackState::Playing
+            } else {
+                PlaybackState::Stopped
+            });
+        }
+
+        SamplerEvent::SetSequence {
+            sequence: self.sequence.clone(),
+            start_immediately,
+        }
+        .into()
+    }
+
+    /// Return an event type to start/restart the current sequence.
+    ///
+    /// * `delay` - The exact moment when the sequence should start. Set to
+    /// `None` to have the sequence start as soon as the event is recieved.
+    pub fn start_or_restart_event(&self, delay: Option<EventDelay>) -> NodeEventType {
+        self._flag_playback_state(if self.sequence.is_some() {
+            PlaybackState::Playing
+        } else {
+            PlaybackState::Stopped
+        });
+
+        NodeEventType::SequenceCommand(SequenceCommand::StartOrRestart { delay })
+    }
+
+    /// Return an event type to pause the current sequence.
+    pub fn pause_event(&self) -> NodeEventType {
+        self._flag_playback_state(PlaybackState::Paused);
+
+        NodeEventType::SequenceCommand(SequenceCommand::Pause)
+    }
+
+    /// Return an event type to resume the current sequence.
+    pub fn resume_event(&self) -> NodeEventType {
+        self._flag_playback_state(if self.sequence.is_some() {
+            PlaybackState::Playing
+        } else {
+            PlaybackState::Stopped
+        });
+
+        NodeEventType::SequenceCommand(SequenceCommand::Resume)
+    }
+
+    /// Return an event type to stop the current sequence.
+    pub fn stop_event(&self) -> NodeEventType {
+        self._flag_playback_state(PlaybackState::Stopped);
+
+        NodeEventType::SequenceCommand(SequenceCommand::Stop)
+    }
+
+    /// Return an event type to set the position of the playhead in seconds.
+    ///
+    /// This only has an effect when the sequence is [`SequenceType::SingleSample`].
+    pub fn set_playhead_event(&self, seconds: f64) -> NodeEventType {
+        SamplerEvent::SetPlayheadSeconds(seconds).into()
+    }
+
+    /// Return an event type to set the position of the playhead in units of
+    /// samples (of a single channel of audio).
+    ///
+    /// This only has an effect when the sequence is [`SequenceType::SingleSample`].
+    pub fn set_playhead_samples_event(&self, samples: u64) -> NodeEventType {
+        SamplerEvent::SetPlayheadSamples(samples).into()
+    }
+
+    /// Manually mark the playback state of this node. This can be used to account
+    /// for the delay between when creating a [`SamplerEvent`] and when the processor
+    /// receives the event when using [`SamplerState::worker_score`].
+    ///
+    /// Note, if you use the methods on this struct to construct the events, then
+    /// this is automatically done for you.
+    pub fn _flag_playback_state(&self, state: PlaybackState) {
+        self.shared_state.playback_state.store(state);
+    }
+}
+
+#[derive(Clone)]
+pub enum SamplerEvent {
+    /// Set the sampler state. This will stop any currently playing sequence.
+    SetSequence {
+        sequence: Option<SequenceType>,
+        /// If `true`, then the new sequence will be started immediately.
+        start_immediately: bool,
+    },
+    /// Set the position of the playhead in seconds.
+    SetPlayheadSeconds(f64),
+    /// Set the position of the playhead in units of samples (of a single channel
+    /// of audio).
+    SetPlayheadSamples(u64),
+}
+
+impl Into<NodeEventType> for SamplerEvent {
+    fn into(self) -> NodeEventType {
+        NodeEventType::Custom(Box::new(self))
+    }
+}
+
+/// The current sequence loaded into the sampler.
+#[derive(Clone)]
+pub enum SequenceType {
+    SingleSample {
+        /// The sample resource to use.
+        sample: Arc<dyn SampleResource>,
+        /// The volume to play the sample at, where `0.0` is silence and `1.0`
+        /// is unity gain.
+        ///
+        /// Note that this node does not support changing the volume while
+        /// playing. Instead, use a node like the volume node for that.
+        normalized_volume: f32,
+        /// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
+        repeat_mode: RepeatMode,
+        // TODO: Pitch
+    },
+    Sequence {
+        sequence: Vec<SequenceEvent>,
+        timing: SequenceTiming,
+    },
+}
+
+/// The method of timing to use for a sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SequenceTiming {
+    /// Use time in units of seconds.
+    Seconds,
+    /// Use time in units of samples (of a single channel of audio).
+    Samples,
+}
+
+#[derive(Clone)]
+pub struct SequenceEvent {
+    pub event: SequenceEventType,
+    /// The amount of time from the start of the sequence that this event should occur.
+    ///
+    /// If the timing is set to [`SequenceTiming::Seconds`], then this is in units of seconds. If
+    /// the timing is set to [`SequenceTiming::Samples`], then this is in units of samples (of a
+    /// single channel of audio).
+    pub offset_from_start: f64,
+}
+
+#[derive(Clone)]
+pub enum SequenceEventType {
+    PlaySample {
+        /// The sample resource to use.
+        sample: Arc<dyn SampleResource>,
+        /// The volume to play the sample at, where `0.0` is silence and `1.0`
+        /// is unity gain.
+        ///
+        /// Note that this node does not support changing the volume while
+        /// playing. Instead, use a node like the volume node for that.
+        normalized_volume: f32,
+        // TODO: Pitch
+    },
+    /// Stop the currently playing sample.
+    Stop,
+    /// Set the position of the playhead in seconds.
+    SetPlayheadSeconds(f64),
+    /// Set the position of the playhead in units of samples (of a single channel
+    /// of audio).
+    SetPlayheadSamples(u64),
+}
+
+impl AudioNodeConstructor for SamplerState {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::ZERO,
-            num_max_supported_inputs: ChannelCount::ZERO,
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::new(MAX_OUT_CHANNELS as u32).unwrap(),
-            default_channel_config: ChannelConfig {
+            debug_name: "sampler",
+            channel_config: ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
-                num_outputs: ChannelCount::STEREO,
+                num_outputs: self.config.channels.get(),
             },
-            equal_num_ins_and_outs: false,
-            updates: false,
             uses_events: true,
         }
     }
 
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        self.shared_state.reset();
-        self.sample_rate = stream_info.sample_rate;
-        self.sample_rate_recip = stream_info.sample_rate_recip;
-
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         let stop_declicker_buffers = if self.config.num_declickers == 0 {
             None
         } else {
-            Some(InstanceBuffer::new(
+            Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
                 self.config.num_declickers as usize,
-                NonZeroUsize::new(channel_config.num_outputs.get() as usize).unwrap(),
-                NonZeroUsize::new(stream_info.declick_frames.get() as usize).unwrap(),
+                NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
+                stream_info.declick_frames.get() as usize,
             ))
         };
 
-        Ok(Box::new(SamplerProcessor {
-            config: self.config,
-            sample: None,
-            sample_len_frames: 0,
-            sample_num_channels: NonZeroUsize::MIN,
-            sample_mono_to_stereo: false,
-            gain: 0.0,
-            playhead: 0,
-            repeat_mode: RepeatMode::default(),
-            num_times_looped_back: 0,
-            declicker: Declicker::SettledAt0,
-            paused: true,
+        let mut sampler = Box::new(SamplerProcessor {
+            config: self.config.clone(),
+            sequence: None,
             shared_state: Arc::clone(&self.shared_state),
+            loaded_sample_state: None,
+            declicker: Declicker::SettledAt1,
+            playback_state: PlaybackState::Stopped,
+            stop_declicker_buffers,
             stop_declickers: smallvec::smallvec![StopDeclickerState::default(); self.config.num_declickers as usize],
             num_active_stop_declickers: 0,
-            stop_declicker_buffers,
-            sample_rate: stream_info.sample_rate,
-            has_begun_playing: false,
-        }))
-    }
+            playback_start_time_seconds: ClockSeconds::default(),
+            playback_pause_time_seconds: ClockSeconds::default(),
+            playback_start_time_frames: ClockSamples::default(),
+            playback_pause_time_frames: ClockSamples::default(),
+            start_delay: None,
+            sample_rate: stream_info.sample_rate.get() as f64,
+        });
 
-    fn deactivate(&mut self, _processor: Option<Box<dyn AudioNodeProcessor>>) {
-        self.shared_state.reset();
-    }
-}
+        sampler.set_sequence(
+            &mut self.sequence.clone(),
+            self.config.channels.get().get() as usize,
+        );
 
-impl Into<Box<dyn AudioNode>> for SamplerNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
+        sampler
     }
 }
 
 pub struct SamplerProcessor {
     config: SamplerConfig,
-    sample: Option<Arc<dyn SampleResource>>,
-    sample_len_frames: u64,
-    sample_num_channels: NonZeroUsize,
-    sample_mono_to_stereo: bool,
-    gain: f32,
-    playhead: u64,
-    repeat_mode: RepeatMode,
-    num_times_looped_back: u64,
-    declicker: Declicker,
-    paused: bool,
+    sequence: Option<SequenceType>,
     shared_state: Arc<SharedState>,
+
+    loaded_sample_state: Option<LoadedSampleState>,
+
+    declicker: Declicker,
+    playback_state: PlaybackState,
+
     stop_declicker_buffers: Option<InstanceBuffer<f32, MAX_OUT_CHANNELS>>,
     stop_declickers: SmallVec<[StopDeclickerState; DEFAULT_NUM_DECLICKERS]>,
     num_active_stop_declickers: usize,
-    sample_rate: NonZeroU32,
-    has_begun_playing: bool,
+
+    playback_start_time_seconds: ClockSeconds,
+    playback_pause_time_seconds: ClockSeconds,
+    playback_start_time_frames: ClockSamples,
+    playback_pause_time_frames: ClockSamples,
+
+    start_delay: Option<EventDelay>,
+
+    sample_rate: f64,
 }
 
 impl SamplerProcessor {
+    /// Returns `true` if the sample has finished playing, and also
+    /// returns the number of channels that were filled.
     fn process_internal(
         &mut self,
         buffers: &mut [&mut [f32]],
         frames: usize,
         looping: bool,
         declick_values: &DeclickValues,
-    ) {
-        // TODO: effects like doppler shifting
+        start_on_frame: Option<usize>,
+    ) -> (bool, usize) {
+        let range_in_buffer = if let Some(frame) = start_on_frame {
+            for ch in buffers.iter_mut() {
+                ch[..frame].fill(0.0);
+            }
 
-        self.copy_from_sample(buffers, 0..frames, looping);
+            frame..frames
+        } else {
+            0..frames
+        };
+
+        // TODO: effects like pitch (doppler) shifting
+
+        let (finished_playing, mut channels_filled) =
+            self.copy_from_sample(buffers, range_in_buffer, looping);
+
+        let Some(state) = self.loaded_sample_state.as_ref() else {
+            return (true, 0);
+        };
 
         if !self.declicker.is_settled() {
-            self.declicker
-                .process(buffers, 0..frames, declick_values, self.gain);
-        } else if self.gain != 1.0 {
-            let n_channels = buffers.len().min(self.sample_num_channels.get());
-            for b in buffers[..n_channels].iter_mut() {
+            self.declicker.process(
+                buffers,
+                0..frames,
+                declick_values,
+                state.gain,
+                FadeType::EqualPower3dB,
+            );
+        } else if state.gain != 1.0 {
+            for b in buffers[..channels_filled].iter_mut() {
                 for s in b[..frames].iter_mut() {
-                    *s *= self.gain;
+                    *s *= state.gain;
                 }
             }
         }
 
-        if self.sample_mono_to_stereo {
+        if state.sample_mono_to_stereo {
             let (b0, b1) = buffers.split_first_mut().unwrap();
             b1[0][..frames].copy_from_slice(&b0[..frames]);
+
+            channels_filled = 2;
         }
+
+        (finished_playing, channels_filled)
     }
 
     /// Fill the buffer with raw data from the sample, starting from the
     /// current playhead. Then increment the playhead.
+    ///
+    /// Returns `true` if the sample has finished playing, and also
+    /// returns the number of channels that were filled.
     fn copy_from_sample(
         &mut self,
         buffers: &mut [&mut [f32]],
         range_in_buffer: Range<usize>,
         looping: bool,
-    ) {
-        let Some(sample) = self.sample.as_ref() else {
-            return;
+    ) -> (bool, usize) {
+        let Some(state) = self.loaded_sample_state.as_mut() else {
+            return (true, 0);
         };
 
-        assert!(self.playhead <= self.sample_len_frames);
+        assert!(state.playhead <= state.sample_len_frames);
 
         let block_frames = range_in_buffer.end - range_in_buffer.start;
-        let first_copy_frames = if self.playhead + block_frames as u64 > self.sample_len_frames {
-            (self.sample_len_frames - self.playhead) as usize
+        let first_copy_frames = if state.playhead + block_frames as u64 > state.sample_len_frames {
+            (state.sample_len_frames - state.playhead) as usize
         } else {
             block_frames
         };
 
         if first_copy_frames > 0 {
-            sample.fill_buffers(
+            state.sample.fill_buffers(
                 buffers,
                 range_in_buffer.start..range_in_buffer.start + first_copy_frames,
-                self.playhead,
+                state.playhead,
             );
 
-            self.playhead += first_copy_frames as u64;
+            state.playhead += first_copy_frames as u64;
         }
 
         if first_copy_frames < block_frames {
             if looping {
-                let second_copy_frames = block_frames - first_copy_frames;
+                let mut frames_left = block_frames - first_copy_frames;
 
-                sample.fill_buffers(
-                    buffers,
-                    range_in_buffer.start + first_copy_frames..range_in_buffer.end,
-                    0,
-                );
+                while frames_left > 0 {
+                    let copy_frames = (frames_left as u64).min(state.sample_len_frames) as usize;
 
-                self.playhead = second_copy_frames as u64;
-                self.num_times_looped_back += 1;
+                    state.sample.fill_buffers(
+                        buffers,
+                        range_in_buffer.start + first_copy_frames..range_in_buffer.end,
+                        0,
+                    );
+
+                    state.playhead = copy_frames as u64;
+                    state.num_times_looped_back += 1;
+
+                    frames_left -= copy_frames;
+                }
             } else {
-                let n_channels = buffers.len().min(self.sample_num_channels.get());
+                let n_channels = buffers.len().min(state.sample_num_channels.get());
                 for b in buffers[..n_channels].iter_mut() {
                     b[range_in_buffer.start + first_copy_frames..range_in_buffer.end].fill(0.0);
                 }
 
-                self.paused = true;
+                return (true, n_channels);
             }
+        }
+
+        (false, buffers.len().min(state.sample_num_channels.get()))
+    }
+
+    fn currently_processing_sample(&self) -> bool {
+        if self.sequence.is_none() || self.start_delay.is_some() {
+            false
+        } else {
+            self.playback_state == PlaybackState::Playing
+                || (self.playback_state == PlaybackState::Paused && !self.declicker.is_settled())
         }
     }
 
-    fn current_sample_is_processing(&self) -> bool {
-        self.sample.is_some() && (!self.paused || !self.declicker.is_settled())
-    }
-
     fn num_channels_filled(&self, num_out_channels: usize) -> usize {
-        if self.sample_mono_to_stereo {
-            2
+        if let Some(state) = &self.loaded_sample_state {
+            if state.sample_mono_to_stereo {
+                2
+            } else {
+                state.sample_num_channels.get().min(num_out_channels)
+            }
         } else {
-            self.sample_num_channels.get().min(num_out_channels)
+            0
         }
     }
 
     fn stop(&mut self, declick_values: &DeclickValues, num_out_channels: usize) {
-        if self.current_sample_is_processing() {
+        if self.currently_processing_sample() {
             // Fade out the sample into a temporary look-ahead
             // buffer to declick.
 
@@ -653,7 +598,7 @@ impl SamplerProcessor {
 
                     let n_channels = self.num_channels_filled(num_out_channels);
 
-                    let fade_out_frames = stop_declicker_buffers.frames().get();
+                    let fade_out_frames = stop_declicker_buffers.frames();
 
                     self.stop_declickers[declicker_i].frames_left = fade_out_frames;
                     self.stop_declickers[declicker_i].channels = n_channels;
@@ -662,7 +607,13 @@ impl SamplerProcessor {
                         .get_mut(declicker_i, n_channels, fade_out_frames)
                         .unwrap();
 
-                    self.process_internal(&mut tmp_buffers, fade_out_frames, false, declick_values);
+                    self.process_internal(
+                        &mut tmp_buffers,
+                        fade_out_frames,
+                        false,
+                        declick_values,
+                        None,
+                    );
 
                     self.num_active_stop_declickers += 1;
                 }
@@ -671,11 +622,13 @@ impl SamplerProcessor {
             }
         }
 
-        self.playhead = 0;
-        self.paused = true;
-        self.num_times_looped_back = 0;
+        if let Some(state) = &mut self.loaded_sample_state {
+            state.playhead = 0;
+            state.num_times_looped_back = 0;
+        }
+
         self.declicker.reset_to_1();
-        self.has_begun_playing = false;
+        self.start_delay = None;
     }
 
     fn set_playhead(
@@ -684,59 +637,100 @@ impl SamplerProcessor {
         declick_values: &DeclickValues,
         num_out_channels: usize,
     ) {
-        if self.playhead == playhead_frames {
-            return;
-        }
+        if let Some(SequenceType::SingleSample { .. }) = &self.sequence {
+            let state = self.loaded_sample_state.as_ref().unwrap();
 
-        let paused = self.paused;
+            let playhead_frames = playhead_frames.min(state.sample_len_frames);
 
-        self.stop(declick_values, num_out_channels);
+            if state.playhead == playhead_frames {
+                return;
+            }
 
-        self.playhead = playhead_frames;
-        self.paused = paused;
+            let playback_state = self.playback_state;
 
-        if playhead_frames > 0 {
-            // Fade in to declick.
-            self.declicker.reset_to_0();
+            self.stop(declick_values, num_out_channels);
 
-            if !self.paused {
-                self.declicker.fade_to_1(declick_values);
+            let state = self.loaded_sample_state.as_mut().unwrap();
+
+            state.playhead = playhead_frames;
+            self.playback_state = playback_state;
+
+            self.shared_state
+                .playhead_frames
+                .store(playhead_frames, Ordering::Relaxed);
+
+            if playhead_frames > 0 {
+                // Fade in to declick.
+                self.declicker.reset_to_0();
+
+                if self.playback_state == PlaybackState::Playing {
+                    self.declicker.fade_to_1(declick_values);
+                }
             }
         }
     }
 
-    fn update_playback_status(&mut self) {
-        let status = self.shared_state.status.load();
+    fn set_sequence(&mut self, sequence: &mut Option<SequenceType>, num_out_channels: usize) {
+        // Return the old sequence to the main thread to be deallocated.
+        std::mem::swap(&mut self.sequence, sequence);
 
-        let new_playback_status = if self.sample.is_none() {
-            PlaybackStatus::NoSample
-        } else if !self.has_begun_playing {
-            PlaybackStatus::NotStartedYet
-        } else if self.playhead >= self.sample_len_frames
-            && !self.repeat_mode.do_loop(self.num_times_looped_back)
-        {
-            PlaybackStatus::Finished
-        } else if self.paused {
-            PlaybackStatus::Paused
-        } else if self.repeat_mode == RepeatMode::RepeatEndlessly {
-            PlaybackStatus::PlayingEndlessly
-        } else {
-            PlaybackStatus::Playing
-        };
+        self.loaded_sample_state = None;
 
-        if status.playback != new_playback_status {
-            self.shared_state.status.store(SamplerStatus {
-                playback: new_playback_status,
-                latest_queued_event: status.latest_queued_event,
-            });
+        match &self.sequence {
+            None => {
+                self.playback_state = PlaybackState::Stopped;
+                self.shared_state
+                    .playback_state
+                    .store(PlaybackState::Stopped);
+            }
+            Some(SequenceType::SingleSample {
+                sample,
+                normalized_volume,
+                repeat_mode,
+            }) => {
+                self.load_sample(
+                    Arc::clone(sample),
+                    *normalized_volume,
+                    *repeat_mode,
+                    num_out_channels,
+                );
+            }
+            _ => {}
         }
     }
-}
 
-#[derive(Default, Clone, Copy)]
-struct StopDeclickerState {
-    frames_left: usize,
-    channels: usize,
+    fn load_sample(
+        &mut self,
+        sample: Arc<dyn SampleResource>,
+        normalized_volume: f32,
+        repeat_mode: RepeatMode,
+        num_out_channels: usize,
+    ) {
+        let mut gain = normalized_volume_to_raw_gain(normalized_volume);
+        if gain < 0.00001 {
+            gain = 0.0;
+        }
+        if gain > 0.99999 && gain < 1.00001 {
+            gain = 1.0;
+        }
+
+        let sample_len_frames = sample.len_frames();
+        let sample_num_channels = sample.num_channels();
+
+        let sample_mono_to_stereo =
+            self.config.mono_to_stereo && num_out_channels > 1 && sample_num_channels.get() == 1;
+
+        self.loaded_sample_state = Some(LoadedSampleState {
+            sample,
+            sample_len_frames,
+            sample_num_channels,
+            sample_mono_to_stereo,
+            gain,
+            playhead: 0,
+            repeat_mode,
+            num_times_looped_back: 0,
+        });
+    }
 }
 
 impl AudioNodeProcessor for SamplerProcessor {
@@ -744,170 +738,210 @@ impl AudioNodeProcessor for SamplerProcessor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        events: NodeEventIter,
-        proc_info: ProcInfo,
+        mut events: NodeEventList,
+        proc_info: &ProcInfo,
+        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        let mut playback_status_changed = false;
+        events.for_each(|event| match event {
+            NodeEventType::SequenceCommand(command) => {
+                if self.sequence.is_none() {
+                    self.shared_state
+                        .playback_state
+                        .store(PlaybackState::Stopped);
 
-        for msg in events {
-            match msg {
-                NodeEventType::Pause => {
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::PauseEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
-
-                    if self.sample.is_some() && !self.paused {
-                        self.paused = true;
-                        self.declicker.fade_to_0(proc_info.declick_values);
-                    }
-
-                    playback_status_changed = true;
+                    return;
                 }
-                NodeEventType::Resume => {
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::ResumeEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
 
-                    if self.sample.is_some() && self.paused && self.has_begun_playing {
-                        self.paused = false;
-                        self.declicker.fade_to_1(proc_info.declick_values);
-                    }
+                match command {
+                    SequenceCommand::StartOrRestart { delay } => {
+                        self.stop(proc_info.declick_values, outputs.len());
 
-                    playback_status_changed = true;
+                        self.playback_state = PlaybackState::Playing;
+
+                        // Crossfade with the previous sample.
+                        if self.config.crossfade_on_restart && self.num_active_stop_declickers > 0 {
+                            self.declicker.reset_to_0();
+                            self.declicker.fade_to_1(proc_info.declick_values);
+                        }
+
+                        self.start_delay = delay.and_then(|delay| delay.elapsed_or_get(&proc_info));
+
+                        if self.start_delay.is_none() {
+                            self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_start_time_frames = proc_info.clock_samples;
+                        }
+                    }
+                    SequenceCommand::Pause => {
+                        if self.playback_state == PlaybackState::Playing {
+                            self.playback_state = PlaybackState::Paused;
+
+                            self.declicker.fade_to_0(proc_info.declick_values);
+
+                            self.playback_pause_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_pause_time_frames = proc_info.clock_samples;
+                        }
+                    }
+                    SequenceCommand::Resume => {
+                        if self.playback_state == PlaybackState::Paused {
+                            self.playback_state = PlaybackState::Playing;
+
+                            self.declicker.fade_to_1(proc_info.declick_values);
+
+                            if let Some(delay) = &mut self.start_delay {
+                                match delay {
+                                    EventDelay::DelayUntilSeconds(seconds) => {
+                                        *seconds += proc_info.clock_seconds.start
+                                            - self.playback_pause_time_seconds;
+                                    }
+                                    EventDelay::DelayUntilSamples(samples) => {
+                                        *samples += proc_info.clock_samples
+                                            - self.playback_pause_time_frames;
+                                    }
+                                    EventDelay::DelayUntilMusical(_) => {
+                                        // The engine takes care of pausing the transport for us.
+                                    }
+                                }
+                            } else {
+                                self.playback_start_time_seconds += proc_info.clock_seconds.start
+                                    - self.playback_pause_time_seconds;
+                                self.playback_start_time_frames +=
+                                    proc_info.clock_samples - self.playback_pause_time_frames;
+                            }
+                        }
+                    }
+                    SequenceCommand::Stop => {
+                        self.stop(proc_info.declick_values, outputs.len());
+
+                        self.playback_state = PlaybackState::Stopped;
+                    }
                 }
-                NodeEventType::Stop => {
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::StopEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
 
-                    self.stop(proc_info.declick_values, outputs.len());
-
-                    playback_status_changed = true;
-                }
-                NodeEventType::StartOrRestart => {
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::StartOrRestartEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
-
-                    if self.sample.is_none() {
-                        continue;
-                    }
-
-                    self.stop(proc_info.declick_values, outputs.len());
-
-                    self.paused = false;
-
-                    // Crossfade with the previous sample.
-                    if self.config.crossfade_on_restart && self.num_active_stop_declickers > 0 {
-                        self.declicker.reset_to_0();
-                        self.declicker.fade_to_1(proc_info.declick_values);
-                    }
-
-                    self.has_begun_playing = true;
-                    playback_status_changed = true;
-                }
-                NodeEventType::DiscardData => {
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::DiscardEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
-
-                    self.stop(proc_info.declick_values, outputs.len());
-
-                    self.sample = None;
-
-                    playback_status_changed = true;
-                }
-                NodeEventType::F64Param { id, value, .. } => {
-                    if *id != SamplerNode::PARAM_PLAYHEAD_SECONDS {
-                        continue;
-                    }
-
-                    let playhead_frames = if *value <= 0.0 {
-                        0
-                    } else {
-                        (value.floor() as u64 * self.sample_rate.get() as u64)
-                            + (value.fract() * self.sample_rate.get() as f64).round() as u64
-                    };
-
-                    self.set_playhead(playhead_frames, proc_info.declick_values, outputs.len());
-
-                    playback_status_changed = true;
-                }
-                NodeEventType::U64Param { id, value, .. } => {
-                    if *id != SamplerNode::PARAM_PLAYHEAD_FRAMES {
-                        continue;
-                    }
-
-                    self.set_playhead(*value, proc_info.declick_values, outputs.len());
-
-                    playback_status_changed = true;
-                }
-                NodeEventType::NewSample {
-                    sample,
-                    normalized_volume,
-                    repeat_mode,
-                } => {
-                    self.stop(proc_info.declick_values, outputs.len());
-
-                    self.gain = normalized_volume_to_raw_gain(*normalized_volume);
-                    if self.gain < 0.00001 {
-                        self.gain = 0.0;
-                    }
-                    if self.gain > 0.99999 && self.gain < 1.00001 {
-                        self.gain = 1.0;
-                    }
-
-                    self.repeat_mode = *repeat_mode;
-                    self.sample_len_frames = sample.len_frames();
-                    self.sample_num_channels = sample.num_channels();
-                    self.sample = Some(Arc::clone(sample));
-                    self.sample_mono_to_stereo = self.config.mono_to_stereo
-                        && outputs.len() > 1
-                        && self.sample_num_channels.get() == 1;
-
-                    let mut status = self.shared_state.status.load();
-                    if status.latest_queued_event == LatestQueuedEvent::NewSampleEventQueued {
-                        status.latest_queued_event = LatestQueuedEvent::None;
-                        self.shared_state.status.store(status);
-                    }
-
-                    playback_status_changed = true;
-                }
-                _ => {}
+                self.shared_state.playback_state.store(self.playback_state);
             }
-        }
+            NodeEventType::Custom(event) => {
+                let Some(event) = event.downcast_mut::<SamplerEvent>() else {
+                    return;
+                };
 
-        let current_sample_is_processing = self.current_sample_is_processing();
+                match event {
+                    SamplerEvent::SetSequence {
+                        sequence,
+                        start_immediately,
+                    } => {
+                        self.stop(proc_info.declick_values, outputs.len());
 
-        if !current_sample_is_processing && self.num_active_stop_declickers == 0 {
-            if playback_status_changed {
-                self.update_playback_status();
+                        self.set_sequence(sequence, outputs.len());
+
+                        if self.sequence.is_none() {
+                            return;
+                        }
+
+                        if *start_immediately {
+                            self.playback_state = PlaybackState::Playing;
+                            self.shared_state
+                                .playback_state
+                                .store(PlaybackState::Playing);
+
+                            // Crossfade with the previous sample.
+                            if self.config.crossfade_on_restart
+                                && self.num_active_stop_declickers > 0
+                            {
+                                self.declicker.reset_to_0();
+                                self.declicker.fade_to_1(proc_info.declick_values);
+                            }
+
+                            self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                            self.playback_start_time_frames = proc_info.clock_samples;
+                        } else {
+                            self.shared_state
+                                .playback_state
+                                .store(PlaybackState::Stopped);
+                        }
+                    }
+                    SamplerEvent::SetPlayheadSeconds(seconds) => {
+                        let playhead_frames = if *seconds <= 0.0 {
+                            0
+                        } else {
+                            (seconds.floor() as u64 * self.sample_rate as u64)
+                                + (seconds.fract() * self.sample_rate).round() as u64
+                        };
+
+                        self.set_playhead(playhead_frames, proc_info.declick_values, outputs.len());
+                    }
+                    SamplerEvent::SetPlayheadSamples(playhead_frames) => {
+                        self.set_playhead(
+                            *playhead_frames,
+                            proc_info.declick_values,
+                            outputs.len(),
+                        );
+                    }
+                }
             }
+            _ => {}
+        });
 
+        let start_on_frame = if let Some(delay) = self.start_delay {
+            if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate as u32) {
+                self.start_delay = None;
+
+                self.playback_start_time_seconds = proc_info.clock_seconds.start;
+                self.playback_start_time_frames = proc_info.clock_samples;
+
+                Some(frame)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let currently_processing_sample = self.currently_processing_sample();
+
+        if !currently_processing_sample && self.num_active_stop_declickers == 0 {
             return ProcessStatus::ClearAllOutputs;
         }
 
         let mut num_filled_channels = 0;
 
-        if current_sample_is_processing {
-            let looping = self.repeat_mode.do_loop(self.num_times_looped_back);
+        if currently_processing_sample {
+            match &self.sequence {
+                None => {}
+                Some(SequenceType::SingleSample { .. }) => {
+                    let sample_state = self.loaded_sample_state.as_ref().unwrap();
+                    let looping = sample_state
+                        .repeat_mode
+                        .do_loop(sample_state.num_times_looped_back);
 
-            self.process_internal(outputs, proc_info.frames, looping, proc_info.declick_values);
+                    let (finished, n_channels) = self.process_internal(
+                        outputs,
+                        proc_info.frames,
+                        looping,
+                        proc_info.declick_values,
+                        start_on_frame,
+                    );
 
-            num_filled_channels = self.num_channels_filled(outputs.len());
+                    num_filled_channels = n_channels;
+
+                    self.shared_state.playhead_frames.store(
+                        self.loaded_sample_state.as_ref().unwrap().playhead,
+                        Ordering::Relaxed,
+                    );
+
+                    if finished {
+                        self.playback_state = PlaybackState::Stopped;
+                        self.shared_state
+                            .playback_state
+                            .store(PlaybackState::Stopped);
+                    }
+                }
+                Some(SequenceType::Sequence {
+                    sequence: _,
+                    timing: _,
+                }) => {
+                    todo!()
+                }
+            }
         }
-
-        self.update_playback_status();
 
         for (i, out_buf) in outputs.iter_mut().enumerate().skip(num_filled_channels) {
             if !proc_info.out_silence_mask.is_channel_silent(i) {
@@ -917,7 +951,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         if self.num_active_stop_declickers > 0 {
             let tmp_buffers = self.stop_declicker_buffers.as_ref().unwrap();
-            let fade_out_frames = tmp_buffers.frames().get();
+            let fade_out_frames = tmp_buffers.frames();
 
             for (declicker_i, declicker) in self.stop_declickers.iter_mut().enumerate() {
                 if declicker.frames_left == 0 {
@@ -960,5 +994,70 @@ impl AudioNodeProcessor for SamplerProcessor {
         };
 
         ProcessStatus::OutputsModified { out_silence_mask }
+    }
+
+    fn new_stream(&mut self, stream_info: &StreamInfo) {
+        if stream_info.sample_rate.get() as f64 != self.sample_rate {
+            self.sample_rate = stream_info.sample_rate.get() as f64;
+
+            self.stop_declicker_buffers = if self.config.num_declickers == 0 {
+                None
+            } else {
+                Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
+                    self.config.num_declickers as usize,
+                    NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
+                    stream_info.declick_frames.get() as usize,
+                ))
+            };
+
+            // The sample rate has changed, meaning that the sample resources now have
+            // the incorrect sample rate and the user must reload them.
+            self.sequence = None;
+            self.loaded_sample_state = None;
+            self.shared_state
+                .playback_state
+                .store(PlaybackState::Stopped);
+        }
+    }
+}
+
+struct LoadedSampleState {
+    sample: Arc<dyn SampleResource>,
+    sample_len_frames: u64,
+    sample_num_channels: NonZeroUsize,
+    sample_mono_to_stereo: bool,
+    gain: f32,
+    playhead: u64,
+    repeat_mode: RepeatMode,
+    num_times_looped_back: u64,
+}
+
+#[derive(Default, Clone, Copy)]
+struct StopDeclickerState {
+    frames_left: usize,
+    channels: usize,
+}
+
+/// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatMode {
+    /// Play the sample/sequence once and then stop.
+    #[default]
+    PlayOnce,
+    /// Repeat the sample/sequence the given number of times.
+    RepeatMultiple { num_times_to_repeat: u32 },
+    /// Repeat the sample/sequence endlessly.
+    RepeatEndlessly,
+}
+
+impl RepeatMode {
+    pub fn do_loop(&self, num_times_looped_back: u64) -> bool {
+        match self {
+            Self::PlayOnce => false,
+            &Self::RepeatMultiple {
+                num_times_to_repeat,
+            } => num_times_looped_back < num_times_to_repeat as u64,
+            Self::RepeatEndlessly => true,
+        }
     }
 }

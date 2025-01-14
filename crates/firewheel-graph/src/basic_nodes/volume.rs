@@ -1,89 +1,70 @@
 use firewheel_core::{
+    channel_config::{ChannelConfig, NonZeroChannelCount},
     dsp::{
         decibel::normalized_volume_to_raw_gain,
         smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
     },
+    event::{NodeEventList, NodeEventType},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, NodeEventIter, NodeEventType, ProcInfo,
-        ProcessStatus,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
     },
-    ChannelConfig, ChannelCount, StreamInfo,
 };
 
-pub struct VolumeNode {
-    normalized_volume: f32,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumeParams {
+    /// The percent volume where `0.0` is mute and `1.0` is unity gain.
+    pub normalized_volume: f32,
+    /// The number of channels in this node.
+    pub channels: NonZeroChannelCount,
 }
 
-impl VolumeNode {
+impl VolumeParams {
     /// The ID of the volume parameter.
-    pub const PARAM_VOLUME: u32 = 0;
+    pub const ID_VOLUME: u32 = 0;
 
-    /// Create a new volume node.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn new(normalized_volume: f32) -> Self {
-        let normalized_volume = normalized_volume.max(0.0);
-
-        Self { normalized_volume }
-    }
-
-    /// Get the current percent volume where `0.0` is mute and `1.0` is unity gain.
-    pub fn normalized_volume(&self) -> f32 {
-        self.normalized_volume
-    }
-
-    /// Return an event type to set the volume parameter.
-    ///
-    /// * `normalized_volume` - The percent volume where `0.0` is mute and `1.0` is unity gain.
-    /// * `smoothing` - Set this to `false` to have the node immediately jump to this new
-    /// value without smoothing (may cause audible clicking or stair-stepping artifacts). This
-    /// can be useful to preserve transients when playing a new sound at a different volume.
-    pub fn set_volume(&mut self, normalized_volume: f32, smoothing: bool) -> NodeEventType {
-        self.normalized_volume = normalized_volume.max(0.0);
+    /// Return an event type to sync the volume parameter.
+    pub fn sync_volume_event(&self) -> NodeEventType {
         NodeEventType::F32Param {
-            id: Self::PARAM_VOLUME,
-            value: normalized_volume,
-            smoothing,
+            id: Self::ID_VOLUME,
+            value: self.normalized_volume,
         }
     }
 }
 
-impl AudioNode for VolumeNode {
-    fn debug_name(&self) -> &'static str {
-        "volume"
+impl Default for VolumeParams {
+    fn default() -> Self {
+        Self {
+            normalized_volume: 1.0,
+            channels: NonZeroChannelCount::STEREO,
+        }
     }
+}
 
+impl AudioNodeConstructor for VolumeParams {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            num_min_supported_inputs: ChannelCount::MONO,
-            num_max_supported_inputs: ChannelCount::MAX,
-            num_min_supported_outputs: ChannelCount::MONO,
-            num_max_supported_outputs: ChannelCount::MAX,
-            default_channel_config: ChannelConfig {
-                num_inputs: ChannelCount::STEREO,
-                num_outputs: ChannelCount::STEREO,
+            debug_name: "volume",
+            channel_config: ChannelConfig {
+                num_inputs: self.channels.get(),
+                num_outputs: self.channels.get(),
             },
-            equal_num_ins_and_outs: true,
-            updates: false,
             uses_events: true,
         }
     }
 
-    fn activate(
-        &mut self,
-        stream_info: &StreamInfo,
-        _channel_config: ChannelConfig,
-    ) -> Result<Box<dyn AudioNodeProcessor>, Box<dyn std::error::Error>> {
-        let raw_gain = normalized_volume_to_raw_gain(self.normalized_volume);
+    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
-        Ok(Box::new(VolumeProcessor {
+        Box::new(VolumeProcessor {
             smooth_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
                 DEFAULT_SMOOTH_SECONDS,
             ),
-            filter_target: raw_gain,
-            gain: raw_gain,
-        }))
+            filter_target: gain,
+            gain,
+            prev_block_was_silent: true,
+        })
     }
 }
 
@@ -92,6 +73,8 @@ struct VolumeProcessor {
     filter_target: f32,
 
     gain: f32,
+
+    prev_block_was_silent: bool,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -99,44 +82,43 @@ impl AudioNodeProcessor for VolumeProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        events: NodeEventIter,
-        proc_info: ProcInfo,
+        mut events: NodeEventList,
+        proc_info: &ProcInfo,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        for msg in events {
-            if let NodeEventType::F32Param {
-                id,
-                value,
-                smoothing,
-            } = msg
-            {
-                if *id != VolumeNode::PARAM_VOLUME {
-                    continue;
-                }
+        events.for_each(|event| {
+            if let NodeEventType::F32Param { id, value } = event {
+                if *id == VolumeParams::ID_VOLUME {
+                    self.filter_target = normalized_volume_to_raw_gain(*value);
 
-                self.filter_target = normalized_volume_to_raw_gain(*value);
+                    if self.filter_target < 0.00001 {
+                        self.filter_target = 0.0;
+                    } else if self.filter_target > 0.99999 && self.filter_target < 1.00001 {
+                        self.filter_target = 1.0
+                    }
 
-                if self.filter_target < 0.00001 {
-                    self.filter_target = 0.0;
-                } else if self.filter_target > 0.99999 && self.filter_target < 1.00001 {
-                    self.filter_target = 1.0
-                }
-
-                if !*smoothing {
-                    self.gain = self.filter_target;
+                    if self.prev_block_was_silent {
+                        // Previous block was silent, so no need to smooth.
+                        self.gain = self.filter_target;
+                    }
                 }
             }
-        }
+        });
+
+        self.prev_block_was_silent = false;
 
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain = self.filter_target;
+            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
 
         if self.gain == self.filter_target {
             if self.gain == 0.0 {
+                self.prev_block_was_silent = true;
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
             } else if self.gain == 1.0 {
@@ -200,7 +182,7 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         } else {
             gain = smoothing_filter::process_into_buffer(
-                &mut proc_info.scratch_buffers[0][..proc_info.frames],
+                &mut scratch_buffers[0][..proc_info.frames],
                 gain,
                 self.filter_target,
                 self.smooth_filter_coeff,
@@ -217,7 +199,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 for ((os, &is), &g) in out_ch
                     .iter_mut()
                     .zip(in_ch.iter())
-                    .zip(proc_info.scratch_buffers[0][..proc_info.frames].iter())
+                    .zip(scratch_buffers[0][..proc_info.frames].iter())
                 {
                     *os = is * g;
                 }
@@ -232,10 +214,9 @@ impl AudioNodeProcessor for VolumeProcessor {
 
         ProcessStatus::outputs_modified(proc_info.in_silence_mask)
     }
-}
 
-impl Into<Box<dyn AudioNode>> for VolumeNode {
-    fn into(self) -> Box<dyn AudioNode> {
-        Box::new(self)
+    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+        self.smooth_filter_coeff =
+            smoothing_filter::Coeff::new(stream_info.sample_rate, DEFAULT_SMOOTH_SECONDS);
     }
 }

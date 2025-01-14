@@ -1,208 +1,96 @@
-// Audio graph compilation algorithm adapted from:
-// https://github.com/m-hilgendorf/audio-graph/tree/39c254073a73780335606f83e069afda230f0d3f
-
+use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 use std::error::Error;
-use std::fmt;
-
-use firewheel_core::{
-    node::{AudioNodeInfo, NodeID},
-    ChannelConfig, ChannelCount,
-};
 
 use crate::graph::{Edge, EdgeID, PortIdx};
 
 /// An error occurred while attempting to add an edge to the graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, thiserror::Error)]
 pub enum AddEdgeError {
     /// The given source node was not found in the graph.
+    #[error("Could not add edge: could not find source node with ID {0:?}")]
     SrcNodeNotFound(NodeID),
     /// The given destination node was not found in the graph.
+    #[error("Could not add edge: could not find destination node with ID {0:?}")]
     DstNodeNotFound(NodeID),
     /// The given input port index is out of range.
+    #[error("Input port idx {port_idx:?} is out of range on node {node:?} with {num_in_ports:?} input ports")]
     InPortOutOfRange {
         node: NodeID,
         port_idx: PortIdx,
         num_in_ports: ChannelCount,
     },
     /// The given output port index is out of range.
+    #[error("Output port idx {port_idx:?} is out of range on node {node:?} with {num_out_ports:?} output ports")]
     OutPortOutOfRange {
         node: NodeID,
         port_idx: PortIdx,
         num_out_ports: ChannelCount,
     },
     /// The edge already exists in the graph.
+    #[error("Could not add edge: edge already exists in the graph")]
     EdgeAlreadyExists,
-    /// The input port is already connected.
-    InputPortAlreadyConnected(NodeID, PortIdx),
     /// This edge would have created a cycle in the graph.
+    #[error("Could not add edge: cycle was detected")]
     CycleDetected,
-}
-
-impl Error for AddEdgeError {}
-
-impl fmt::Display for AddEdgeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SrcNodeNotFound(node_id) => {
-                write!(
-                    f,
-                    "Could not add edge: could not find source node with ID {:?}",
-                    node_id
-                )
-            }
-            Self::DstNodeNotFound(node_id) => {
-                write!(
-                    f,
-                    "Could not add edge: could not find destination node with ID {:?}",
-                    node_id
-                )
-            }
-            Self::InPortOutOfRange {
-                node,
-                port_idx,
-                num_in_ports,
-            } => {
-                write!(
-                    f,
-                    "Input port idx {:?} is out of range on node {:?} with {:?} input ports",
-                    port_idx, node, num_in_ports,
-                )
-            }
-            Self::OutPortOutOfRange {
-                node,
-                port_idx,
-                num_out_ports,
-            } => {
-                write!(
-                    f,
-                    "Output port idx {:?} is out of range on node {:?} with {:?} output ports",
-                    port_idx, node, num_out_ports,
-                )
-            }
-            Self::EdgeAlreadyExists => {
-                write!(f, "Could not add edge: edge already exists in the graph",)
-            }
-            Self::InputPortAlreadyConnected(node_id, port_id) => {
-                write!(
-                    f,
-                    "Could not add edge: input port with ID {:?} on node with ID {:?} is already connected",
-                    port_id,
-                    node_id,
-                )
-            }
-            Self::CycleDetected => {
-                write!(f, "Could not add edge: cycle was detected")
-            }
-        }
-    }
 }
 
 /// An error occurred while attempting to compile the audio graph
 /// into a schedule.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
     /// A cycle was detected in the graph.
+    #[error("Failed to compile audio graph: a cycle was detected")]
     CycleDetected,
     /// The input data contained an edge referring to a non-existing node.
+    #[error("Failed to compile audio graph: input data contains an edge {0:?} referring to a non-existing node {1:?}")]
     NodeOnEdgeNotFound(Edge, NodeID),
     /// The input data contained multiple nodes with the same ID.
+    #[error(
+        "Failed to compile audio graph: input data contains multiple nodes with the same ID {0:?}"
+    )]
     NodeIDNotUnique(NodeID),
     /// The input data contained multiple edges with the same ID.
+    #[error(
+        "Failed to compile audio graph: input data contains multiple edges with the same ID {0:?}"
+    )]
     EdgeIDNotUnique(EdgeID),
-    /// The input port has more than one connection.
-    ManyToOneError(NodeID, PortIdx),
-    /// The message channel is full.
-    MessageChannelFull,
 }
 
-impl Error for CompileGraphError {}
-
-impl fmt::Display for CompileGraphError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CycleDetected => {
-                write!(f, "Failed to compile audio graph: a cycle was detected")
-            }
-            Self::NodeOnEdgeNotFound(edge, node_id) => {
-                write!(f, "Failed to compile audio graph: input data contains an edge {:?} referring to a non-existing node {:?}", edge, node_id)
-            }
-            Self::NodeIDNotUnique(node_id) => {
-                write!(f, "Failed to compile audio graph: input data contains multiple nodes with the same ID {:?}", node_id)
-            }
-            Self::EdgeIDNotUnique(edge_id) => {
-                write!(f, "Failed to compile audio graph: input data contains multiple edges with the same ID {:?}", edge_id)
-            }
-            Self::ManyToOneError(node_id, port_id) => {
-                write!(f, "Failed to compile audio graph: input data contains multiple edges that go to the same input port with ID {:?} on node with id {:?}", port_id, node_id)
-            }
-            Self::MessageChannelFull => {
-                write!(f, "Failed to compile audio graph: Message channel is full")
-            }
-        }
-    }
+/// An error occurred while attempting to activate an audio stream in
+/// a [`FirewheelCtx`].
+#[derive(Debug, thiserror::Error)]
+pub enum StartStreamError<E: Error> {
+    /// An audio stream is already running in this context.
+    #[error("Audio stream is already running")]
+    AlreadyStarted,
+    /// The old audio stream has not finished stopping yet.
+    ///
+    /// Wait some time and then try starting again.
+    ///
+    /// Note, in rare cases where the audio thread crashes without cleanly
+    /// dropping its contents, this may never succeed. Consider adding a
+    /// timeout to avoid deadlocking.
+    #[error("Failed to start audio stream: The old audio stream has not finished stopping yet")]
+    OldStreamNotFinishedStopping,
+    /// The audio graph failed to compile.
+    #[error("Failed to start audio stream: Audio graph failed to compile: {0}")]
+    GraphCompileError(#[from] CompileGraphError),
+    /// A backend-specific error occured.
+    #[error("Failed to start audio stream: {0}")]
+    BackendError(E),
 }
 
-#[derive(Debug)]
-pub enum NodeError {
-    InvalidChannelConfig {
-        channel_config: ChannelConfig,
-        node_info: AudioNodeInfo,
-        msg: Option<Box<dyn Error>>,
-    },
-    ActivationFailed {
-        node_id: Option<NodeID>,
-        error: Box<dyn Error>,
-    },
-}
-
-impl Error for NodeError {}
-
-impl std::fmt::Display for NodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NodeError::InvalidChannelConfig {
-                channel_config,
-                node_info,
-                msg,
-            } => {
-                write!(
-                    f,
-                    "Invalid channel configuration {:?} on node with info: {:?}: custom message: {:?}",
-                    channel_config, node_info, msg
-                )
-            }
-            NodeError::ActivationFailed { node_id, error } => {
-                if let Some(node_id) = node_id {
-                    write!(
-                        f,
-                        "Node with ID {:?} failed to activate: {}",
-                        node_id, error
-                    )
-                } else {
-                    write!(f, "Node failed to activate: {}", error)
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ActivateCtxError {
-    AlreadyActivated,
-    NodeFailedToActived(NodeError),
-}
-
-impl Error for ActivateCtxError {}
-
-impl std::fmt::Display for ActivateCtxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ActivateCtxError::AlreadyActivated => {
-                write!(f, "Firewheel context is already activated")
-            }
-            ActivateCtxError::NodeFailedToActived(e) => {
-                write!(f, "Audio node failed to activate: {}", e)
-            }
-        }
-    }
+/// An error occured while updating a [`FirewheelCtx`].
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateError<E: Error> {
+    /// The context to processor message channel is full.
+    #[error("The Firewheel context to processor message channel is full")]
+    MsgChannelFull,
+    /// The audio graph failed to compile.
+    #[error("The audio graph failed to compile: {0}")]
+    GraphCompileError(#[from] CompileGraphError),
+    /// The audio stream stopped unexpectedly. A new audio stream (even if it's a
+    /// dummy audio stream), should be started as soon as possible.
+    #[error("The audio stream stopped unexpectedly: {0}")]
+    StreamStoppedUnexpectedly(Option<E>),
 }

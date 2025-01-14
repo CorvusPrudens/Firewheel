@@ -1,5 +1,5 @@
 use eframe::App;
-use firewheel::node::RepeatMode;
+use firewheel::sampler::RepeatMode;
 
 use crate::system::{AudioSystem, SAMPLE_PATHS};
 
@@ -29,14 +29,14 @@ impl DemoApp {
 }
 
 impl App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
             egui::menu::bar(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.menu_button("Menu", |ui| {
                         if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
+                            cx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
                     });
                     ui.add_space(16.0);
@@ -46,7 +46,7 @@ impl App for DemoApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(cx, |ui| {
             for (i, sampler_state) in self.sampler_views.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(sampler_state.text);
@@ -63,7 +63,7 @@ impl App for DemoApp {
                         );
                     }
 
-                    if self.audio_system.sampler_status(i).is_playing() {
+                    if self.audio_system.playback_state(i).is_playing() {
                         if ui.button("Pause").clicked() {
                             self.audio_system.pause(i);
                         }

@@ -1,3 +1,4 @@
+use std::f32::consts::FRAC_PI_2;
 use std::{num::NonZeroU32, ops::Range};
 
 /// A struct when can be used to linearly ramp up/down between `0.0`
@@ -79,6 +80,7 @@ impl Declicker {
         range_in_buffer: Range<usize>,
         declick_values: &DeclickValues,
         gain: f32,
+        fade_type: FadeType,
     ) {
         let mut fade_buffers = |declick_samples_left: &mut usize, values: &[f32]| -> usize {
             let buffer_samples = range_in_buffer.end - range_in_buffer.start;
@@ -124,8 +126,12 @@ impl Declicker {
                 }
             }
             Self::FadingTo0 { samples_left } => {
-                let samples_processed =
-                    fade_buffers(samples_left, &declick_values.fade_1_to_0_values);
+                let values = match fade_type {
+                    FadeType::Linear => &declick_values.linear_1_to_0_values,
+                    FadeType::EqualPower3dB => &declick_values.circular_1_to_0_values,
+                };
+
+                let samples_processed = fade_buffers(samples_left, values);
 
                 if samples_processed < range_in_buffer.end - range_in_buffer.start {
                     for b in buffers.iter_mut() {
@@ -140,8 +146,12 @@ impl Declicker {
                 }
             }
             Self::FadingTo1 { samples_left } => {
-                let samples_processed =
-                    fade_buffers(samples_left, &declick_values.fade_0_to_1_values);
+                let values = match fade_type {
+                    FadeType::Linear => &declick_values.linear_0_to_1_values,
+                    FadeType::EqualPower3dB => &declick_values.circular_0_to_1_values,
+                };
+
+                let samples_processed = fade_buffers(samples_left, values);
 
                 if samples_processed < range_in_buffer.end - range_in_buffer.start && gain != 1.0 {
                     for b in buffers.iter_mut() {
@@ -162,13 +172,23 @@ impl Declicker {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FadeType {
+    /// Linear fade.
+    Linear,
+    /// Equal power fade (circular).
+    EqualPower3dB,
+}
+
 /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`.
 ///
 /// This approach is more SIMD-friendly than using a smoothing filter or
 /// incrementing the gain per-sample.
 pub struct DeclickValues {
-    pub fade_0_to_1_values: Vec<f32>,
-    pub fade_1_to_0_values: Vec<f32>,
+    pub linear_0_to_1_values: Vec<f32>,
+    pub linear_1_to_0_values: Vec<f32>,
+    pub circular_0_to_1_values: Vec<f32>,
+    pub circular_1_to_0_values: Vec<f32>,
 }
 
 impl DeclickValues {
@@ -178,22 +198,34 @@ impl DeclickValues {
         let frames = frames.get() as usize;
         let frames_recip = (frames as f32).recip();
 
-        let mut fade_0_to_1_values = Vec::new();
-        let mut fade_1_to_0_values = Vec::new();
+        let mut linear_0_to_1_values = Vec::new();
+        let mut linear_1_to_0_values = Vec::new();
+        let mut circular_0_to_1_values = Vec::new();
+        let mut circular_1_to_0_values = Vec::new();
 
-        fade_0_to_1_values.reserve_exact(frames);
-        fade_1_to_0_values.reserve_exact(frames);
+        linear_0_to_1_values.reserve_exact(frames);
+        linear_1_to_0_values.reserve_exact(frames);
+        circular_0_to_1_values.reserve_exact(frames);
+        circular_1_to_0_values.reserve_exact(frames);
 
-        fade_0_to_1_values = (0..frames).map(|i| i as f32 * frames_recip).collect();
-        fade_1_to_0_values = (0..frames).rev().map(|i| i as f32 * frames_recip).collect();
+        linear_0_to_1_values = (0..frames).map(|i| i as f32 * frames_recip).collect();
+        linear_1_to_0_values = (0..frames).rev().map(|i| i as f32 * frames_recip).collect();
+
+        circular_0_to_1_values = linear_0_to_1_values
+            .iter()
+            .map(|x| (x * FRAC_PI_2).sin())
+            .collect();
+        circular_1_to_0_values = circular_0_to_1_values.iter().rev().copied().collect();
 
         Self {
-            fade_0_to_1_values,
-            fade_1_to_0_values,
+            linear_0_to_1_values,
+            linear_1_to_0_values,
+            circular_0_to_1_values,
+            circular_1_to_0_values,
         }
     }
 
     pub fn frames(&self) -> usize {
-        self.fade_0_to_1_values.len()
+        self.linear_0_to_1_values.len()
     }
 }
