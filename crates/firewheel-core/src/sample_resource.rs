@@ -1,8 +1,4 @@
-use std::{
-    num::{NonZeroU32, NonZeroUsize},
-    ops::Range,
-    sync::Arc,
-};
+use std::{num::NonZeroUsize, ops::Range};
 
 /// A resource of audio samples.
 pub trait SampleResource: Send + Sync + 'static {
@@ -39,32 +35,6 @@ pub struct InterleavedResourceI16 {
 }
 
 impl SampleResource for InterleavedResourceI16 {
-    fn num_channels(&self) -> NonZeroUsize {
-        self.channels
-    }
-
-    fn len_frames(&self) -> u64 {
-        (self.data.len() / self.channels.get()) as u64
-    }
-
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
-            self.channels,
-            &self.data,
-            pcm_i16_to_f32,
-        );
-    }
-}
-
-impl SampleResource for Arc<InterleavedResourceI16> {
     fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
@@ -349,6 +319,19 @@ impl DecodedAudio {
     pub fn duration_seconds(&self) -> f64 {
         self.0.frames() as f64 / self.0.sample_rate() as f64
     }
+
+    pub fn into_dyn_resource(self) -> crate::collector::ArcGc<dyn SampleResource> {
+        crate::collector::ArcGc::new_unsized(|| {
+            std::sync::Arc::new(self) as std::sync::Arc<dyn SampleResource>
+        })
+    }
+}
+
+#[cfg(feature = "symphonium")]
+impl Into<crate::collector::ArcGc<dyn SampleResource>> for DecodedAudio {
+    fn into(self) -> crate::collector::ArcGc<dyn SampleResource> {
+        self.into_dyn_resource()
+    }
 }
 
 #[cfg(feature = "symphonium")]
@@ -443,7 +426,7 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
 pub fn load_audio_file<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
-    #[cfg(feature = "resampler")] sample_rate: NonZeroU32,
+    #[cfg(feature = "resampler")] sample_rate: std::num::NonZeroU32,
     #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
@@ -470,7 +453,7 @@ pub fn load_audio_file_from_source(
     loader: &mut symphonium::SymphoniumLoader,
     source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
     hint: Option<symphonium::symphonia::core::probe::Hint>,
-    #[cfg(feature = "resampler")] sample_rate: NonZeroU32,
+    #[cfg(feature = "resampler")] sample_rate: std::num::NonZeroU32,
     #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
@@ -489,13 +472,15 @@ pub fn load_audio_file_from_source(
 #[cfg(feature = "symphonium")]
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into
 /// a [`SampleResource`].
-pub fn decoded_to_resource(data: symphonium::DecodedAudio) -> Arc<dyn SampleResource> {
-    Arc::new(DecodedAudio(data))
+pub fn decoded_to_resource(data: symphonium::DecodedAudio) -> std::sync::Arc<dyn SampleResource> {
+    std::sync::Arc::new(DecodedAudio(data))
 }
 
 #[cfg(feature = "symphonium")]
 /// A helper method to convert a [`symphonium::DecodedAudioF32`] resource into
 /// a [`SampleResource`].
-pub fn decoded_f32_to_resource(data: symphonium::DecodedAudioF32) -> Arc<dyn SampleResource> {
-    Arc::new(DecodedAudioF32(data))
+pub fn decoded_f32_to_resource(
+    data: symphonium::DecodedAudioF32,
+) -> std::sync::Arc<dyn SampleResource> {
+    std::sync::Arc::new(DecodedAudioF32(data))
 }

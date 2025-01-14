@@ -1,5 +1,6 @@
 pub mod channel_config;
 pub mod clock;
+pub mod collector;
 pub mod dsp;
 pub mod event;
 pub mod node;

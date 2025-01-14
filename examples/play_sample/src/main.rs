@@ -1,9 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    sample_resource::SampleResource,
     sampler::{PlaybackState, RepeatMode, SamplerState},
     FirewheelContext,
 };
@@ -42,10 +41,10 @@ fn main() {
     // --- Load a sample into memory, and tell the node to use it and play it. -----------
 
     let mut loader = SymphoniumLoader::new();
-    let sample: Arc<dyn SampleResource> = Arc::new(
+    let sample =
         firewheel::load_audio_file(&mut loader, args.path, sample_rate, Default::default())
-            .unwrap(),
-    );
+            .unwrap()
+            .into_dyn_resource();
 
     sampler_state.set_sample(sample, 1.0, RepeatMode::PlayOnce);
 

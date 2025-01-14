@@ -376,6 +376,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// This must be called reguarly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        firewheel_core::collector::collect();
+
         while let Ok(msg) = self.from_processor_rx.pop() {
             match msg {
                 ProcessorToContextMsg::ReturnEventGroup(mut event_group) => {
@@ -599,6 +601,23 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 impl<B: AudioBackend> Drop for FirewheelCtx<B> {
     fn drop(&mut self) {
         self.stop_stream();
+
+        // Wait for the processor to be drop to avoid deallocating it on
+        // the audio thread.
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(mut drop_rx) = self.processor_drop_rx.take() {
+            let now = std::time::Instant::now();
+
+            while drop_rx.pop().is_err() {
+                if now.elapsed() > std::time::Duration::from_secs(2) {
+                    break;
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        }
+
+        firewheel_core::collector::collect();
     }
 }
 

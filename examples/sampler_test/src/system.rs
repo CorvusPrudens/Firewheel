@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
 use firewheel::{
     error::UpdateError,
     node::NodeID,
-    sample_resource::SampleResource,
     sampler::{PlaybackState, RepeatMode, SamplerState, SequenceType},
     FirewheelContext,
 };
@@ -41,10 +38,10 @@ impl AudioSystem {
         let samplers = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                let sample: Arc<dyn SampleResource> = Arc::new(
+                let sample =
                     firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
-                        .unwrap(),
-                );
+                        .unwrap()
+                        .into_dyn_resource();
 
                 let state = SamplerState::new(
                     Some(SequenceType::SingleSample {

@@ -12,6 +12,7 @@ use std::{
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     clock::{ClockSamples, ClockSeconds, EventDelay},
+    collector::ArcGc,
     dsp::{
         buffer::InstanceBuffer,
         decibel::normalized_volume_to_raw_gain,
@@ -99,7 +100,7 @@ pub struct SamplerState {
     ///
     /// This cannot be changed once the node is added to the audio graph.
     pub config: SamplerConfig,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
 }
 
 impl Default for SamplerState {
@@ -113,7 +114,7 @@ impl SamplerState {
         Self {
             sequence,
             config,
-            shared_state: Arc::new(SharedState::default()),
+            shared_state: ArcGc::new(SharedState::default()),
         }
     }
 
@@ -127,7 +128,7 @@ impl SamplerState {
     /// `StartOrRestart` command.
     pub fn set_sample(
         &mut self,
-        sample: Arc<dyn SampleResource>,
+        sample: ArcGc<dyn SampleResource>,
         normalized_volume: f32,
         repeat_mode: RepeatMode,
     ) {
@@ -304,7 +305,7 @@ impl Into<NodeEventType> for SamplerEvent {
 pub enum SequenceType {
     SingleSample {
         /// The sample resource to use.
-        sample: Arc<dyn SampleResource>,
+        sample: ArcGc<dyn SampleResource>,
         /// The volume to play the sample at, where `0.0` is silence and `1.0`
         /// is unity gain.
         ///
@@ -389,7 +390,7 @@ impl AudioNodeConstructor for SamplerState {
         let mut sampler = Box::new(SamplerProcessor {
             config: self.config.clone(),
             sequence: None,
-            shared_state: Arc::clone(&self.shared_state),
+            shared_state: ArcGc::clone(&self.shared_state),
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             playback_state: PlaybackState::Stopped,
@@ -416,7 +417,7 @@ impl AudioNodeConstructor for SamplerState {
 pub struct SamplerProcessor {
     config: SamplerConfig,
     sequence: Option<SequenceType>,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
 
     loaded_sample_state: Option<LoadedSampleState>,
 
@@ -689,7 +690,7 @@ impl SamplerProcessor {
                 repeat_mode,
             }) => {
                 self.load_sample(
-                    Arc::clone(sample),
+                    ArcGc::clone(sample),
                     *normalized_volume,
                     *repeat_mode,
                     num_out_channels,
@@ -701,7 +702,7 @@ impl SamplerProcessor {
 
     fn load_sample(
         &mut self,
-        sample: Arc<dyn SampleResource>,
+        sample: ArcGc<dyn SampleResource>,
         normalized_volume: f32,
         repeat_mode: RepeatMode,
         num_out_channels: usize,
@@ -1022,7 +1023,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 }
 
 struct LoadedSampleState {
-    sample: Arc<dyn SampleResource>,
+    sample: ArcGc<dyn SampleResource>,
     sample_len_frames: u64,
     sample_num_channels: NonZeroUsize,
     sample_mono_to_stereo: bool,
