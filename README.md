@@ -15,8 +15,7 @@ Firewheel aims to be a fully-featured libre open source audio graph engine for g
 * Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * A suite of essential built-in audio nodes:
     * gain, stereo panning, and summing
-    * versatile sampler with seamless blending between tracks and disk/network streaming
-    * effects like filters, delays (echos), and reverbs
+    * versatile sampler
     * spatial positioning (make a sound "emanate" from a point in 3d space)
     * triple buffering for inserting/reading raw samples from any thread
 * Custom audio node API allowing for a plethora of 3rd party generators and effects

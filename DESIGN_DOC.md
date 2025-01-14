@@ -16,7 +16,6 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * Key built-in nodes:
     * [x] volume (minimum value mutes)
     * [x] stereo panning
-    * [x] mono to stereo
     * [x] stereo to mono
     * [ ] decibel (peak) meter
     * [x] beep test (generates a sine wav for testing)
@@ -26,7 +25,6 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [ ] simple spatial positioning (only the simplest implementation for first release)
 * [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
 * [x] Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
-* [ ] Basic sequencing (automation) support for sampler, volume, pan, and spatial positioning nodes
 * [ ] A general purpose "preset" graph with an easy-to-use interface
 * [x] Support for loading a wide variety of audio formats (using [Symphonium](https://github.com/MeadowlarkDAW/symphonium))
 * [x] Fault tolerance for audio streams (The game shouldn't crash just because the player accidentally unplugged their headphones.)
@@ -37,6 +35,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Later Goals
 
+* [ ] Basic sequencing (automation) support for sampler, volume, pan, and spatial positioning nodes
 * Seamlessly blending between multiple audio tracks in the `SamplerNode`
 * Extra built-in nodes:
     * [ ] delay compensation
@@ -107,7 +106,7 @@ Audio backends should have the following features:
 1. A context with an audio graph is initialized.
 2. The context is "activated" using an audio stream given to it by the backend. A realtime-safe message channel is created, along with a processor (executor) that is sent to the audio stream. Then the audio graph is "compiled" into a schedule and sent to the executor over the message channel. If compiling fails, then the context will be deactivated again and return an error.
 3. "Active" state:
-    - The user periodically calls the `update` method on the context (i.e. once every frame). This method checks for any changes in the graph, and compiles a new schedule if a change is detected. If there was an error compiling the graph, then the update method will return an error and a new schedule will not be created.
+    - The user periodically calls the `update` method on the context (i.e. once every frame). This method first flushes any events that are in the queue and sends them to the audio thread. (Flushing events as a group like this ensures that events that are expected to happen on the same process cycle don't happen on different process cycles.) Then this method checks for any changes in the graph, and compiles a new schedule if a change is detected. If there was an error compiling the graph, then the update method will return an error and a new schedule will not be created.
 4. The context can become deactivated in one of two ways:
     * a. The user requests to deactivate the context. This is necessary, for example, when changing the audio io devices in the game's settings. Dropping the context will also automatically deactivate it first.
     * b. The audio stream is interrupted (i.e. the user unplugged the audio device). In this case, it is up to the developer/backend to decide how to respond (i.e. automatically try to activate again with a different device, or falling back to a "dummy" audio device).
@@ -118,7 +117,7 @@ There are three clocks in the audio stream: the seconds clock, the sample clock,
 
 ### Seconds Clock
 
-This clock is recommended for most use cases. It counts the total number of seconds (as an `f64` value) that have elapsed since the start of the audio stream. This value is read from the OS's native audio API where possible, so it is quite accurate and it correctly accounts for any output underflows that may occur.
+This clock is recommended for most general use cases. It counts the total number of seconds (as an `f64` value) that have elapsed since the start of the audio stream. This value is read from the OS's native audio API where possible, so it is quite accurate and it correctly accounts for any output underflows that may occur.
 
 Usage of the clock works like this:
 
@@ -131,7 +130,7 @@ The works the same as `Seconds Clock`, except it simply counts the total number 
 
 ### Musical Clock
 
-*TODO*
+This clock is manually started, paused, resumed, and stopped by the user. It counts the number of musical beats (as an `f64` value) that have elapsed since the `MusicalTransport` was started. This clock is ideal for syncing events to a musical tempo. Though like the sample clock, it does not account for any output underflows that may occur. Instead, the user is expected to poll the current time of the clock from the context to keep their game in sync.
 
 ## Silence Optimizations
 
@@ -178,12 +177,6 @@ This node sums streams together into a single stream.
 ### StereoToMonoNode
 
 This node turns a stereo stream into a mono stream.
-
-### HardClipNode
-
-This node hard clips any signal above 0db, and notifies the main thread (TODO) whenever a clip occurs (useful for monitoring).
-
-This node is usually added as the last node in the graph right before the graph output node to protect the user's speakers/headphones.
 
 ### TripleBufferOutNode
 
