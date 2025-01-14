@@ -220,7 +220,7 @@ impl FirewheelProcessorInner {
                             self.sample_rate.get(),
                             self.sample_rate_recip,
                         )
-                        .sub_beats,
+                        .0,
                     Ordering::Relaxed,
                 );
             }
@@ -415,7 +415,7 @@ impl FirewheelProcessorInner {
                             old_transport.transport = *new_transport;
                         } else {
                             self.transport = None;
-                            self.clock_shared.musical.store(0, Ordering::Relaxed);
+                            self.clock_shared.musical.store(0.0, Ordering::Relaxed);
                         }
                     } else {
                         self.transport = transport.map(|transport| TransportState {
@@ -427,7 +427,7 @@ impl FirewheelProcessorInner {
                             stopped: true,
                         });
 
-                        self.clock_shared.musical.store(0, Ordering::Relaxed);
+                        self.clock_shared.musical.store(0.0, Ordering::Relaxed);
                     }
                 }
                 ContextToProcessorMsg::StartOrRestartTransport => {
@@ -437,7 +437,7 @@ impl FirewheelProcessorInner {
                         transport.start_frame = self.clock_samples;
                     }
 
-                    self.clock_shared.musical.store(0, Ordering::Relaxed);
+                    self.clock_shared.musical.store(0.0, Ordering::Relaxed);
                 }
                 ContextToProcessorMsg::PauseTransport => {
                     if let Some(transport) = &mut self.transport {
@@ -467,7 +467,7 @@ impl FirewheelProcessorInner {
                         transport.stopped = true;
                     }
 
-                    self.clock_shared.musical.store(0, Ordering::Relaxed);
+                    self.clock_shared.musical.store(0.0, Ordering::Relaxed);
                 }
             }
         }

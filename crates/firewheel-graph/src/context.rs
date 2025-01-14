@@ -120,7 +120,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let clock_shared = Arc::new(ClockValues {
             seconds: AtomicF64::new(0.0),
             samples: AtomicI64::new(0),
-            musical: AtomicI64::new(0),
+            musical: AtomicF64::new(0.0),
         });
 
         let (to_processor_tx, from_context_rx) =
@@ -296,9 +296,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// If no transport is currently active, then this will have a value of `0`.
     pub fn clock_musical(&self) -> MusicalTime {
-        MusicalTime {
-            sub_beats: self.clock_shared.musical.load(Ordering::Relaxed),
-        }
+        MusicalTime(self.clock_shared.musical.load(Ordering::Relaxed))
     }
 
     /// Set the musical transport to use.
@@ -607,5 +605,5 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
 pub(crate) struct ClockValues {
     pub seconds: AtomicF64,
     pub samples: AtomicI64,
-    pub musical: AtomicI64,
+    pub musical: AtomicF64,
 }

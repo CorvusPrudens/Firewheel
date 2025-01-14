@@ -247,63 +247,18 @@ impl Into<i64> for ClockSamples {
     }
 }
 
-/// Musical time in units of sub-beats (where 1 beat = 1920 sub-beats)
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MusicalTime {
-    /// The amount of sub-beats (where 1 beat = 1920 sub-beats)
-    pub sub_beats: i64,
-}
+/// Musical time in units of beats.
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct MusicalTime(pub f64);
 
 impl MusicalTime {
-    /// The number of subdivisions per musical beat
-    ///
-    /// This number was chosen because it is neatly divisible by a bunch of
-    /// common factors such as 2, 3, 4, 5, 6, 8, 16, 32, 64, and 128.
-    pub const SUBBEATS_PER_BEAT: u32 = 1920;
-
-    pub const fn new(sub_beats: i64) -> Self {
-        Self { sub_beats }
-    }
-
-    pub fn from_beats_f64(beats: f64) -> Self {
-        assert!(beats >= 0.0);
-
-        let beats_i64 = beats.floor() as i64;
-        let fract_sub_beats = (beats.fract() * f64::from(Self::SUBBEATS_PER_BEAT)).round() as i64;
-
-        Self {
-            sub_beats: (beats_i64 * i64::from(Self::SUBBEATS_PER_BEAT)) + fract_sub_beats,
-        }
-    }
-
-    pub fn as_beats_f64(&self) -> f64 {
-        let whole_beats = self.sub_beats / i64::from(Self::SUBBEATS_PER_BEAT);
-        let sub_beats = self.sub_beats % i64::from(Self::SUBBEATS_PER_BEAT);
-
-        whole_beats as f64 + (sub_beats as f64 * (1.0 / f64::from(Self::SUBBEATS_PER_BEAT)))
-    }
-
-    /// (number of whole-beats, number of sub-beats *after* whole-beats)
-    #[inline]
-    pub fn whole_beats_and_fract(&self) -> (i64, u32) {
-        let whole_beats = self.sub_beats / i64::from(Self::SUBBEATS_PER_BEAT);
-        let sub_beats = self.sub_beats % i64::from(Self::SUBBEATS_PER_BEAT);
-
-        if sub_beats < 0 {
-            (
-                whole_beats - 1,
-                Self::SUBBEATS_PER_BEAT - sub_beats.abs() as u32,
-            )
-        } else {
-            (whole_beats, sub_beats as u32)
-        }
+    pub const fn new(beats: f64) -> Self {
+        Self(beats)
     }
 
     /// Convert to the corresponding time in samples.
     pub fn to_sample_time(&self, seconds_per_beat: f64, sample_rate: u32) -> ClockSamples {
-        let beats_f64 = self.as_beats_f64();
-        let secs_f64 = beats_f64 * seconds_per_beat;
-
+        let secs_f64 = self.0 * seconds_per_beat;
         ClockSamples::from_secs_f64(secs_f64, sample_rate)
     }
 
@@ -315,9 +270,7 @@ impl MusicalTime {
         sample_rate_recip: f64,
     ) -> Self {
         let secs_f64 = sample_time.as_secs_f64(sample_rate, sample_rate_recip);
-        let beats_f64 = secs_f64 * beats_per_second;
-
-        MusicalTime::from_beats_f64(beats_f64)
+        MusicalTime(secs_f64 * beats_per_second)
     }
 }
 
@@ -332,30 +285,26 @@ pub fn beats_per_second(beats_per_minute: f64) -> f64 {
 impl Add for MusicalTime {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            sub_beats: self.sub_beats + rhs.sub_beats,
-        }
+        Self(self.0 + rhs.0)
     }
 }
 
 impl Sub for MusicalTime {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            sub_beats: self.sub_beats - rhs.sub_beats,
-        }
+        Self(self.0 - rhs.0)
     }
 }
 
 impl AddAssign for MusicalTime {
     fn add_assign(&mut self, rhs: Self) {
-        self.sub_beats += rhs.sub_beats;
+        self.0 += rhs.0;
     }
 }
 
 impl SubAssign for MusicalTime {
     fn sub_assign(&mut self, rhs: Self) {
-        self.sub_beats -= rhs.sub_beats;
+        self.0 -= rhs.0;
     }
 }
 
