@@ -44,3 +44,46 @@ pub fn normalized_volume_to_raw_gain(normalized_volume: f32) -> f32 {
     let n = normalized_volume.max(0.0);
     n * n
 }
+
+/// A struct that converts a value in decibels to a normalized range used in
+/// meters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DbMeterNormalizer {
+    min_db: f32,
+    range_recip: f32,
+    factor: f32,
+}
+
+impl DbMeterNormalizer {
+    /// * `min_db` - The minimum decibel value shown in the meter.
+    /// * `max_db` - The maximum decibel value shown in the meter.
+    /// * `center_db` - The decibel value that will appear halfway (0.5) in the
+    /// normalized range. For example, if you had `min_db` as `-100.0` and
+    /// `max_db` as `0.0`, then a good `center_db` value would be `-22`.
+    pub fn new(min_db: f32, max_db: f32, center_db: f32) -> Self {
+        assert!(max_db > min_db);
+        assert!(center_db > min_db && center_db < max_db);
+
+        let range_recip = (max_db - min_db).recip();
+        let center_normalized = ((center_db - min_db) * range_recip).clamp(0.0, 1.0);
+
+        Self {
+            min_db,
+            range_recip,
+            factor: 0.5_f32.log(center_normalized),
+        }
+    }
+
+    #[inline]
+    pub fn normalize(&self, db: f32) -> f32 {
+        ((db - self.min_db) * self.range_recip)
+            .clamp(0.0, 1.0)
+            .powf(self.factor)
+    }
+}
+
+impl Default for DbMeterNormalizer {
+    fn default() -> Self {
+        Self::new(-100.0, 0.0, -22.0)
+    }
+}

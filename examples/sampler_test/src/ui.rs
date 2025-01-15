@@ -1,4 +1,7 @@
+use std::time::Instant;
+
 use eframe::App;
+use egui::{Color32, ProgressBar};
 use firewheel::sampler::RepeatMode;
 
 use crate::system::{AudioSystem, SAMPLE_PATHS};
@@ -6,6 +9,7 @@ use crate::system::{AudioSystem, SAMPLE_PATHS};
 pub struct DemoApp {
     audio_system: AudioSystem,
     sampler_views: Vec<SamplerUIState>,
+    prev_frame_instant: Instant,
 }
 
 impl DemoApp {
@@ -24,12 +28,19 @@ impl DemoApp {
                     repeat: i == 3,
                 })
                 .collect(),
+            prev_frame_instant: Instant::now(),
         }
     }
 }
 
 impl App for DemoApp {
     fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
+        let now = Instant::now();
+        let dt = (now - self.prev_frame_instant).as_secs_f32();
+        self.prev_frame_instant = now;
+
+        self.audio_system.update_meters(dt);
+
         egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
             egui::menu::bar(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -89,6 +100,24 @@ impl App for DemoApp {
             }
 
             ui.label("Note, \"repeat\" and \"volume\" are only applied when started/restarted.");
+
+            let peak_values = self.audio_system.peak_meter_values();
+            let peak_has_clipped = self.audio_system.peak_meter_has_clipped();
+
+            ui.add(
+                ProgressBar::new(peak_values[0]).fill(if peak_has_clipped[0] {
+                    Color32::RED
+                } else {
+                    Color32::DARK_GREEN
+                }),
+            );
+            ui.add(
+                ProgressBar::new(peak_values[1]).fill(if peak_has_clipped[1] {
+                    Color32::RED
+                } else {
+                    Color32::DARK_GREEN
+                }),
+            );
         });
 
         self.audio_system.update();
@@ -97,6 +126,8 @@ impl App for DemoApp {
             // TODO: Don't panic.
             panic!("Audio system disconnected");
         }
+
+        cx.request_repaint();
     }
 }
 

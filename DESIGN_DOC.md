@@ -17,7 +17,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [x] volume (minimum value mutes)
     * [x] stereo panning
     * [x] stereo to mono
-    * [ ] decibel (peak) meter
+    * [x] decibel (peak) meter
     * [x] beep test (generates a sine wav for testing)
     * [ ] triple buffer input (put raw audio samples into the graph from another thread)
     * [ ] triple buffer output (allows the game engine to read the latest samples in the audio stream)

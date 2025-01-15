@@ -1,4 +1,6 @@
 use firewheel::{
+    basic_nodes::peak_meter::{PeakMeterSmoother, PeakMeterState},
+    dsp::decibel::DbMeterNormalizer,
     error::UpdateError,
     node::NodeID,
     sampler::{PlaybackState, RepeatMode, SamplerState, SequenceType},
@@ -22,6 +24,10 @@ pub struct AudioSystem {
     cx: FirewheelContext,
 
     samplers: Vec<Sampler>,
+
+    peak_meter: PeakMeterState<2>,
+    peak_meter_smoother: PeakMeterSmoother<2>,
+    peak_meter_normalizer: DbMeterNormalizer,
 }
 
 impl AudioSystem {
@@ -34,6 +40,13 @@ impl AudioSystem {
         let mut loader = SymphoniumLoader::new();
 
         let graph_out = cx.graph_out_node();
+
+        let peak_meter = PeakMeterState::<2>::new(true);
+        let peak_meter_smoother = PeakMeterSmoother::<2>::new(Default::default());
+
+        let peak_meter_id = cx.add_node(peak_meter.clone());
+        cx.connect(peak_meter_id, graph_out, &[(0, 0), (1, 1)], false)
+            .unwrap();
 
         let samplers = SAMPLE_PATHS
             .iter()
@@ -54,14 +67,23 @@ impl AudioSystem {
 
                 let node_id = cx.add_node(state.clone());
 
-                cx.connect(node_id, graph_out, &[(0, 0), (1, 1)], false)
+                cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();
 
                 Sampler { state, node_id }
             })
             .collect();
 
-        Self { cx, samplers }
+        let peak_meter_normalizer = DbMeterNormalizer::default();
+        dbg!(&peak_meter_normalizer);
+
+        Self {
+            cx,
+            samplers,
+            peak_meter,
+            peak_meter_smoother,
+            peak_meter_normalizer: DbMeterNormalizer::default(),
+        }
     }
 
     pub fn is_activated(&self) -> bool {
@@ -138,5 +160,19 @@ impl AudioSystem {
                 panic!("Stream stopped unexpectedly!");
             }
         }
+    }
+
+    pub fn update_meters(&mut self, delta_seconds: f32) {
+        self.peak_meter_smoother
+            .update(self.peak_meter.peak_gain_db(), delta_seconds);
+    }
+
+    pub fn peak_meter_values(&self) -> [f32; 2] {
+        self.peak_meter_smoother
+            .smoothed_peaks_normalized(&self.peak_meter_normalizer)
+    }
+
+    pub fn peak_meter_has_clipped(&self) -> [bool; 2] {
+        self.peak_meter_smoother.has_clipped()
     }
 }
