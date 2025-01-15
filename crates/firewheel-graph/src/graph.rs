@@ -9,10 +9,9 @@ use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
-use crate::basic_nodes::dummy::DummyConfig;
 use crate::error::{AddEdgeError, CompileGraphError};
 use crate::FirewheelConfig;
-use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, NodeID};
+use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, DummyConfig, NodeID};
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 

@@ -4,7 +4,7 @@ use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
-use firewheel::basic_nodes::{beep_test::BeepTestParams, VolumePanParams, VolumeParams};
+use firewheel::nodes::{BeepTestParams, VolumePanParams, VolumeParams};
 
 use crate::system::{AudioSystem, NodeType};
 

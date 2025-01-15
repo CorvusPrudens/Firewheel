@@ -592,10 +592,12 @@ fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
-    use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
+    use firewheel_core::{
+        channel_config::{ChannelConfig, ChannelCount},
+        node::DummyConfig,
+    };
 
     use crate::{
-        basic_nodes::dummy::DummyConfig,
         graph::{AudioGraph, EdgeID},
         FirewheelConfig,
     };

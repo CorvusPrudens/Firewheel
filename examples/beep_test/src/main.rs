@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use firewheel::{basic_nodes::beep_test::BeepTestParams, error::UpdateError, FirewheelContext};
+use firewheel::{error::UpdateError, nodes::BeepTestParams, FirewheelContext};
 
 const BEEP_FREQUENCY_HZ: f32 = 440.0;
 const BEEP_NORMALIZED_VOLUME: f32 = 0.45;

@@ -17,7 +17,7 @@ use firewheel_core::{
 pub struct PeakMeterSmootherConfig {
     /// The rate of decay in seconds.
     ///
-    /// By default this is set to `0.2` (200ms).
+    /// By default this is set to `0.3` (300ms).
     pub decay_rate: f32,
     /// The rate at which this meter will refresh. This will typically
     /// match the display's frame rate.

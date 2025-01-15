@@ -66,10 +66,8 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 ## Codebase Overview
 
 * `firewheel-core` - Contains common types and utilities shared by Firewheel crates. It also houses the audio node API.
-* `firewheel-graph` - Contains the core audio graph engine, along with some basic nodes such as volume and sum.
-* `firewheel-sampler` - Contains the sampler node which plays audio files.
-* `firewheel-spatial` - Contains the spatial audio node.
-* `firewheel-extra` - Contains extra audio node effects like reverbs, echos, and filters.
+* `firewheel-graph` - Contains the core audio graph engine.
+* `firewheel-nodes` - Contains the built-in factory nodes.
 * `firewheel-cpal` - Contains the default [CPAL] backend.
 * (root crate) - Ties everything together and provides an optional general-purpose "graph preset" with an easy-to-use interface.
 

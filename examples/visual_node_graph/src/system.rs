@@ -1,9 +1,9 @@
 use firewheel::{
-    basic_nodes::{beep_test::BeepTestParams, StereoToMonoNode, VolumePanParams, VolumeParams},
     channel_config::NonZeroChannelCount,
     error::{AddEdgeError, UpdateError},
     event::{NodeEvent, NodeEventType},
     node::NodeID,
+    nodes::{BeepTestParams, StereoToMonoNode, VolumePanParams, VolumeParams},
     FirewheelContext,
 };
 

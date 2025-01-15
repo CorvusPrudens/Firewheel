@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    sampler::{PlaybackState, RepeatMode, SamplerState},
+    nodes::sampler::{PlaybackState, RepeatMode, SamplerState},
     FirewheelContext,
 };
 use symphonium::SymphoniumLoader;

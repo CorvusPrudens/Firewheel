@@ -1,9 +1,9 @@
 use firewheel::{
-    basic_nodes::peak_meter::{PeakMeterSmoother, PeakMeterState},
     dsp::decibel::DbMeterNormalizer,
     error::UpdateError,
     node::NodeID,
-    sampler::{PlaybackState, RepeatMode, SamplerState, SequenceType},
+    nodes::peak_meter::{PeakMeterSmoother, PeakMeterState},
+    nodes::sampler::{PlaybackState, RepeatMode, SamplerState, SequenceType},
     FirewheelContext,
 };
 use symphonium::SymphoniumLoader;

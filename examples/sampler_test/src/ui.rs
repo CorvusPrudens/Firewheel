@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use eframe::App;
 use egui::{Color32, ProgressBar};
-use firewheel::sampler::RepeatMode;
+use firewheel::nodes::sampler::RepeatMode;
 
 use crate::system::{AudioSystem, SAMPLE_PATHS};
 
