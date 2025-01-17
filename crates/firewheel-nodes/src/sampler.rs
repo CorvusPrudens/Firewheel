@@ -318,6 +318,7 @@ pub enum SequenceType {
         repeat_mode: RepeatMode,
         // TODO: Pitch
     },
+    /// A sequence with multiple events (NOT IMPLEMENTED YET, WILL PANIC IF USED)
     Sequence {
         sequence: Vec<SequenceEvent>,
         timing: SequenceTiming,

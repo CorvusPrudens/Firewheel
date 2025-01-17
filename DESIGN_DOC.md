@@ -19,8 +19,8 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [x] stereo to mono
     * [x] decibel (peak) meter
     * [x] beep test (generates a sine wav for testing)
-    * [x] stream writer (put raw audio samples into the graph from another thread) (implemented but not tested yet)
-    * [x] stream reader (read samples directly from the audio graph from another thread) (implemented but not tested yet)
+    * [x] stream writer (implemented but not tested yet) (put raw audio samples into the graph from another thread)
+    * [x] stream reader (implemented but not tested yet) (read samples directly from the audio graph from another thread)
     * [x] sampler node
     * [ ] simple spatial positioning (only the simplest implementation for first release)
 * [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
