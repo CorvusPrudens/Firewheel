@@ -10,14 +10,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["all_nodes"]
-# Enables all nodes
-all_nodes = [
+default = [
     "beep_test",
     "peak_meter",
     "sampler",
     "stereo_to_mono",
-    "triple_buffer",
     "volume_pan",
     "volume",
 ]
@@ -29,8 +26,14 @@ peak_meter = ["dep:atomic_float"]
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the stereo to mono node
 stereo_to_mono = []
-# Enables the triple buffer nodes
-triple_buffer = []
+# Enables the stream reader node which allows reading data directly
+# from the audio graph as a stream. (This node has not been tested
+# yet).
+stream_reader = ["dep:rtrb", "dep:rubato", "dep:thiserror"]
+# Enables the stream writer node which allows writing data directly
+# to the audio graph as a stream. (This node has not been tested
+# yet).
+stream_writer = ["dep:rtrb", "dep:rubato", "dep:thiserror"]
 # Enables the volume pan node
 volume_pan = []
 # Enables the volume node
@@ -41,3 +44,6 @@ firewheel-core = { path = "../firewheel-core", version = "0.1" }
 atomic_float = { workspace = true, optional = true }
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
+rtrb = { workspace = true, optional = true }
+rubato = { version = "0.16.1", optional = true }
+thiserror = { workspace = true, optional = true }

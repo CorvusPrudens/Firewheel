@@ -250,6 +250,7 @@ impl FirewheelProcessorInner {
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         firewheel_core::dsp::interleave::deinterleave(
                             channels,
+                            0,
                             &input[frames_processed * num_in_channels
                                 ..(frames_processed + block_frames) * num_in_channels],
                             num_in_channels,
@@ -279,6 +280,7 @@ impl FirewheelProcessorInner {
                     |channels: &[&[f32]], silence_mask| {
                         firewheel_core::dsp::interleave::interleave(
                             channels,
+                            0,
                             &mut output[frames_processed * num_out_channels
                                 ..(frames_processed + block_frames) * num_out_channels],
                             num_out_channels,

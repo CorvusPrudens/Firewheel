@@ -82,7 +82,10 @@ impl AudioNodeConstructor for BeepTestParams {
         }
     }
 
-    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &mut self,
+        stream_info: &firewheel_core::StreamInfo,
+    ) -> Box<dyn AudioNodeProcessor> {
         Box::new(BeepTestProcessor {
             phasor: 0.0,
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,

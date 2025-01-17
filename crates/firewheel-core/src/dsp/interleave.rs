@@ -3,6 +3,7 @@ use crate::SilenceMask;
 /// De-interleave audio channels
 pub fn deinterleave<V: AsMut<[f32]>>(
     channels: &mut [V],
+    start_frame_in_channels: usize,
     interleaved: &[f32],
     num_interleaved_channels: usize,
     calculate_silence_mask: bool,
@@ -13,7 +14,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
 
     if num_interleaved_channels == 0 {
         for ch in channels.iter_mut() {
-            ch.as_mut().fill(0.0);
+            ch.as_mut()[start_frame_in_channels..].fill(0.0);
         }
 
         return SilenceMask::new_all_silent(channels.len());
@@ -25,7 +26,8 @@ pub fn deinterleave<V: AsMut<[f32]>>(
         // Mono, no need to deinterleave.
 
         let samples = interleaved.len();
-        let ch = &mut channels[0].as_mut()[..samples];
+        let ch =
+            &mut channels[0].as_mut()[start_frame_in_channels..start_frame_in_channels + samples];
 
         ch.copy_from_slice(interleaved);
 
@@ -42,8 +44,8 @@ pub fn deinterleave<V: AsMut<[f32]>>(
         let samples = interleaved.len() / 2;
 
         let (ch0, ch1) = channels.split_first_mut().unwrap();
-        let ch0 = &mut ch0.as_mut()[..samples];
-        let ch1 = &mut ch1[0].as_mut()[..samples];
+        let ch0 = &mut ch0.as_mut()[start_frame_in_channels..start_frame_in_channels + samples];
+        let ch1 = &mut ch1[0].as_mut()[start_frame_in_channels..start_frame_in_channels + samples];
 
         for (in_chunk, (ch0_s, ch1_s)) in interleaved
             .chunks_exact(2)
@@ -71,7 +73,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
         let samples = interleaved.len() / num_interleaved_channels;
 
         for (ch_i, ch) in (0..num_interleaved_channels).zip(channels.iter_mut()) {
-            let ch = &mut ch.as_mut()[..samples];
+            let ch = &mut ch.as_mut()[start_frame_in_channels..start_frame_in_channels + samples];
 
             for (in_chunk, out_s) in interleaved
                 .chunks_exact(num_interleaved_channels)
@@ -94,7 +96,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
 
     if num_filled_channels < channels.len() {
         for (ch_i, ch) in channels.iter_mut().enumerate().skip(num_filled_channels) {
-            ch.as_mut()[..samples].fill(0.0);
+            ch.as_mut()[start_frame_in_channels..start_frame_in_channels + samples].fill(0.0);
 
             if calculate_silence_mask && ch_i < 64 {
                 silence_mask.set_channel(ch_i, true);
@@ -108,6 +110,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
 /// Interleave audio channels
 pub fn interleave<V: AsRef<[f32]>>(
     channels: &[V],
+    start_frame_in_channels: usize,
     interleaved: &mut [f32],
     num_interleaved_channels: usize,
     silence_mask: Option<SilenceMask>,
@@ -128,7 +131,10 @@ pub fn interleave<V: AsRef<[f32]>>(
 
     if num_interleaved_channels == 1 {
         // Mono, no need to interleave.
-        interleaved.copy_from_slice(&channels[0].as_ref()[..interleaved.len()]);
+        interleaved.copy_from_slice(
+            &channels[0].as_ref()
+                [start_frame_in_channels..start_frame_in_channels + interleaved.len()],
+        );
         return;
     }
 
@@ -136,8 +142,8 @@ pub fn interleave<V: AsRef<[f32]>>(
         // Provide an optimized loop for stereo.
         let samples = interleaved.len() / 2;
 
-        let ch1 = &channels[0].as_ref()[..samples];
-        let ch2 = &channels[1].as_ref()[..samples];
+        let ch1 = &channels[0].as_ref()[start_frame_in_channels..start_frame_in_channels + samples];
+        let ch2 = &channels[1].as_ref()[start_frame_in_channels..start_frame_in_channels + samples];
 
         for (out_chunk, (&ch1_s, &ch2_s)) in interleaved
             .chunks_exact_mut(2)
@@ -164,7 +170,7 @@ pub fn interleave<V: AsRef<[f32]>>(
         interleaved.fill(0.0);
     }
 
-    for (ch_i, ch) in channels.iter().enumerate() {
+    for (ch_i, ch) in (0..num_interleaved_channels).zip(channels.iter()) {
         if let Some(silence_mask) = silence_mask {
             if ch_i < 64 {
                 if silence_mask.is_channel_silent(ch_i) {
@@ -175,7 +181,7 @@ pub fn interleave<V: AsRef<[f32]>>(
 
         for (out_chunk, &in_s) in interleaved
             .chunks_exact_mut(num_interleaved_channels)
-            .zip(ch.as_ref().iter())
+            .zip(ch.as_ref()[start_frame_in_channels..].iter())
         {
             out_chunk[ch_i] = in_s;
         }

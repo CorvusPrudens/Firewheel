@@ -14,10 +14,10 @@ pub enum Declicker {
     #[default]
     SettledAt1,
     FadingTo0 {
-        samples_left: usize,
+        frames_left: usize,
     },
     FadingTo1 {
-        samples_left: usize,
+        frames_left: usize,
     },
 }
 
@@ -30,17 +30,17 @@ impl Declicker {
         match self {
             Self::SettledAt1 => {
                 *self = Self::FadingTo0 {
-                    samples_left: declick_values.frames(),
+                    frames_left: declick_values.frames(),
                 }
             }
-            Self::FadingTo1 { samples_left } => {
-                let samples_left = if *samples_left <= declick_values.frames() {
-                    declick_values.frames() - *samples_left
+            Self::FadingTo1 { frames_left } => {
+                let frames_left = if *frames_left <= declick_values.frames() {
+                    declick_values.frames() - *frames_left
                 } else {
                     declick_values.frames()
                 };
 
-                *self = Self::FadingTo0 { samples_left }
+                *self = Self::FadingTo0 { frames_left }
             }
             _ => {}
         }
@@ -50,17 +50,17 @@ impl Declicker {
         match self {
             Self::SettledAt0 => {
                 *self = Self::FadingTo1 {
-                    samples_left: declick_values.frames(),
+                    frames_left: declick_values.frames(),
                 }
             }
-            Self::FadingTo0 { samples_left } => {
-                let samples_left = if *samples_left <= declick_values.frames() {
-                    declick_values.frames() - *samples_left
+            Self::FadingTo0 { frames_left } => {
+                let frames_left = if *frames_left <= declick_values.frames() {
+                    declick_values.frames() - *frames_left
                 } else {
                     declick_values.frames()
                 };
 
-                *self = Self::FadingTo1 { samples_left }
+                *self = Self::FadingTo1 { frames_left }
             }
             _ => {}
         }
@@ -82,10 +82,10 @@ impl Declicker {
         gain: f32,
         fade_type: FadeType,
     ) {
-        let mut fade_buffers = |declick_samples_left: &mut usize, values: &[f32]| -> usize {
+        let mut fade_buffers = |declick_frames_left: &mut usize, values: &[f32]| -> usize {
             let buffer_samples = range_in_buffer.end - range_in_buffer.start;
-            let process_samples = buffer_samples.min(*declick_samples_left);
-            let start_frame = values.len() - *declick_samples_left;
+            let process_samples = buffer_samples.min(*declick_frames_left);
+            let start_frame = values.len() - *declick_frames_left;
 
             if gain == 1.0 {
                 for b in buffers.iter_mut() {
@@ -113,7 +113,7 @@ impl Declicker {
                 }
             }
 
-            *declick_samples_left -= process_samples;
+            *declick_frames_left -= process_samples;
 
             process_samples
         };
@@ -125,13 +125,13 @@ impl Declicker {
                     b[range_in_buffer.clone()].fill(0.0);
                 }
             }
-            Self::FadingTo0 { samples_left } => {
+            Self::FadingTo0 { frames_left } => {
                 let values = match fade_type {
                     FadeType::Linear => &declick_values.linear_1_to_0_values,
                     FadeType::EqualPower3dB => &declick_values.circular_1_to_0_values,
                 };
 
-                let samples_processed = fade_buffers(samples_left, values);
+                let samples_processed = fade_buffers(frames_left, values);
 
                 if samples_processed < range_in_buffer.end - range_in_buffer.start {
                     for b in buffers.iter_mut() {
@@ -141,17 +141,17 @@ impl Declicker {
                     }
                 }
 
-                if *samples_left == 0 {
+                if *frames_left == 0 {
                     *self = Self::SettledAt0;
                 }
             }
-            Self::FadingTo1 { samples_left } => {
+            Self::FadingTo1 { frames_left } => {
                 let values = match fade_type {
                     FadeType::Linear => &declick_values.linear_0_to_1_values,
                     FadeType::EqualPower3dB => &declick_values.circular_0_to_1_values,
                 };
 
-                let samples_processed = fade_buffers(samples_left, values);
+                let samples_processed = fade_buffers(frames_left, values);
 
                 if samples_processed < range_in_buffer.end - range_in_buffer.start && gain != 1.0 {
                     for b in buffers.iter_mut() {
@@ -163,11 +163,33 @@ impl Declicker {
                     }
                 }
 
-                if *samples_left == 0 {
+                if *frames_left == 0 {
                     *self = Self::SettledAt1;
                 }
             }
             _ => {}
+        }
+    }
+
+    pub fn trending_towards_zero(&self) -> bool {
+        match self {
+            Declicker::SettledAt0 | Declicker::FadingTo0 { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn trending_towards_one(&self) -> bool {
+        match self {
+            Declicker::SettledAt1 | Declicker::FadingTo1 { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn frames_left(&self) -> usize {
+        match *self {
+            Declicker::FadingTo0 { frames_left } => frames_left,
+            Declicker::FadingTo1 { frames_left } => frames_left,
+            _ => 0,
         }
     }
 }

@@ -211,7 +211,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterState<NUM_CHAN
         }
     }
 
-    fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(PeakMeterProcessor {
             shared_state: ArcGc::clone(&self.shared_state),
             enabled: self.shared_state.enabled.load(Ordering::Relaxed),

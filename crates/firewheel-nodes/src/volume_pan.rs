@@ -91,7 +91,10 @@ impl AudioNodeConstructor for VolumePanParams {
         }
     }
 
-    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &mut self,
+        stream_info: &firewheel_core::StreamInfo,
+    ) -> Box<dyn AudioNodeProcessor> {
         let (gain_l, gain_r) = self.compute_gains();
 
         Box::new(VolumePanProcessor {

@@ -84,6 +84,8 @@ struct SharedState {
 
 impl Default for SharedState {
     fn default() -> Self {
+        assert!(AtomicCell::<PlaybackState>::is_lock_free());
+
         Self {
             playhead_frames: AtomicU64::new(0),
             playback_state: AtomicCell::new(PlaybackState::Stopped),
@@ -376,7 +378,7 @@ impl AudioNodeConstructor for SamplerState {
         }
     }
 
-    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         let stop_declicker_buffers = if self.config.num_declickers == 0 {
             None
         } else {

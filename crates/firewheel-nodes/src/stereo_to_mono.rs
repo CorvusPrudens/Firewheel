@@ -22,7 +22,10 @@ impl AudioNodeConstructor for StereoToMonoNode {
         }
     }
 
-    fn processor(&self, _stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &mut self,
+        _stream_info: &firewheel_core::StreamInfo,
+    ) -> Box<dyn AudioNodeProcessor> {
         Box::new(StereoToMonoProcessor {})
     }
 }

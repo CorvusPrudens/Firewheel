@@ -10,7 +10,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 ## Goals for First Release
 
 * [x] Modular design that can be run on any backend that provides an audio stream.
-    * [ ] (partially complete) [CPAL] backend. This gives us support for Windows, Mac, Linux, Android, iOS, and WebAssembly.
+    * [ ] (partially complete, needs input device support) [CPAL] backend. This gives us support for Windows, Mac, Linux, Android, iOS, and WebAssembly.
 * [x] Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * [x] Cycle detection for invalid audio graphs
 * Key built-in nodes:
@@ -19,22 +19,22 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
     * [x] stereo to mono
     * [x] decibel (peak) meter
     * [x] beep test (generates a sine wav for testing)
-    * [ ] triple buffer input (put raw audio samples into the graph from another thread)
-    * [ ] triple buffer output (allows the game engine to read the latest samples in the audio stream)
+    * [x] stream writer (put raw audio samples into the graph from another thread) (implemented but not tested yet)
+    * [x] stream reader (read samples directly from the audio graph from another thread) (implemented but not tested yet)
     * [x] sampler node
     * [ ] simple spatial positioning (only the simplest implementation for first release)
 * [x] Custom audio node API allowing for a plethora of 3rd party generators and effects
 * [x] Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused.)
-* [ ] A general purpose "preset" graph with an easy-to-use interface
 * [x] Support for loading a wide variety of audio formats (using [Symphonium](https://github.com/MeadowlarkDAW/symphonium))
 * [x] Fault tolerance for audio streams (The game shouldn't crash just because the player accidentally unplugged their headphones.)
 * [x] Option to hard clip outputs at 0dB to help protect the system's speakers.
 * [x] Properly respect realtime constraints (no mutexes!)
 * [x] Windows, Mac, and Linux support 
-* [ ] WebAssembly support (Note special considerations must be made about the design of the threading model.)
+* [ ] Verify WebAssembly support (Note special considerations must be made about the design of the threading model.)
 
 ## Later Goals
 
+* [ ] A general purpose "preset" graph with an easy-to-use interface
 * [ ] Basic sequencing (automation) support for sampler, volume, pan, and spatial positioning nodes
 * Seamlessly blending between multiple audio tracks in the `SamplerNode`
 * Extra built-in nodes:

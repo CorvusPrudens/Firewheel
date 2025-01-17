@@ -53,7 +53,10 @@ impl AudioNodeConstructor for VolumeParams {
         }
     }
 
-    fn processor(&self, stream_info: &firewheel_core::StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &mut self,
+        stream_info: &firewheel_core::StreamInfo,
+    ) -> Box<dyn AudioNodeProcessor> {
         let gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
         Box::new(VolumeProcessor {

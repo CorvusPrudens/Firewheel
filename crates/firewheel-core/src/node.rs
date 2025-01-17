@@ -44,7 +44,7 @@ pub trait AudioNodeConstructor {
     fn info(&self) -> AudioNodeInfo;
 
     /// Construct a processor for this node.
-    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
 }
 
 /// The trait describing the realtime processor counterpart to an
@@ -220,7 +220,7 @@ impl AudioNodeConstructor for DummyConfig {
         }
     }
 
-    fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(DummyProcessor)
     }
 }

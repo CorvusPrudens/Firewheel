@@ -34,15 +34,34 @@ members = [
 ]
 
 [features]
-default = ["all_nodes", "resampler", "cpal", "symphonium"]
+default = [
+    "resampler",
+    "cpal",
+    "symphonium",
+    "beep_test_node",
+    "peak_meter_node",
+    "sampler_node",
+    "stereo_to_mono_node",
+    "volume_pan_node",
+    "volume_node",
+]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]
-# Enables all built-in factory nodes
-all_nodes = ["firewheel-nodes/all_nodes"]
 # Enables resampling support when loading audio files
 resampler = ["firewheel-core/resampler"]
 # Enables using Symphonium for loading audio files
 symphonium = ["firewheel-core/symphonium"]
+# Enables all built-in factory nodes
+all_nodes = [
+    "beep_test_node",
+    "peak_meter_node",
+    "sampler_node",
+    "stereo_to_mono_node",
+    "stream_reader_node",
+    "stream_writer_node",
+    "volume_pan_node",
+    "volume_node",
+]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
 # Enables the peak meter node
@@ -51,8 +70,14 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 sampler_node = ["firewheel-nodes/sampler"]
 # Enables the stereo to mono node
 stereo_to_mono_node = ["firewheel-nodes/stereo_to_mono"]
-# Enables the triple buffer nodes
-triple_buffer_node = ["firewheel-nodes/triple_buffer"]
+# Enables the stream reader node which allows reading data directly
+# from the audio graph as a stream. (This node has not been tested
+# yet).
+stream_reader_node = ["firewheel-nodes/stream_reader"]
+# Enables the stream writer node which allows writing data directly
+# to the audio graph as a stream. (This node has not been tested
+# yet).
+stream_writer_node = ["firewheel-nodes/stream_writer"]
 # Enables the volume pan node
 volume_pan_node = ["firewheel-nodes/volume_pan"]
 # Enables the volume node
@@ -62,7 +87,7 @@ volume_node = ["firewheel-nodes/volume"]
 firewheel-core = { path = "crates/firewheel-core", version = "0.1" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.1" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.1", optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.1" }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.1", default-features = false }
 
 [workspace.dependencies]
 log = "0.4.22"
