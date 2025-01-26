@@ -58,7 +58,7 @@ While Firewheel is its own standalone project, we are also working closely with 
 
 ## Get Involved
 
-Join the discussion in the [Firewheel Discord Server](https://discord.gg/m42dPpRm) or in the [Bevy Discord Server](https://discord.gg/bevy) under the `working-groups -> Better Audio` channel!
+Join the discussion in the [Firewheel Discord Server](https://discord.gg/rKzZpjGCGs) or in the [Bevy Discord Server](https://discord.gg/bevy) under the `working-groups -> Better Audio` channel!
 
 If you are interested in contributing code, first read the [Design Document] and then visit the [Project Board](https://github.com/users/BillyDM/projects/1).
 
