@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-cpal"
-version = "0.2.0"
+version = "0.2.0-beta.0"
 description = "cpal backend for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-cpal"
 edition.workspace = true
@@ -12,8 +12,8 @@ categories.workspace = true
 [features]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.2" }
-firewheel-graph = { path = "../firewheel-graph", version = "0.2" }
+firewheel-core = { path = "../firewheel-core", version = "0.2.0-beta.0" }
+firewheel-graph = { path = "../firewheel-graph", version = "0.2.0-beta.0" }
 log.workspace = true
 ringbuf.workspace = true
 thiserror.workspace = true
