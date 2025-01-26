@@ -7,6 +7,7 @@ use firewheel_graph::{
     processor::FirewheelProcessor,
     FirewheelCtx,
 };
+use ringbuf::traits::{Consumer, Producer, Split};
 
 /// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
@@ -16,18 +17,18 @@ const MSG_CHANNEL_CAPACITY: usize = 4;
 
 pub type FirewheelContext = FirewheelCtx<CpalBackend>;
 
-/// The configuration of an audio stream
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CpalConfig {
+/// The configuration of an output audio stream in the CPAL backend.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CpalOutputConfig {
     /// The host to use. Set to `None` to use the
-    /// system's default output device.
+    /// system's default audio host.
     pub host: Option<cpal::HostId>,
 
     /// The name of the output device to use. Set to `None` to use the
     /// system's default output device.
     ///
     /// By default this is set to `None`.
-    pub output_device_name: Option<String>,
+    pub device_name: Option<String>,
 
     /// The desired sample rate to use. Set to `None` to use the device's
     /// default sample rate.
@@ -35,14 +36,13 @@ pub struct CpalConfig {
     /// By default this is set to `None`.
     pub desired_sample_rate: Option<u32>,
 
-    /// The latency of the audio stream to use.
+    /// The latency/block size of the audio stream to use.
     ///
     /// Smaller values may give better latency, but is not supported on
     /// all platforms and may lead to performance issues.
     ///
     /// By default this is set to `1024`, which is a latency of about 23
-    /// milliseconds. This should be good enough for most games. (Rhythm
-    /// games may want to try a lower latency).
+    /// milliseconds.
     pub desired_latency_frames: u32,
 
     /// Whether or not to fall back to the default device  if a device
@@ -52,27 +52,27 @@ pub struct CpalConfig {
     pub fallback: bool,
 }
 
-impl Default for CpalConfig {
+impl Default for CpalOutputConfig {
     fn default() -> Self {
         Self {
             host: None,
-            output_device_name: None,
+            device_name: None,
             desired_sample_rate: None,
-            desired_latency_frames: DEFAULT_MAX_BLOCK_FRAMES,
             fallback: true,
+            desired_latency_frames: DEFAULT_MAX_BLOCK_FRAMES,
         }
     }
 }
 
 /// A CPAL backend for Firewheel
 pub struct CpalBackend {
-    from_err_rx: rtrb::Consumer<cpal::StreamError>,
-    to_stream_tx: rtrb::Producer<CtxToStreamMsg>,
-    _stream: cpal::Stream,
+    from_err_rx: ringbuf::HeapCons<cpal::StreamError>,
+    to_stream_tx: ringbuf::HeapProd<CtxToStreamMsg>,
+    _out_stream: cpal::Stream,
 }
 
 impl AudioBackend for CpalBackend {
-    type Config = CpalConfig;
+    type Config = CpalOutputConfig;
     type StartStreamError = StreamStartError;
     type StreamError = cpal::StreamError;
 
@@ -201,24 +201,22 @@ impl AudioBackend for CpalBackend {
             cpal::default_host()
         };
 
-        let is_alsa = cpal::HostId::name(&host.id()) == "ALSA";
-
-        let mut device = None;
-        if let Some(output_device_name) = &config.output_device_name {
+        let mut out_device = None;
+        if let Some(device_name) = &config.device_name {
             match host.output_devices() {
                 Ok(mut output_devices) => {
                     if let Some(d) = output_devices.find(|d| {
                         if let Ok(name) = d.name() {
-                            &name == output_device_name
+                            &name == device_name
                         } else {
                             false
                         }
                     }) {
-                        device = Some(d);
+                        out_device = Some(d);
                     } else if config.fallback {
-                        log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &output_device_name);
+                        log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_name);
                     } else {
-                        return Err(StreamStartError::DeviceNotFound(output_device_name.clone()));
+                        return Err(StreamStartError::OutputDeviceNotFound(device_name.clone()));
                     }
                 }
                 Err(e) => {
@@ -231,20 +229,20 @@ impl AudioBackend for CpalBackend {
             }
         }
 
-        if device.is_none() {
+        if out_device.is_none() {
             let Some(default_device) = host.default_output_device() else {
                 return Err(StreamStartError::DefaultDeviceNotFound);
             };
-            device = Some(default_device);
+            out_device = Some(default_device);
         }
-        let device = device.unwrap();
+        let out_device = out_device.unwrap();
 
-        let out_device_name = device.name().unwrap_or_else(|e| {
+        let out_device_name = out_device.name().unwrap_or_else(|e| {
             log::warn!("Failed to get name of output audio device: {}", e);
             String::from("unknown device")
         });
 
-        let default_config = device.default_output_config()?;
+        let default_config = out_device.default_output_config()?;
 
         let mut desired_sample_rate = config
             .desired_sample_rate
@@ -256,7 +254,7 @@ impl AudioBackend for CpalBackend {
                 None
             };
 
-        let supported_configs = device.supported_output_configs()?;
+        let supported_configs = out_device.supported_output_configs()?;
 
         let mut min_sample_rate = u32::MAX;
         let mut max_sample_rate = 0;
@@ -266,7 +264,6 @@ impl AudioBackend for CpalBackend {
         }
         desired_sample_rate = desired_sample_rate.clamp(min_sample_rate, max_sample_rate);
 
-        let num_in_channels = 0;
         let num_out_channels = default_config.channels() as usize;
         assert_ne!(num_out_channels, 0);
 
@@ -300,45 +297,48 @@ impl AudioBackend for CpalBackend {
         };
 
         let (to_stream_tx, from_cx_rx) =
-            rtrb::RingBuffer::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY);
-        let (mut err_to_cx_tx, from_err_rx) =
-            rtrb::RingBuffer::<cpal::StreamError>::new(MSG_CHANNEL_CAPACITY);
+            ringbuf::HeapRb::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY).split();
+
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ))]
+        let is_alsa = cpal::HostId::name(&host.id()) == "ALSA";
 
         let mut data_callback = DataCallback::new(
-            num_in_channels,
             num_out_channels,
             from_cx_rx,
             stream_config.sample_rate.0,
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ))]
             is_alsa,
         );
 
-        let mut is_first_callback = true;
-        let stream = device.build_output_stream(
+        let (mut err_to_cx_tx, from_err_rx) = ringbuf::HeapRb::<cpal::StreamError>::new(4).split();
+
+        let out_stream = out_device.build_output_stream(
             &stream_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                if is_first_callback {
-                    // Apparently there is a bug in CPAL where the callback instant in
-                    // the first callback can be greater than in the second callback.
-                    //
-                    // Work around this by ignoring the first block of samples.
-                    is_first_callback = false;
-                    output.fill(0.0);
-                } else {
-                    data_callback.callback(output, info);
-                }
+                data_callback.callback(output, info);
             },
             move |err| {
-                let _ = err_to_cx_tx.push(err);
+                let _ = err_to_cx_tx.try_push(err);
             },
             Some(BUILD_STREAM_TIMEOUT),
         )?;
 
-        stream.play()?;
+        out_stream.play()?;
 
         let stream_info = StreamInfo {
             sample_rate: NonZeroU32::new(stream_config.sample_rate.0).unwrap(),
             max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
-            num_stream_in_channels: num_in_channels as u32,
+            num_stream_in_channels: 0,
             num_stream_out_channels: num_out_channels as u32,
             stream_latency_frames,
             output_device_name: Some(out_device_name),
@@ -350,20 +350,23 @@ impl AudioBackend for CpalBackend {
             Self {
                 from_err_rx,
                 to_stream_tx,
-                _stream: stream,
+                _out_stream: out_stream,
             },
             stream_info,
         ))
     }
 
     fn set_processor(&mut self, processor: FirewheelProcessor) {
-        self.to_stream_tx
-            .push(CtxToStreamMsg::NewProcessor(processor))
-            .unwrap();
+        if let Err(_) = self
+            .to_stream_tx
+            .try_push(CtxToStreamMsg::NewProcessor(processor))
+        {
+            panic!("Failed to send new processor to cpal stream");
+        }
     }
 
     fn poll_status(&mut self) -> Result<(), Self::StreamError> {
-        if let Ok(e) = self.from_err_rx.pop() {
+        if let Some(e) = self.from_err_rx.try_pop() {
             Err(e)
         } else {
             Ok(())
@@ -372,28 +375,38 @@ impl AudioBackend for CpalBackend {
 }
 
 struct DataCallback {
-    num_in_channels: usize,
     num_out_channels: usize,
-    from_cx_rx: rtrb::Consumer<CtxToStreamMsg>,
+    from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
     sample_rate_recip: f64,
     first_internal_clock_instant: Option<cpal::StreamInstant>,
     prev_stream_instant: Option<cpal::StreamInstant>,
     first_fallback_clock_instant: Option<std::time::Instant>,
     predicted_stream_secs: Option<f64>,
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     is_alsa: bool,
 }
 
 impl DataCallback {
     fn new(
-        num_in_channels: usize,
         num_out_channels: usize,
-        from_cx_rx: rtrb::Consumer<CtxToStreamMsg>,
+        from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
         sample_rate: u32,
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ))]
         is_alsa: bool,
     ) -> Self {
         Self {
-            num_in_channels,
             num_out_channels,
             from_cx_rx,
             processor: None,
@@ -402,19 +415,44 @@ impl DataCallback {
             prev_stream_instant: None,
             predicted_stream_secs: None,
             first_fallback_clock_instant: None,
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ))]
             is_alsa,
         }
     }
 
     fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
-        while let Ok(msg) = self.from_cx_rx.pop() {
+        for msg in self.from_cx_rx.pop_iter() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
         }
 
-        let samples = output.len() / self.num_out_channels;
+        let frames = output.len() / self.num_out_channels;
 
-        let (internal_clock_secs, underflow) = if self.is_alsa {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ))]
+        let is_alsa = self.is_alsa;
+
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )))]
+        let is_alsa = false;
+
+        let (internal_clock_secs, underflow) = if is_alsa {
+            // There seems to be a bug in ALSA causing the stream timestamps to be
+            // unreliable. Fall back to using the system's regular clock instead.
+
             if let Some(instant) = self.first_fallback_clock_instant {
                 let now = std::time::Instant::now();
 
@@ -433,7 +471,7 @@ impl DataCallback {
                 // Add a little bit of wiggle room to account for tiny clock
                 // innacuracies and rounding errors.
                 self.predicted_stream_secs =
-                    Some(internal_clock_secs + (samples as f64 * self.sample_rate_recip * 1.2));
+                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
 
                 (ClockSeconds(internal_clock_secs), underflow)
             } else {
@@ -449,12 +487,8 @@ impl DataCallback {
                         .duration_since(prev_stream_instant)
                         .is_none()
                     {
-                        // When I tested this under ALSA, sometimes underruns caused this condition
-                        // to happen, so as a workaround I'm using the clock in std::time instead
-                        // when using ALSA.
-                        //
-                        // If this occurs in other APIs as well, then either I'm doing something
-                        // wrong or CPAL is doing something wrong.
+                        // If this occurs in other APIs as well, then either CPAL is doing
+                        // something wrong, or I'm doing something wrong.
                         log::error!("CPAL and/or the system audio API returned invalid timestamp. Please notify the Firewheel developers of this bug.");
                     }
                 }
@@ -479,7 +513,7 @@ impl DataCallback {
                 // Add a little bit of wiggle room to account for tiny clock
                 // innacuracies and rounding errors.
                 self.predicted_stream_secs =
-                    Some(internal_clock_secs + (samples as f64 * self.sample_rate_recip * 1.2));
+                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
 
                 self.prev_stream_instant = Some(info.timestamp().playback);
 
@@ -500,9 +534,9 @@ impl DataCallback {
             processor.process_interleaved(
                 &[],
                 output,
-                self.num_in_channels,
+                0,
                 self.num_out_channels,
-                samples,
+                frames,
                 internal_clock_secs,
                 stream_status,
             );
@@ -520,8 +554,10 @@ enum CtxToStreamMsg {
 /// An error occured while trying to start a CPAL audio stream.
 #[derive(Debug, thiserror::Error)]
 pub enum StreamStartError {
-    #[error("The requested audio device was not found: {0}")]
-    DeviceNotFound(String),
+    #[error("The requested input audio device was not found: {0}")]
+    InputDeviceNotFound(String),
+    #[error("The requested output audio device was not found: {0}")]
+    OutputDeviceNotFound(String),
     #[error("Could not get audio devices: {0}")]
     FailedToGetDevices(#[from] cpal::DevicesError),
     #[error("Failed to get default audio output device")]

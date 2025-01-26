@@ -9,10 +9,12 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.1" }
 firewheel-graph = { path = "../firewheel-graph", version = "0.1" }
 log.workspace = true
-rtrb.workspace = true
+ringbuf.workspace = true
 thiserror.workspace = true
 cpal = "0.15.3"

@@ -34,22 +34,20 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Later Goals
 
-* [ ] A general purpose "preset" graph with an easy-to-use interface
-* [ ] Basic sequencing (automation) support for sampler, volume, pan, and spatial positioning nodes
-* Seamlessly blending between multiple audio tracks in the `SamplerNode`
+* [ ] Sequencing support for the sampler node
+* [ ] A `BlendingSamplerNode` that can seamlessly blend between multiple music tracks
 * Extra built-in nodes:
     * [ ] delay compensation
     * [ ] convolution (user can load any impulse response they want to create effects like reverbs)
     * [ ] echo
     * [ ] filters (lowpass, highpass, bandpass)
-* [ ] Doppler stretching on sampler nodes
-* [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek) on native and network streaming support on WebAssembly)
-* [ ] Better spatial positioning with sound absorption capabilities
+* [ ] Doppler stretching (pitch shifting) on sampler node
 * [ ] Basic [CLAP] plugin hosting (non-WebAssembly only)
-* [ ] Animation curve support
-* [ ] Helpers to snap events to musical beats (useful for rhythm games)
+* [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek))
+* [ ] A `SampleResource` with network streaming support
+* [ ] Better spatial positioning with sound absorption capabilities
 * [ ] [RtAudio](https://github.com/thestk/rtaudio) backend
-* [ ] [SDL](https://github.com/libsdl-org/SDL) backend
+* [ ] [Interflow](https://github.com/SolarLiner/interflow) backend
 * [ ] C bindings
 
 ## Non-Goals
@@ -78,10 +76,9 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [rubato](https://crates.io/crates/rubato) - Asynchronous/synchronous resampling library written in native Rust. This will be useful for creating the "doppler shift" effect in the sampler node. Also used by Symphonium and creek (TODO) for resampling audio files to the stream's sample rate.
 * [CPAL] - Native Rust crate providing an audio backend for Windows, MacOS, Linux, Android, and iOS.
 * [RtAudio-rs](https://github.com/BillyDM/rtaudio-rs) - Rust bindings to the RtAudio backend.
-* [rtrb](https://crates.io/crates/rtrb) - A realtime-safe SPSC ring buffer.
-* [triple_buffer](https://crates.io/crates/triple_buffer) - A realtime-safe triple buffer.
+* [Interflow](https://github.com/SolarLiner/interflow) - A new experimental cross-platform audio backend. Might replace CPAL as the default backend in the future.
+* [ringbuf](https://crates.io/crates/ringbuf) - A realtime-safe SPSC ring buffer
 * [thunderdome](https://crates.io/crates/thunderdome) - A fast generational arena.
-* [downcast-rs](https://crates.io/crates/downcast-rs) - Allows audio nodes to be downcasted to the desired type without the use of `Any`.
 * [Clack](https://github.com/prokopyl/clack) - Safe Rust bindings to the [CLAP] plugin API, along with hosting.
 
 ## Audio Node API

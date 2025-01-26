@@ -4,6 +4,7 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
+use ringbuf::traits::{Consumer, Producer};
 use thunderdome::Arena;
 
 use crate::{
@@ -23,7 +24,7 @@ use firewheel_core::{
 
 pub struct FirewheelProcessor {
     inner: Option<FirewheelProcessorInner>,
-    drop_tx: rtrb::Producer<FirewheelProcessorInner>,
+    drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
 }
 
 impl Drop for FirewheelProcessor {
@@ -38,14 +39,14 @@ impl Drop for FirewheelProcessor {
             inner.poisoned = true;
         }
 
-        let _ = self.drop_tx.push(inner);
+        let _ = self.drop_tx.try_push(inner);
     }
 }
 
 impl FirewheelProcessor {
     pub(crate) fn new(
         processor: FirewheelProcessorInner,
-        drop_tx: rtrb::Producer<FirewheelProcessorInner>,
+        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
     ) -> Self {
         Self {
             inner: Some(processor),
@@ -81,8 +82,9 @@ pub(crate) struct FirewheelProcessorInner {
     nodes: Arena<NodeEntry>,
     schedule_data: Option<Box<ScheduleHeapData>>,
 
-    from_graph_rx: rtrb::Consumer<ContextToProcessorMsg>,
-    to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
+    from_graph_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
+    to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
+
     event_buffer: Vec<NodeEvent>,
 
     sample_rate: NonZeroU32,
@@ -112,8 +114,8 @@ pub(crate) struct FirewheelProcessorInner {
 impl FirewheelProcessorInner {
     /// Note, this method gets called on the main thread, not the audio thread.
     pub(crate) fn new(
-        from_graph_rx: rtrb::Consumer<ContextToProcessorMsg>,
-        to_graph_tx: rtrb::Producer<ProcessorToContextMsg>,
+        from_graph_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
+        to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
         clock_shared: Arc<ClockValues>,
         node_capacity: usize,
         stream_info: &StreamInfo,
@@ -133,7 +135,6 @@ impl FirewheelProcessorInner {
             last_clock_seconds: ClockSeconds(0.0),
             clock_seconds_offset: 0.0,
             is_new_stream: false,
-            //running: true,
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
             declick_values: DeclickValues::new(stream_info.declick_frames),
@@ -315,12 +316,12 @@ impl FirewheelProcessorInner {
 
             let _ = self
                 .to_graph_tx
-                .push(ProcessorToContextMsg::ReturnEventGroup(event_group));
+                .try_push(ProcessorToContextMsg::ReturnEventGroup(event_group));
         }
     }
 
     fn poll_messages(&mut self) {
-        while let Ok(msg) = self.from_graph_rx.pop() {
+        for msg in self.from_graph_rx.pop_iter() {
             match msg {
                 ContextToProcessorMsg::EventGroup(mut event_group) => {
                     let num_existing_events = self.event_buffer.len();
@@ -332,7 +333,7 @@ impl FirewheelProcessorInner {
 
                         let _ = self
                             .to_graph_tx
-                            .push(ProcessorToContextMsg::ReturnEventGroup(event_group));
+                            .try_push(ProcessorToContextMsg::ReturnEventGroup(event_group));
                     }
 
                     for (i, event) in self.event_buffer[num_existing_events..].iter().enumerate() {
@@ -365,9 +366,9 @@ impl FirewheelProcessorInner {
                             }
                         }
 
-                        self.to_graph_tx
-                            .push(ProcessorToContextMsg::ReturnSchedule(old_schedule_data))
-                            .unwrap();
+                        let _ = self
+                            .to_graph_tx
+                            .try_push(ProcessorToContextMsg::ReturnSchedule(old_schedule_data));
                     }
 
                     for n in new_schedule_data.new_node_processors.drain(..) {

@@ -57,8 +57,6 @@ all_nodes = [
     "peak_meter_node",
     "sampler_node",
     "stereo_to_mono_node",
-    "stream_reader_node",
-    "stream_writer_node",
     "volume_pan_node",
     "volume_node",
 ]
@@ -70,14 +68,6 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 sampler_node = ["firewheel-nodes/sampler"]
 # Enables the stereo to mono node
 stereo_to_mono_node = ["firewheel-nodes/stereo_to_mono"]
-# Enables the stream reader node which allows reading data directly
-# from the audio graph as a stream. (This node has not been tested
-# yet).
-stream_reader_node = ["firewheel-nodes/stream_reader"]
-# Enables the stream writer node which allows writing data directly
-# to the audio graph as a stream. (This node has not been tested
-# yet).
-stream_writer_node = ["firewheel-nodes/stream_writer"]
 # Enables the volume pan node
 volume_pan_node = ["firewheel-nodes/volume_pan"]
 # Enables the volume node
@@ -91,15 +81,15 @@ firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.1", default-fe
 
 [workspace.dependencies]
 log = "0.4.22"
-rtrb = "0.3.1"
+ringbuf = "0.4.7"
 thiserror = "2.0.3"
 smallvec = "1.13.2"
 arrayvec = "0.7.6"
 atomic_float = "1.1.0"
 bitflags = "2.6.0"
-triple_buffer = "8"
 thunderdome = "0.6.1"
 crossbeam-utils = "0.8"
+fixed-resample = "0.1.5"
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

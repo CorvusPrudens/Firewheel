@@ -10,10 +10,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
+symphonium = ["dep:symphonium"]
 resampler = ["symphonium?/resampler"]
 
 [dependencies]
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.2", default-features = false, optional = true }
+symphonium = { version = "0.3", default-features = false, optional = true }

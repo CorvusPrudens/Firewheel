@@ -12,7 +12,7 @@ categories.workspace = true
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.1" }
 log.workspace = true
-rtrb.workspace = true
+ringbuf.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true

@@ -14,9 +14,6 @@ mod stereo_to_mono;
 #[cfg(feature = "stereo_to_mono")]
 pub use stereo_to_mono::StereoToMonoNode;
 
-#[cfg(any(feature = "stream_reader", feature = "stream_writer"))]
-pub mod stream;
-
 #[cfg(feature = "volume_pan")]
 mod volume_pan;
 #[cfg(feature = "volume_pan")]
