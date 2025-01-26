@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-nodes"
-version = "0.1.0"
+version = "0.2.0-beta.0"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
 edition.workspace = true
@@ -26,24 +26,13 @@ peak_meter = ["dep:atomic_float"]
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the stereo to mono node
 stereo_to_mono = []
-# Enables the stream reader node which allows reading data directly
-# from the audio graph as a stream. (This node has not been tested
-# yet).
-stream_reader = ["dep:rtrb", "dep:rubato", "dep:thiserror"]
-# Enables the stream writer node which allows writing data directly
-# to the audio graph as a stream. (This node has not been tested
-# yet).
-stream_writer = ["dep:rtrb", "dep:rubato", "dep:thiserror"]
 # Enables the volume pan node
 volume_pan = []
 # Enables the volume node
 volume = []
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.1" }
+firewheel-core = { path = "../firewheel-core", version = "0.2.0-beta.0" }
 atomic_float = { workspace = true, optional = true }
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
-rtrb = { workspace = true, optional = true }
-rubato = { version = "0.16.1", optional = true }
-thiserror = { workspace = true, optional = true }

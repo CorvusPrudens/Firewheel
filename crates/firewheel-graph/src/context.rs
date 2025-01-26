@@ -7,6 +7,7 @@ use firewheel_core::{
     node::{AudioNodeConstructor, NodeID},
     StreamInfo,
 };
+use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
 use std::{
     num::NonZeroU32,
@@ -93,16 +94,16 @@ struct ActiveState<B: AudioBackend> {
 pub struct FirewheelCtx<B: AudioBackend> {
     graph: AudioGraph,
 
-    to_processor_tx: rtrb::Producer<ContextToProcessorMsg>,
-    from_processor_rx: rtrb::Consumer<ProcessorToContextMsg>,
+    to_processor_tx: ringbuf::HeapProd<ContextToProcessorMsg>,
+    from_processor_rx: ringbuf::HeapCons<ProcessorToContextMsg>,
 
     active_state: Option<ActiveState<B>>,
 
     processor_channel: Option<(
-        rtrb::Consumer<ContextToProcessorMsg>,
-        rtrb::Producer<ProcessorToContextMsg>,
+        ringbuf::HeapCons<ContextToProcessorMsg>,
+        ringbuf::HeapProd<ProcessorToContextMsg>,
     )>,
-    processor_drop_rx: Option<rtrb::Consumer<FirewheelProcessorInner>>,
+    processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
     clock_shared: Arc<ClockValues>,
 
@@ -124,9 +125,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         });
 
         let (to_processor_tx, from_context_rx) =
-            rtrb::RingBuffer::<ContextToProcessorMsg>::new(config.channel_capacity as usize);
+            ringbuf::HeapRb::<ContextToProcessorMsg>::new(config.channel_capacity as usize).split();
         let (to_context_tx, from_processor_rx) =
-            rtrb::RingBuffer::<ProcessorToContextMsg>::new(config.channel_capacity as usize * 4);
+            ringbuf::HeapRb::<ProcessorToContextMsg>::new(config.channel_capacity as usize * 2)
+                .split();
 
         let initial_event_group_capacity = config.initial_event_group_capacity as usize;
         let mut event_group_pool = Vec::with_capacity(16);
@@ -172,7 +174,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         if self.is_audio_stream_running() {
             false
         } else if let Some(rx) = &self.processor_drop_rx {
-            !rx.is_empty()
+            rx.try_peek().is_some()
         } else {
             true
         }
@@ -211,7 +213,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let schedule = self.graph.compile(&stream_info)?;
 
-        let (drop_tx, drop_rx) = rtrb::RingBuffer::<FirewheelProcessorInner>::new(1);
+        let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner>::new(1).split();
 
         let processor =
             if let Some((from_context_rx, to_context_tx)) = self.processor_channel.take() {
@@ -224,7 +226,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     self.config.hard_clip_outputs,
                 )
             } else {
-                let mut processor = self.processor_drop_rx.as_mut().unwrap().pop().unwrap();
+                let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
 
                 if processor.poisoned {
                     panic!("The audio thread has panicked!");
@@ -378,7 +380,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
         firewheel_core::collector::collect();
 
-        while let Ok(msg) = self.from_processor_rx.pop() {
+        for msg in self.from_processor_rx.pop_iter() {
             match msg {
                 ProcessorToContextMsg::ReturnEventGroup(mut event_group) => {
                     event_group.clear();
@@ -398,7 +400,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 return Err(UpdateError::StreamStoppedUnexpectedly(Some(e)));
             }
 
-            if !self.processor_drop_rx.as_ref().unwrap().is_empty() {
+            if self
+                .processor_drop_rx
+                .as_ref()
+                .unwrap()
+                .try_peek()
+                .is_some()
+            {
                 self.active_state = None;
                 self.graph.deactivate();
 
@@ -591,10 +599,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         &mut self,
         msg: ContextToProcessorMsg,
     ) -> Result<(), (ContextToProcessorMsg, UpdateError<B::StreamError>)> {
-        self.to_processor_tx.push(msg).map_err(|msg| {
-            let rtrb::PushError::Full(msg) = msg;
-            (msg, UpdateError::MsgChannelFull)
-        })
+        self.to_processor_tx
+            .try_push(msg)
+            .map_err(|msg| (msg, UpdateError::MsgChannelFull))
     }
 }
 
@@ -605,10 +612,10 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
         // Wait for the processor to be drop to avoid deallocating it on
         // the audio thread.
         #[cfg(not(target_family = "wasm"))]
-        if let Some(mut drop_rx) = self.processor_drop_rx.take() {
+        if let Some(drop_rx) = self.processor_drop_rx.take() {
             let now = std::time::Instant::now();
 
-            while drop_rx.pop().is_err() {
+            while drop_rx.try_peek().is_none() {
                 if now.elapsed() > std::time::Duration::from_secs(2) {
                     break;
                 }
