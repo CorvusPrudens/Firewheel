@@ -41,7 +41,7 @@ impl Default for PeakMeterSmootherConfig {
     }
 }
 
-/// A helper struct to smooth out the output of [`PeakMeterState`]. This
+/// A helper struct to smooth out the output of [`PeakMeterHandle`]. This
 /// can be used to drive the animation of a peak meter in a GUI.
 #[derive(Debug, Clone, Copy)]
 pub struct PeakMeterSmoother<const NUM_CHANNELS: usize> {
@@ -153,12 +153,12 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
 }
 
 #[derive(Clone)]
-pub struct PeakMeterState<const NUM_CHANNELS: usize> {
+pub struct PeakMeterHandle<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }
 
-impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
-    /// Create a new [`PeakMeterState`].
+impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
+    /// Create a new [`PeakMeterHandle`].
     ///
     /// # Panics
     ///
@@ -172,6 +172,12 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
                 peak_gains: std::array::from_fn(|_| AtomicF32::new(0.0)),
                 enabled: AtomicBool::new(enabled),
             }),
+        }
+    }
+
+    pub fn constructor(&self) -> Constructor<NUM_CHANNELS> {
+        Constructor {
+            shared_state: ArcGc::clone(&self.shared_state),
         }
     }
 
@@ -199,7 +205,12 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
     }
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterState<NUM_CHANNELS> {
+#[derive(Clone)]
+pub struct Constructor<const NUM_CHANNELS: usize> {
+    shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
+}
+
+impl<const NUM_CHANNELS: usize> AudioNodeConstructor for Constructor<NUM_CHANNELS> {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "peak_meter",
@@ -212,7 +223,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterState<NUM_CHAN
     }
 
     fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(PeakMeterProcessor {
+        Box::new(Processor {
             shared_state: ArcGc::clone(&self.shared_state),
             enabled: self.shared_state.enabled.load(Ordering::Relaxed),
         })
@@ -224,12 +235,12 @@ struct SharedState<const NUM_CHANNELS: usize> {
     enabled: AtomicBool,
 }
 
-struct PeakMeterProcessor<const NUM_CHANNELS: usize> {
+struct Processor<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
     enabled: bool,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeProcessor for PeakMeterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
     fn process(
         &mut self,
         inputs: &[&[f32]],

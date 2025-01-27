@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use firewheel::{error::UpdateError, nodes::BeepTestParams, FirewheelContext};
+use firewheel::{error::UpdateError, nodes::beep_test::BeepTestParams, FirewheelContext};
 
 const BEEP_FREQUENCY_HZ: f32 = 440.0;
 const BEEP_NORMALIZED_VOLUME: f32 = 0.45;
@@ -21,7 +21,7 @@ fn main() {
         enabled: true,
     };
 
-    let beep_test_id = cx.add_node(beep_test_params.clone());
+    let beep_test_id = cx.add_node(beep_test_params.constructor());
     let graph_out_id = cx.graph_out_node();
 
     cx.connect(beep_test_id, graph_out_id, &[(0, 0), (0, 1)], false)

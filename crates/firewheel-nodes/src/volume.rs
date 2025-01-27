@@ -12,16 +12,43 @@ use firewheel_core::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumeNodeConfig {
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.008` (8ms).
+    pub smooth_secs: f32,
+}
+
+impl Default for VolumeNodeConfig {
+    fn default() -> Self {
+        Self {
+            smooth_secs: 8.0 / 1_000.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VolumeParams {
-    /// The percent volume where `0.0` is mute and `1.0` is unity gain.
+    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
-    /// The number of channels in this node.
-    pub channels: NonZeroChannelCount,
 }
 
 impl VolumeParams {
     /// The ID of the volume parameter.
     pub const ID_VOLUME: u32 = 0;
+
+    /// Create a volume pan node constructor using these parameters.
+    pub fn constructor(
+        &self,
+        channels: NonZeroChannelCount,
+        config: VolumeNodeConfig,
+    ) -> Constructor {
+        Constructor {
+            params: *self,
+            channels,
+            config,
+        }
+    }
 
     /// Return an event type to sync the volume parameter.
     pub fn sync_volume_event(&self) -> NodeEventType {
@@ -36,12 +63,18 @@ impl Default for VolumeParams {
     fn default() -> Self {
         Self {
             normalized_volume: 1.0,
-            channels: NonZeroChannelCount::STEREO,
         }
     }
 }
 
-impl AudioNodeConstructor for VolumeParams {
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct Constructor {
+    pub params: VolumeParams,
+    pub channels: NonZeroChannelCount,
+    pub config: VolumeNodeConfig,
+}
+
+impl AudioNodeConstructor for Constructor {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "volume",
@@ -57,12 +90,12 @@ impl AudioNodeConstructor for VolumeParams {
         &mut self,
         stream_info: &firewheel_core::StreamInfo,
     ) -> Box<dyn AudioNodeProcessor> {
-        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
+        let gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
 
         Box::new(VolumeProcessor {
             smooth_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
-                DEFAULT_SMOOTH_SECONDS,
+                self.config.smooth_secs,
             ),
             filter_target: gain,
             gain,

@@ -469,8 +469,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node(&mut self, node: impl AudioNodeConstructor + 'static) -> NodeID {
-        self.graph.add_node(node)
+    pub fn add_node(&mut self, constructor: impl AudioNodeConstructor + 'static) -> NodeID {
+        self.graph.add_node(constructor)
     }
 
     /// Remove the given node from the audio graph.

@@ -35,6 +35,11 @@ impl BeepTestParams {
     /// The ID of the enabled parameter.
     pub const ID_ENABLED: u32 = 2;
 
+    /// Create a beep test node constructor using these parameters.
+    pub fn constructor(&self) -> Constructor {
+        Constructor { params: *self }
+    }
+
     /// Return an event type to sync the volume parameter.
     pub fn sync_volume_event(&self) -> NodeEventType {
         NodeEventType::F32Param {
@@ -70,7 +75,11 @@ impl Default for BeepTestParams {
     }
 }
 
-impl AudioNodeConstructor for BeepTestParams {
+pub struct Constructor {
+    pub params: BeepTestParams,
+}
+
+impl AudioNodeConstructor for Constructor {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "beep_test",
@@ -86,17 +95,18 @@ impl AudioNodeConstructor for BeepTestParams {
         &mut self,
         stream_info: &firewheel_core::StreamInfo,
     ) -> Box<dyn AudioNodeProcessor> {
-        Box::new(BeepTestProcessor {
+        Box::new(Processor {
             phasor: 0.0,
-            phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,
-            gain: normalized_volume_to_raw_gain(self.normalized_volume),
+            phasor_inc: self.params.freq_hz.clamp(20.0, 20_000.0)
+                * stream_info.sample_rate_recip as f32,
+            gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
             sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
-            enabled: self.enabled,
+            enabled: self.params.enabled,
         })
     }
 }
 
-struct BeepTestProcessor {
+struct Processor {
     phasor: f32,
     phasor_inc: f32,
     gain: f32,
@@ -104,7 +114,7 @@ struct BeepTestProcessor {
     enabled: bool,
 }
 
-impl AudioNodeProcessor for BeepTestProcessor {
+impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         _inputs: &[&[f32]],

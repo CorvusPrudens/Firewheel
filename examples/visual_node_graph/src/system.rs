@@ -3,7 +3,10 @@ use firewheel::{
     error::{AddEdgeError, UpdateError},
     event::{NodeEvent, NodeEventType},
     node::NodeID,
-    nodes::{BeepTestParams, StereoToMonoNode, VolumePanParams, VolumeParams},
+    nodes::{
+        beep_test::BeepTestParams, volume::VolumeParams, volume_pan::VolumePanParams,
+        StereoToMonoNode,
+    },
     FirewheelContext,
 };
 
@@ -38,17 +41,18 @@ impl AudioSystem {
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let id = match node_type {
-            NodeType::BeepTest => self.cx.add_node(BeepTestParams::default()),
+            NodeType::BeepTest => self.cx.add_node(BeepTestParams::default().constructor()),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode),
-            NodeType::VolumeMono => self.cx.add_node(VolumeParams {
-                channels: NonZeroChannelCount::MONO,
-                ..Default::default()
-            }),
-            NodeType::VolumeStereo => self.cx.add_node(VolumeParams {
-                channels: NonZeroChannelCount::STEREO,
-                ..Default::default()
-            }),
-            NodeType::VolumePan => self.cx.add_node(VolumePanParams::default()),
+            NodeType::VolumeMono => self.cx.add_node(
+                VolumeParams::default().constructor(NonZeroChannelCount::MONO, Default::default()),
+            ),
+            NodeType::VolumeStereo => self.cx.add_node(
+                VolumeParams::default()
+                    .constructor(NonZeroChannelCount::STEREO, Default::default()),
+            ),
+            NodeType::VolumePan => self
+                .cx
+                .add_node(VolumePanParams::default().constructor(Default::default())),
         };
 
         match node_type {

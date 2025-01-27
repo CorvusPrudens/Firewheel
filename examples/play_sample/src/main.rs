@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    nodes::sampler::{PlaybackState, RepeatMode, SamplerState},
+    nodes::sampler::{PlaybackState, RepeatMode, SamplerHandle, SamplerParams},
     FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
@@ -30,9 +30,11 @@ fn main() {
 
     // --- Create a sampler state, and add it as a node in the audio graph. --------------
 
-    let mut sampler_state = SamplerState::default();
+    let sampler_handle = SamplerHandle::default();
+    let mut sampler_params = SamplerParams::default();
 
-    let sampler_id = cx.add_node(sampler_state.clone());
+    let sampler_id =
+        cx.add_node(sampler_handle.constructor(sampler_params.clone(), Default::default()));
     let graph_out_id = cx.graph_out_node();
 
     cx.connect(sampler_id, graph_out_id, &[(0, 0), (1, 1)], false)
@@ -46,22 +48,27 @@ fn main() {
             .unwrap()
             .into_dyn_resource();
 
-    sampler_state.set_sample(sample, 1.0, RepeatMode::PlayOnce);
-
-    cx.queue_event_for(sampler_id, sampler_state.sync_sequence_event(true));
+    sampler_params.set_sample(sample, 1.0, RepeatMode::PlayOnce);
+    cx.queue_event_for(
+        sampler_id,
+        sampler_handle.sync_params_event(
+            sampler_params.clone(),
+            true, // start immediately
+        ),
+    );
 
     // Alternatively, instead of setting `start_immediately` to `true`, you can
     // tell the sampler to start playing its sequence like this:
     //
     // cx.queue_event_for(
     //    sampler_id,
-    //    sampler_state.start_or_restart_event(EventDelay::Immediate),
+    //    sampler_handle.start_or_restart_event(&sampler_params, EventDelay::Immediate),
     // );
 
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if sampler_state.playback_state() == PlaybackState::Stopped {
+        if sampler_handle.playback_state() == PlaybackState::Stopped {
             // Sample has finished playing.
             break;
         }

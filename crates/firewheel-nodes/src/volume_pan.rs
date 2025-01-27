@@ -12,11 +12,13 @@ use firewheel_core::{
     },
 };
 
+pub use super::volume::VolumeNodeConfig;
+
 // TODO: Option for true stereo panning.
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VolumePanParams {
-    /// The percent volume where `0.0` is mute and `1.0` is unity gain.
+    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
     /// fully right.
@@ -36,18 +38,18 @@ impl VolumePanParams {
     /// The ID of the "pan law" parameter.
     pub const ID_PAN_LAW: u32 = 2;
 
-    pub fn compute_gains(&self) -> (f32, f32) {
-        let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
-
-        let (gain_l, gain_r) = self.pan_law.compute_gains(self.pan);
-
-        (gain_l * global_gain, gain_r * global_gain)
+    /// Create a volume pan node constructor using these parameters.
+    pub fn constructor(&self, config: VolumeNodeConfig) -> Constructor {
+        Constructor {
+            params: *self,
+            config,
+        }
     }
 
     /// Return an event type to sync the volume parameter.
     pub fn sync_volume_event(&self) -> NodeEventType {
         NodeEventType::F32Param {
-            id: Self::ID_VOLUME,
+            id: VolumePanParams::ID_VOLUME,
             value: self.normalized_volume,
         }
     }
@@ -55,7 +57,7 @@ impl VolumePanParams {
     /// Return an event type to sync the pan parameter.
     pub fn sync_pan_event(&self) -> NodeEventType {
         NodeEventType::F32Param {
-            id: Self::ID_PAN,
+            id: VolumePanParams::ID_PAN,
             value: self.pan,
         }
     }
@@ -63,9 +65,17 @@ impl VolumePanParams {
     /// Return an event type to sync the pan law parameter.
     pub fn sync_pan_law_event(&self) -> NodeEventType {
         NodeEventType::U32Param {
-            id: Self::ID_PAN_LAW,
+            id: VolumePanParams::ID_PAN_LAW,
             value: self.pan_law as u32,
         }
+    }
+
+    pub fn compute_gains(&self) -> (f32, f32) {
+        let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
+
+        let (gain_l, gain_r) = self.pan_law.compute_gains(self.pan);
+
+        (gain_l * global_gain, gain_r * global_gain)
     }
 }
 
@@ -79,7 +89,13 @@ impl Default for VolumePanParams {
     }
 }
 
-impl AudioNodeConstructor for VolumePanParams {
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct Constructor {
+    pub params: VolumePanParams,
+    pub config: VolumeNodeConfig,
+}
+
+impl AudioNodeConstructor for Constructor {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "volume_pan",
@@ -95,24 +111,24 @@ impl AudioNodeConstructor for VolumePanParams {
         &mut self,
         stream_info: &firewheel_core::StreamInfo,
     ) -> Box<dyn AudioNodeProcessor> {
-        let (gain_l, gain_r) = self.compute_gains();
+        let (gain_l, gain_r) = self.params.compute_gains();
 
-        Box::new(VolumePanProcessor {
+        Box::new(Processor {
             smooth_filter_coeff: smoothing_filter::Coeff::new(
                 stream_info.sample_rate,
-                DEFAULT_SMOOTH_SECONDS,
+                self.config.smooth_secs,
             ),
             gain_l,
             gain_r,
             l_filter_target: gain_l,
             r_filter_target: gain_r,
-            params: *self,
+            params: self.params,
             prev_block_was_silent: true,
         })
     }
 }
 
-struct VolumePanProcessor {
+struct Processor {
     smooth_filter_coeff: smoothing_filter::Coeff,
     l_filter_target: f32,
     r_filter_target: f32,
@@ -125,7 +141,7 @@ struct VolumePanProcessor {
     prev_block_was_silent: bool,
 }
 
-impl AudioNodeProcessor for VolumePanProcessor {
+impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         inputs: &[&[f32]],
