@@ -1,15 +1,12 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    dsp::{
-        decibel::normalized_volume_to_raw_gain,
-        pan_law::PanLaw,
-        smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
-    },
+    dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
     event::{NodeEventList, NodeEventType},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
+    param::smoother::{SmoothedParam, SmootherConfig},
 };
 
 pub use super::volume::VolumeNodeConfig;
@@ -114,14 +111,22 @@ impl AudioNodeConstructor for Constructor {
         let (gain_l, gain_r) = self.params.compute_gains();
 
         Box::new(Processor {
-            smooth_filter_coeff: smoothing_filter::Coeff::new(
+            gain_l: SmoothedParam::new(
+                gain_l,
+                SmootherConfig {
+                    smooth_secs: self.config.smooth_secs,
+                    ..Default::default()
+                },
                 stream_info.sample_rate,
-                self.config.smooth_secs,
             ),
-            gain_l,
-            gain_r,
-            l_filter_target: gain_l,
-            r_filter_target: gain_r,
+            gain_r: SmoothedParam::new(
+                gain_r,
+                SmootherConfig {
+                    smooth_secs: self.config.smooth_secs,
+                    ..Default::default()
+                },
+                stream_info.sample_rate,
+            ),
             params: self.params,
             prev_block_was_silent: true,
         })
@@ -129,12 +134,8 @@ impl AudioNodeConstructor for Constructor {
 }
 
 struct Processor {
-    smooth_filter_coeff: smoothing_filter::Coeff,
-    l_filter_target: f32,
-    r_filter_target: f32,
-
-    gain_l: f32,
-    gain_r: f32,
+    gain_l: SmoothedParam,
+    gain_r: SmoothedParam,
 
     params: VolumePanParams,
 
@@ -175,21 +176,21 @@ impl AudioNodeProcessor for Processor {
 
         if params_changed {
             let (gain_l, gain_r) = self.params.compute_gains();
-            self.l_filter_target = gain_l;
-            self.r_filter_target = gain_r;
+            self.gain_l.set_value(gain_l);
+            self.gain_r.set_value(gain_r);
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_l = self.l_filter_target;
-                self.gain_r = self.r_filter_target;
+                self.gain_l.reset();
+                self.gain_r.reset();
             }
         }
 
         self.prev_block_was_silent = false;
 
         if proc_info.in_silence_mask.all_channels_silent(2) {
-            self.gain_l = self.l_filter_target;
-            self.gain_r = self.r_filter_target;
+            self.gain_l.reset();
+            self.gain_r.reset();
             self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
@@ -201,56 +202,26 @@ impl AudioNodeProcessor for Processor {
         let out1 = &mut out1[..proc_info.frames];
         let out2 = &mut out2[0][..proc_info.frames];
 
-        if self.gain_l != self.l_filter_target || self.gain_r != self.r_filter_target {
-            let l_target_times_a = self.l_filter_target * self.smooth_filter_coeff.a;
-            let r_target_times_a = self.r_filter_target * self.smooth_filter_coeff.a;
+        if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
+            if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
+                self.gain_l.reset();
+                self.gain_r.reset();
+                self.prev_block_was_silent = true;
 
-            let mut l_state = self.gain_l;
-            let mut r_state = self.gain_r;
-
-            for i in 0..proc_info.frames {
-                l_state = smoothing_filter::process_sample_a(
-                    l_state,
-                    l_target_times_a,
-                    self.smooth_filter_coeff.b,
-                );
-                r_state = smoothing_filter::process_sample_a(
-                    r_state,
-                    r_target_times_a,
-                    self.smooth_filter_coeff.b,
-                );
-
-                out1[i] = in1[i] * l_state;
-                out2[i] = in2[i] * r_state;
+                return ProcessStatus::ClearAllOutputs;
+            } else {
+                for i in 0..proc_info.frames {
+                    out1[i] = in1[i] * self.gain_l.target_value();
+                    out2[i] = in2[i] * self.gain_r.target_value();
+                }
             }
-
-            self.gain_l = l_state;
-            self.gain_r = r_state;
-
-            if smoothing_filter::has_settled(
-                self.gain_l,
-                self.l_filter_target,
-                DEFAULT_SETTLE_EPSILON,
-            ) {
-                self.gain_l = self.l_filter_target;
-            }
-            if smoothing_filter::has_settled(
-                self.gain_r,
-                self.r_filter_target,
-                DEFAULT_SETTLE_EPSILON,
-            ) {
-                self.gain_r = self.r_filter_target;
-            }
-        } else if self.gain_l == 0.0 && self.gain_r == 0.0 {
-            self.gain_l = self.l_filter_target;
-            self.gain_r = self.r_filter_target;
-            self.prev_block_was_silent = true;
-
-            return ProcessStatus::ClearAllOutputs;
         } else {
             for i in 0..proc_info.frames {
-                out1[i] = in1[i] * self.gain_l;
-                out2[i] = in2[i] * self.gain_r;
+                let gain_l = self.gain_l.next_smoothed();
+                let gain_r = self.gain_r.next_smoothed();
+
+                out1[i] = in1[i] * gain_l;
+                out2[i] = in2[i] * gain_r;
             }
         }
 
@@ -258,7 +229,7 @@ impl AudioNodeProcessor for Processor {
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
-        self.smooth_filter_coeff =
-            smoothing_filter::Coeff::new(stream_info.sample_rate, DEFAULT_SMOOTH_SECONDS);
+        self.gain_l.update_sample_rate(stream_info.sample_rate);
+        self.gain_r.update_sample_rate(stream_info.sample_rate);
     }
 }

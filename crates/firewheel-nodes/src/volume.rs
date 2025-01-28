@@ -1,28 +1,26 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
-    dsp::{
-        decibel::normalized_volume_to_raw_gain,
-        smoothing_filter::{self, DEFAULT_SETTLE_EPSILON, DEFAULT_SMOOTH_SECONDS},
-    },
+    dsp::decibel::normalized_volume_to_raw_gain,
     event::{NodeEventList, NodeEventType},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
+    param::smoother::{SmoothedParam, SmootherConfig},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VolumeNodeConfig {
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.008` (8ms).
+    /// By default this is set to `0.01` (10ms).
     pub smooth_secs: f32,
 }
 
 impl Default for VolumeNodeConfig {
     fn default() -> Self {
         Self {
-            smooth_secs: 8.0 / 1_000.0,
+            smooth_secs: 10.0 / 1_000.0,
         }
     }
 }
@@ -93,22 +91,21 @@ impl AudioNodeConstructor for Constructor {
         let gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
 
         Box::new(VolumeProcessor {
-            smooth_filter_coeff: smoothing_filter::Coeff::new(
+            gain: SmoothedParam::new(
+                gain,
+                SmootherConfig {
+                    smooth_secs: self.config.smooth_secs,
+                    ..Default::default()
+                },
                 stream_info.sample_rate,
-                self.config.smooth_secs,
             ),
-            filter_target: gain,
-            gain,
             prev_block_was_silent: true,
         })
     }
 }
 
 struct VolumeProcessor {
-    smooth_filter_coeff: smoothing_filter::Coeff,
-    filter_target: f32,
-
-    gain: f32,
+    gain: SmoothedParam,
 
     prev_block_was_silent: bool,
 }
@@ -125,17 +122,19 @@ impl AudioNodeProcessor for VolumeProcessor {
         events.for_each(|event| {
             if let NodeEventType::F32Param { id, value } = event {
                 if *id == VolumeParams::ID_VOLUME {
-                    self.filter_target = normalized_volume_to_raw_gain(*value);
+                    let mut gain = normalized_volume_to_raw_gain(*value);
 
-                    if self.filter_target < 0.00001 {
-                        self.filter_target = 0.0;
-                    } else if self.filter_target > 0.99999 && self.filter_target < 1.00001 {
-                        self.filter_target = 1.0
+                    if gain < 0.00001 {
+                        gain = 0.0;
+                    } else if gain > 0.99999 && gain < 1.00001 {
+                        gain = 1.0
                     }
+
+                    self.gain.set_value(gain);
 
                     if self.prev_block_was_silent {
                         // Previous block was silent, so no need to smooth.
-                        self.gain = self.filter_target;
+                        self.gain.reset();
                     }
                 }
             }
@@ -146,18 +145,18 @@ impl AudioNodeProcessor for VolumeProcessor {
         if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
-            self.gain = self.filter_target;
+            self.gain.reset();
             self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if self.gain == self.filter_target {
-            if self.gain == 0.0 {
+        if !self.gain.is_smoothing() {
+            if self.gain.target_value() == 0.0 {
                 self.prev_block_was_silent = true;
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
-            } else if self.gain == 1.0 {
+            } else if self.gain.target_value() == 1.0 {
                 // Unity gain, there is no need to process.
                 return ProcessStatus::Bypass;
             } else {
@@ -168,7 +167,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                         }
                     } else {
                         for (os, &is) in out_ch.iter_mut().zip(in_ch.iter()) {
-                            *os = is * self.gain;
+                            *os = is * self.gain.target_value();
                         }
                     }
                 }
@@ -179,26 +178,13 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        let mut gain = self.gain;
-
         if inputs.len() == 1 {
             // Provide an optimized loop for mono.
-
-            let target_times_a = self.filter_target * self.smooth_filter_coeff.a;
-
             for (os, &is) in outputs[0].iter_mut().zip(inputs[0].iter()) {
-                gain = smoothing_filter::process_sample_a(
-                    gain,
-                    target_times_a,
-                    self.smooth_filter_coeff.b,
-                );
-
-                *os = is * gain;
+                *os = is * self.gain.next_smoothed();
             }
         } else if inputs.len() == 2 {
             // Provide an optimized loop for stereo.
-
-            let target_times_a = self.filter_target * self.smooth_filter_coeff.a;
 
             let in0 = &inputs[0][..proc_info.frames];
             let in1 = &inputs[1][..proc_info.frames];
@@ -207,22 +193,14 @@ impl AudioNodeProcessor for VolumeProcessor {
             let out1 = &mut out1[0][..proc_info.frames];
 
             for i in 0..proc_info.frames {
-                gain = smoothing_filter::process_sample_a(
-                    gain,
-                    target_times_a,
-                    self.smooth_filter_coeff.b,
-                );
+                let gain = self.gain.next_smoothed();
 
                 out0[i] = in0[i] * gain;
                 out1[i] = in1[i] * gain;
             }
         } else {
-            gain = smoothing_filter::process_into_buffer(
-                &mut scratch_buffers[0][..proc_info.frames],
-                gain,
-                self.filter_target,
-                self.smooth_filter_coeff,
-            );
+            self.gain
+                .process_into_buffer(&mut scratch_buffers[0][..proc_info.frames]);
 
             for (ch_i, (out_ch, in_ch)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
                 if proc_info.in_silence_mask.is_channel_silent(ch_i) {
@@ -242,17 +220,10 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        self.gain = gain;
-
-        if smoothing_filter::has_settled(self.gain, self.filter_target, DEFAULT_SETTLE_EPSILON) {
-            self.gain = self.filter_target;
-        }
-
         ProcessStatus::outputs_modified(proc_info.in_silence_mask)
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
-        self.smooth_filter_coeff =
-            smoothing_filter::Coeff::new(stream_info.sample_rate, DEFAULT_SMOOTH_SECONDS);
+        self.gain.update_sample_rate(stream_info.sample_rate);
     }
 }

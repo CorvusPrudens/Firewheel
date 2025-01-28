@@ -1,9 +1,6 @@
-use std::fmt;
 use std::num::NonZeroU32;
-use std::ops;
-use std::slice;
 
-use crate::dsp::smoothing_filter;
+use crate::{dsp::smoothing_filter, StreamInfo};
 
 /// The configuration for a [`ParamSmoother`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -27,222 +24,157 @@ impl Default for SmootherConfig {
     }
 }
 
-/// The status of a [`ParamSmoother`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SmootherStatus {
-    /// Not currently smoothing. All values in [`ParamSmoother::output`]
-    /// will contain the same value.
-    Inactive,
-    /// Currently smoothing but will become deactivated on the next process
-    /// cycle. Values in [`ParamSmoother::output`] will NOT be all the same.
-    Deactivating,
-    /// Currently smoothing. Values in [`ParamSmoother::output`] will NOT
-    /// be all the same.
-    Active,
-}
-
-impl SmootherStatus {
-    fn is_active(&self) -> bool {
-        self != &SmootherStatus::Inactive
-    }
-}
-
-/// The output of a [`ParamSmoother`]
-pub struct SmoothedOutput<'a> {
-    pub values: &'a [f32],
-    pub status: SmootherStatus,
-}
-
-impl<'a> SmoothedOutput<'a> {
-    pub fn is_smoothing(&self) -> bool {
-        self.status.is_active()
-    }
-}
-
-impl<'a, I> ops::Index<I> for SmoothedOutput<'a>
-where
-    I: slice::SliceIndex<[f32]>,
-{
-    type Output = I::Output;
-
-    #[inline(always)]
-    fn index(&self, idx: I) -> &I::Output {
-        &self.values[idx]
-    }
-}
-
-/// An automatically smoothed buffer of values for a parameter.
-#[derive(Clone)]
-pub struct ParamSmoother {
-    output: Vec<f32>,
-    target: f32,
-
-    status: SmootherStatus,
-
-    filter_coeff: smoothing_filter::Coeff,
+/// A helper struct to smooth an f32 parameter.
+pub struct SmoothedParam {
+    target_value: f32,
+    target_times_a: f32,
     filter_state: f32,
-
+    coeff: smoothing_filter::Coeff,
+    smooth_secs: f32,
     settle_epsilon: f32,
 }
 
-impl ParamSmoother {
-    /// Create a new parameter smoothing filter.
-    ///
-    /// * `val` - The initial starting value
-    /// * `sample_rate` - The sampling rate
-    /// * `max_block_frames` - The maximum number of samples that can
-    /// appear in a processing block.
-    /// * `config` - Additional options for a [`ParamSmoother`]
-    pub fn new(
-        val: f32,
-        sample_rate: NonZeroU32,
-        max_block_frames: NonZeroU32,
-        config: SmootherConfig,
-    ) -> Self {
-        let mut output = Vec::new();
-        output.reserve_exact(max_block_frames.get() as usize);
-        output.resize(max_block_frames.get() as usize, val);
+impl SmoothedParam {
+    /// Construct a new smoothed f32 parameter with the given configuration.
+    pub fn new(value: f32, config: SmootherConfig, sample_rate: NonZeroU32) -> Self {
+        assert!(config.smooth_secs > 0.0);
+        assert!(config.settle_epsilon > 0.0);
+
+        let coeff = smoothing_filter::Coeff::new(sample_rate, config.smooth_secs);
 
         Self {
-            status: SmootherStatus::Inactive,
-            target: val,
-            output,
-            filter_coeff: smoothing_filter::Coeff::new(sample_rate, config.smooth_secs),
-            filter_state: val,
+            target_value: value,
+            target_times_a: value * coeff.a,
+            filter_state: value,
+            coeff,
+            smooth_secs: config.smooth_secs,
             settle_epsilon: config.settle_epsilon,
         }
     }
 
-    /// Reset the filter with the new given initial value.
-    pub fn reset(&mut self, val: f32) {
-        if self.is_active() {
-            self.status = SmootherStatus::Inactive;
-            self.output.fill(val);
-        } else if self.target != val {
-            self.output.fill(val);
-        }
-
-        self.target = val;
-        self.filter_state = val;
+    /// The target value of the parameter.
+    pub fn target_value(&self) -> f32 {
+        self.target_value
     }
 
-    /// Set the new target value. If the value is different from the previous process
-    /// cycle, then smoothing will begin.
-    pub fn set(&mut self, val: f32) {
-        if self.target == val {
-            return;
-        }
-
-        self.target = val;
-        self.status = SmootherStatus::Active;
+    /// Set the target value of the parameter.
+    pub fn set_value(&mut self, value: f32) {
+        self.target_value = value;
+        self.target_times_a = value * self.coeff.a;
     }
 
-    /// Set the new target value.
-    ///
-    /// If `no_smoothing` is `false` and the value is different from the previous
-    /// process cycle, then smoothing will begin.
-    ///
-    /// If `no_smoothing` is `true`, then the filter will be reset with the new
-    /// value.
-    pub fn set_with_smoothing(&mut self, val: f32, smoothing: bool) {
-        if smoothing {
-            self.set(val);
-        } else {
-            self.reset(val);
+    /// Returns `true` if this parameter is currently smoothing this process cycle,
+    /// `false` if not.
+    pub fn is_smoothing(&self) -> bool {
+        !smoothing_filter::has_settled(self.filter_state, self.target_value, self.settle_epsilon)
+    }
+
+    /// Reset the smoother.
+    pub fn reset(&mut self) {
+        self.filter_state = self.target_value;
+    }
+
+    /// Return the next smoothed value.
+    #[inline(always)]
+    pub fn next_smoothed(&mut self) -> f32 {
+        self.filter_state = smoothing_filter::process_sample_a(
+            self.filter_state,
+            self.target_times_a,
+            self.coeff.b,
+        );
+        self.filter_state
+    }
+
+    /// Fill the given buffer with the smoothed values.
+    pub fn process_into_buffer(&mut self, buffer: &mut [f32]) {
+        self.filter_state = smoothing_filter::process_into_buffer(
+            buffer,
+            self.filter_state,
+            self.target_value,
+            self.coeff,
+        );
+    }
+
+    /// Update the sample rate.
+    pub fn update_sample_rate(&mut self, sample_rate: NonZeroU32) {
+        self.coeff = smoothing_filter::Coeff::new(sample_rate, self.smooth_secs);
+    }
+}
+
+/// A helper struct to smooth an f32 parameter, along with a buffer of smoothed values.
+pub struct SmoothedParamBuffer {
+    smoother: SmoothedParam,
+    buffer: Vec<f32>,
+    buffer_is_constant: bool,
+}
+
+impl SmoothedParamBuffer {
+    /// Construct a new smoothed f32 parameter with the given configuration.
+    pub fn new(value: f32, config: SmootherConfig, stream_info: &StreamInfo) -> Self {
+        let mut buffer = Vec::new();
+        buffer.reserve_exact(stream_info.max_block_frames.get() as usize);
+        buffer.resize(stream_info.max_block_frames.get() as usize, value);
+
+        Self {
+            smoother: SmoothedParam::new(value, config, stream_info.sample_rate),
+            buffer,
+            buffer_is_constant: true,
         }
     }
 
     /// The current target value that is being smoothed to.
     pub fn target_value(&self) -> f32 {
-        self.target
+        self.smoother.target_value()
     }
 
-    /// Get the current value of the smoother, along with its status.
-    ///
-    /// Note, this will NOT update the filter. This only returns the most
-    /// recently-processed sample.
-    pub fn current_value(&self) -> (f32, SmootherStatus) {
-        (self.filter_state, self.status)
+    /// Set the target value of the parameter.
+    pub fn set_value(&mut self, value: f32) {
+        self.smoother.set_value(value);
     }
 
-    /// Process the filter and return the smoothed output.
-    ///
-    /// If the filter is not currently smoothing, then no processing will occur and
-    /// the output (which will contain all the same value) will simply be returned.
-    pub fn process(&mut self, frames: usize) -> SmoothedOutput {
-        let frames = frames.min(self.output.len());
-
-        match self.status {
-            SmootherStatus::Deactivating => {
-                self.reset(self.target);
-            }
-            SmootherStatus::Active => {
-                self.filter_state = smoothing_filter::process_into_buffer(
-                    &mut self.output[..frames],
-                    self.filter_state,
-                    self.target,
-                    self.filter_coeff,
-                );
-
-                if smoothing_filter::has_settled(
-                    self.filter_state,
-                    self.target,
-                    self.settle_epsilon,
-                ) {
-                    self.status = SmootherStatus::Deactivating;
-                }
-            }
-            _ => {}
+    /// Reset the smoother.
+    pub fn reset(&mut self) {
+        if self.smoother.is_smoothing() || !self.buffer_is_constant {
+            self.buffer.fill(self.smoother.target_value);
+            self.buffer_is_constant = true;
         }
 
-        SmoothedOutput {
-            values: &self.output[..frames],
-            status: self.status,
+        self.smoother.reset();
+    }
+
+    pub fn get_buffer(&mut self, frames: usize) -> &[f32] {
+        if self.smoother.is_smoothing() {
+            self.smoother
+                .process_into_buffer(&mut self.buffer[..frames]);
+
+            self.buffer_is_constant = false;
+        } else if !self.buffer_is_constant {
+            self.buffer_is_constant = true;
+            self.buffer.fill(self.smoother.target_value());
         }
+
+        &self.buffer[..frames]
     }
 
-    /// Set the new target value, process the filter, and return the smoothed output.
-    /// If the value is different from the previous process cycle, then smoothing will
-    /// begin.
-    ///
-    /// If the filter is not currently smoothing, then no processing will occur and
-    /// the output (which will contain all the same value) will simply be returned.
-    pub fn set_and_process(&mut self, val: f32, frames: usize) -> SmoothedOutput {
-        self.set(val);
-        self.process(frames)
+    /// Returns `true` if this parameter is currently smoothing this process cycle,
+    /// `false` if not.
+    pub fn is_smoothing(&self) -> bool {
+        self.smoother.is_smoothing()
     }
 
-    /// Whether or not the filter is currently smoothing (`true`) or not (`false`)
-    pub fn is_active(&self) -> bool {
-        self.status.is_active()
-    }
+    /// Update the stream information.
+    pub fn update_stream(&mut self, stream_info: &StreamInfo) {
+        self.smoother.update_sample_rate(stream_info.sample_rate);
 
-    /// Returns the current value if the filter is not currently smoothing, returns
-    /// `None` otherwise.
-    pub fn constant_value(&self) -> Option<f32> {
-        if self.status.is_active() {
-            None
-        } else {
-            Some(self.target)
+        let max_block_frames = stream_info.max_block_frames.get() as usize;
+
+        if self.buffer.len() > max_block_frames {
+            self.buffer.resize(max_block_frames, 0.0);
+        } else if self.buffer.len() < max_block_frames {
+            self.buffer
+                .reserve_exact(max_block_frames - self.buffer.len());
+            self.buffer
+                .resize(max_block_frames, self.smoother.target_value());
         }
-    }
-
-    /// The maximum number of samples tha can appear in a single processing block.
-    pub fn max_block_frames(&self) -> usize {
-        self.output.len()
-    }
-}
-
-impl fmt::Debug for ParamSmoother {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct(concat!("ParamSmoother"))
-            .field("output[0]", &self.output[0])
-            .field("max_block_frames", &self.max_block_frames())
-            .field("target", &self.target)
-            .field("status", &self.status)
-            .field("filter_state", &self.filter_state)
-            .field("filter_coeff", &self.filter_coeff)
-            .field("settle_epsilon", &self.settle_epsilon)
-            .finish()
     }
 }
