@@ -18,7 +18,7 @@ use firewheel::{
         NUM_SCRATCH_BUFFERS,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
-    StreamInfo,
+    SilenceMask, StreamInfo,
 };
 
 // The parameter struct holds all of the parameters of the node as plain values.
@@ -268,9 +268,7 @@ impl AudioNodeProcessor for Processor {
 
         // Notify the engine that we have modified the output buffers.
         ProcessStatus::OutputsModified {
-            // In this case, the silence mask will match the silence mask of the
-            // input buffers.
-            out_silence_mask: proc_info.in_silence_mask,
+            out_silence_mask: SilenceMask::NONE_SILENT,
         }
     }
 

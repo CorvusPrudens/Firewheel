@@ -7,6 +7,7 @@ use firewheel_core::{
         NUM_SCRATCH_BUFFERS,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
+    SilenceMask,
 };
 
 pub use super::volume::VolumeNodeConfig;
@@ -157,6 +158,11 @@ impl AudioNodeProcessor for Processor {
             NodeEventType::F32Param { id, value } => match *id {
                 VolumePanParams::ID_VOLUME => {
                     self.params.normalized_volume = value.max(0.0);
+
+                    if self.params.normalized_volume < 0.00001 {
+                        self.params.normalized_volume = 0.0;
+                    }
+
                     params_changed = true;
                 }
                 VolumePanParams::ID_PAN => {
@@ -208,12 +214,14 @@ impl AudioNodeProcessor for Processor {
                 self.gain_r.reset();
                 self.prev_block_was_silent = true;
 
-                return ProcessStatus::ClearAllOutputs;
+                ProcessStatus::ClearAllOutputs
             } else {
                 for i in 0..proc_info.frames {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
                 }
+
+                ProcessStatus::outputs_modified(proc_info.in_silence_mask)
             }
         } else {
             for i in 0..proc_info.frames {
@@ -223,9 +231,9 @@ impl AudioNodeProcessor for Processor {
                 out1[i] = in1[i] * gain_l;
                 out2[i] = in2[i] * gain_r;
             }
-        }
 
-        return ProcessStatus::outputs_modified(proc_info.in_silence_mask);
+            ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
+        }
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {

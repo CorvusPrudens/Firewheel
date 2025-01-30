@@ -7,6 +7,7 @@ use firewheel_core::{
         NUM_SCRATCH_BUFFERS,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
+    SilenceMask,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -220,7 +221,7 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        ProcessStatus::outputs_modified(proc_info.in_silence_mask)
+        ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {

@@ -31,6 +31,7 @@ members = [
     "examples/custom_nodes",
     "examples/play_sample",
     "examples/sampler_test",
+    "examples/spatial_basic",
     "examples/visual_node_graph",
 ]
 
@@ -42,6 +43,7 @@ default = [
     "beep_test_node",
     "peak_meter_node",
     "sampler_node",
+    "spatial_basic",
     "stereo_to_mono_node",
     "volume_pan_node",
     "volume_node",
@@ -67,6 +69,8 @@ beep_test_node = ["firewheel-nodes/beep_test"]
 peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node
 sampler_node = ["firewheel-nodes/sampler"]
+# Enables the basic 3D spatial positioning node
+spatial_basic = ["firewheel-nodes/spatial_basic"]
 # Enables the stereo to mono node
 stereo_to_mono_node = ["firewheel-nodes/stereo_to_mono"]
 # Enables the volume pan node
@@ -75,10 +79,10 @@ volume_pan_node = ["firewheel-nodes/volume_pan"]
 volume_node = ["firewheel-nodes/volume"]
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.2.2-beta.0" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.2.2-beta.0" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.2.2-beta.0", optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.2.2-beta.0", default-features = false }
+firewheel-core = { path = "crates/firewheel-core", version = "0.2.3-beta.0" }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.2.3-beta.0" }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.2.3-beta.0", optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.2.3-beta.0", default-features = false }
 
 [workspace.dependencies]
 log = "0.4"

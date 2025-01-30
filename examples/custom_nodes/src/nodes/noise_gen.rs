@@ -16,7 +16,7 @@ use firewheel::{
 pub struct NoiseGenParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     ///
-    /// White noise is really loud, so this be set to something like `0.4`.
+    /// White noise is really loud, so use something like `0.4`.
     pub normalized_volume: f32,
     /// Whether or not this node is enabled.
     pub enabled: bool,

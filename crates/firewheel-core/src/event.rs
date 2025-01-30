@@ -54,6 +54,14 @@ pub enum NodeEventType {
         /// The parameter value.
         value: bool,
     },
+    /// Set the value of a parameter containing two
+    /// `f32` elements.
+    Vector2DParam {
+        /// The unique ID of the paramater.
+        id: u32,
+        /// The parameter value.
+        value: [f32; 2],
+    },
     /// Set the value of a parameter containing three
     /// `f32` elements.
     Vector3DParam {
