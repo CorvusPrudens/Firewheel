@@ -77,7 +77,7 @@ pub struct SpatialBasicParams {
     /// Increasing this value to a larger number can be used to give the effect of a
     /// sound playing behind a wall.
     ///
-    /// By default this is set to `0.65`.
+    /// By default this is set to `0.9`.
     pub damping_factor: f32,
 
     /// The threshold for the maximum amount of panning that can occur, in the range
@@ -96,7 +96,7 @@ impl Default for SpatialBasicParams {
         Self {
             normalized_volume: 1.0,
             offset: [0.0, 0.0, 0.0],
-            damping_factor: 0.65,
+            damping_factor: 0.9,
             panning_threshold: 0.58,
         }
     }

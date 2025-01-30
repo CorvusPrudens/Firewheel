@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.2.3-beta.0"
+version = "0.2.3-beta.1"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
 repository = "https://github.com/BillyDM/firewheel"
 edition.workspace = true
@@ -82,7 +82,7 @@ volume_node = ["firewheel-nodes/volume"]
 firewheel-core = { path = "crates/firewheel-core", version = "0.2.3-beta.0" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.2.3-beta.0" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.2.3-beta.0", optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.2.3-beta.0", default-features = false }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.2.3-beta.1", default-features = false }
 
 [workspace.dependencies]
 log = "0.4"

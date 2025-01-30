@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-nodes"
-version = "0.2.3-beta.0"
+version = "0.2.3-beta.1"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
 edition.workspace = true
