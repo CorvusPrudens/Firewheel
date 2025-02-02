@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-core"
-version = "0.2.3-beta.0"
+version = "0.2.4-beta.0"
 description = "Shared types for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-core"
 edition.workspace = true
@@ -8,6 +8,11 @@ license.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
+exclude.workspace = true
+
+# Show documentation with all features enabled on docs.rs
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 symphonium = ["dep:symphonium"]
