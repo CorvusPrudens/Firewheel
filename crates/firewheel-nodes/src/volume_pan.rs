@@ -68,6 +68,24 @@ impl VolumePanParams {
         }
     }
 
+    /// Sync the given parameters.
+    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
+        if self.normalized_volume != params.normalized_volume {
+            self.normalized_volume = params.normalized_volume;
+            (queue_event)(self.sync_volume_event());
+        }
+
+        if self.pan != params.pan {
+            self.pan = params.pan;
+            (queue_event)(self.sync_pan_event());
+        }
+
+        if self.pan_law != params.pan_law {
+            self.pan_law = params.pan_law;
+            (queue_event)(self.sync_pan_law_event());
+        }
+    }
+
     pub fn compute_gains(&self) -> (f32, f32) {
         let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 

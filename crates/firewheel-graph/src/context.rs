@@ -560,6 +560,18 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         self.graph.disconnect(src_node, dst_node, ports_src_dst)
     }
 
+    /// Remove all connections (edges) between two nodes in the graph.
+    ///
+    /// * `src_node` - The ID of the source node.
+    /// * `dst_node` - The ID of the destination node.
+    pub fn disconnect_all_between(
+        &mut self,
+        src_node: NodeID,
+        dst_node: NodeID,
+    ) -> SmallVec<[EdgeID; 4]> {
+        self.graph.disconnect_all_between(src_node, dst_node)
+    }
+
     /// Remove a connection (edge) via the edge's unique ID.
     ///
     /// If the edge did not exist in this graph, then `false` will be returned.

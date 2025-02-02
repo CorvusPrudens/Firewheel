@@ -11,10 +11,10 @@ use firewheel::{
 use symphonium::SymphoniumLoader;
 
 pub const SAMPLE_PATHS: [&'static str; 4] = [
-    "assets/test_files/sword_swing.flac",
-    "assets/test_files/bird_cherp.wav",
-    "assets/test_files/beep.wav",
-    "assets/test_files/bird_ambiance.ogg",
+    "assets/test_files/swosh-sword-swing.flac",
+    "assets/test_files/bird-sound.wav",
+    "assets/test_files/beep_up.wav",
+    "assets/test_files/birds_detail_chirp_medium_far.ogg",
 ];
 
 struct Sampler {

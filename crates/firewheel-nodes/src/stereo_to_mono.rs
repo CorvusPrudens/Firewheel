@@ -7,7 +7,7 @@ use firewheel_core::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StereoToMonoNode;
 
 impl AudioNodeConstructor for StereoToMonoNode {

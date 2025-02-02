@@ -152,6 +152,29 @@ impl SpatialBasicParams {
         }
     }
 
+    /// Sync the given parameters.
+    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
+        if self.normalized_volume != params.normalized_volume {
+            self.normalized_volume = params.normalized_volume;
+            (queue_event)(self.sync_volume_event());
+        }
+
+        if self.offset != params.offset {
+            self.offset = params.offset;
+            (queue_event)(self.sync_offset_event());
+        }
+
+        if self.damping_factor != params.damping_factor {
+            self.damping_factor = params.damping_factor;
+            (queue_event)(self.sync_damping_factor_event());
+        }
+
+        if self.panning_threshold != params.panning_threshold {
+            self.panning_threshold = params.panning_threshold;
+            (queue_event)(self.sync_panning_threshold_event());
+        }
+    }
+
     pub fn compute_values(&self) -> ComputedValues {
         let x2_z2 = (self.offset[0] * self.offset[0]) + (self.offset[2] * self.offset[2]);
         let xyz_distance = (x2_z2 + (self.offset[1] * self.offset[1])).sqrt();

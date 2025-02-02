@@ -26,9 +26,6 @@ pub enum AddEdgeError {
         port_idx: PortIdx,
         num_out_ports: ChannelCount,
     },
-    /// The edge already exists in the graph.
-    #[error("Could not add edge: edge already exists in the graph")]
-    EdgeAlreadyExists,
     /// This edge would have created a cycle in the graph.
     #[error("Could not add edge: cycle was detected")]
     CycleDetected,

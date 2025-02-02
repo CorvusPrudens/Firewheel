@@ -63,6 +63,23 @@ impl BeepTestParams {
             value: self.enabled,
         }
     }
+
+    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
+        if self.freq_hz != params.freq_hz {
+            self.freq_hz = params.freq_hz;
+            (queue_event)(self.sync_freq_hz_event());
+        }
+
+        if self.normalized_volume != params.normalized_volume {
+            self.normalized_volume = params.normalized_volume;
+            (queue_event)(self.sync_volume_event());
+        }
+
+        if self.enabled != params.enabled {
+            self.enabled = params.enabled;
+            (queue_event)(self.sync_enabled_event());
+        }
+    }
 }
 
 impl Default for BeepTestParams {

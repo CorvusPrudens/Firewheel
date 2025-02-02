@@ -30,6 +30,7 @@ members = [
     "examples/beep_test",
     "examples/custom_nodes",
     "examples/play_sample",
+    "examples/sampler_pool",
     "examples/sampler_test",
     "examples/spatial_basic",
     "examples/visual_node_graph",
@@ -40,10 +41,11 @@ default = [
     "resampler",
     "cpal",
     "symphonium",
+    "sampler_pool",
     "beep_test_node",
     "peak_meter_node",
     "sampler_node",
-    "spatial_basic",
+    "spatial_basic_node",
     "stereo_to_mono_node",
     "volume_pan_node",
     "volume_node",
@@ -54,6 +56,9 @@ cpal = ["dep:firewheel-cpal"]
 resampler = ["firewheel-core/resampler"]
 # Enables using Symphonium for loading audio files
 symphonium = ["firewheel-core/symphonium"]
+# Enables the `SamplerPool` helper type for constructing a pool of
+# sampler nodes that can dynamically be assigned work.
+sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]
 # Enables all built-in factory nodes
 all_nodes = [
     "beep_test_node",
@@ -70,7 +75,7 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node
 sampler_node = ["firewheel-nodes/sampler"]
 # Enables the basic 3D spatial positioning node
-spatial_basic = ["firewheel-nodes/spatial_basic"]
+spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 # Enables the stereo to mono node
 stereo_to_mono_node = ["firewheel-nodes/stereo_to_mono"]
 # Enables the volume pan node
@@ -83,6 +88,8 @@ firewheel-core = { path = "crates/firewheel-core", version = "0.2.3-beta.0" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.2.3-beta.0" }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.2.3-beta.0", optional = true }
 firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.2.3-beta.1", default-features = false }
+thunderdome = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
 
 [workspace.dependencies]
 log = "0.4"

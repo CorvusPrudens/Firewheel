@@ -56,6 +56,14 @@ impl VolumeParams {
             value: self.normalized_volume,
         }
     }
+
+    /// Sync the given parameters.
+    pub fn sync_from(&mut self, params: &Self, queue_event: impl FnOnce(NodeEventType)) {
+        if self.normalized_volume != params.normalized_volume {
+            self.normalized_volume = params.normalized_volume;
+            (queue_event)(self.sync_volume_event());
+        }
+    }
 }
 
 impl Default for VolumeParams {

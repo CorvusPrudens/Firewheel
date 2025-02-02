@@ -4,3 +4,6 @@ pub use firewheel_nodes as nodes;
 
 #[cfg(feature = "cpal")]
 pub use firewheel_cpal::*;
+
+#[cfg(feature = "sampler_pool")]
+pub mod sampler_pool;

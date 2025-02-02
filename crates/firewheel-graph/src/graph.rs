@@ -261,27 +261,19 @@ impl AudioGraph {
                     num_in_ports: dst_node_entry.info.channel_config.num_inputs,
                 });
             }
-
-            if self.existing_edges.contains_key(&EdgeHash {
-                src_node,
-                src_port,
-                dst_node,
-                dst_port,
-            }) {
-                return Err(AddEdgeError::EdgeAlreadyExists);
-            }
         }
 
         let mut edge_ids = SmallVec::new();
 
         for (src_port, dst_port) in ports_src_dst.iter().copied() {
-            if self.existing_edges.contains_key(&EdgeHash {
+            if let Some(id) = self.existing_edges.get(&EdgeHash {
                 src_node,
                 src_port,
                 dst_node,
                 dst_port,
             }) {
                 // The caller gave us more than one of the same edge.
+                edge_ids.push(*id);
                 continue;
             }
 
@@ -350,6 +342,34 @@ impl AudioGraph {
         }
 
         any_removed
+    }
+
+    /// Remove all connections (edges) between two nodes in the graph.
+    ///
+    /// * `src_node` - The ID of the source node.
+    /// * `dst_node` - The ID of the destination node.
+    pub fn disconnect_all_between(
+        &mut self,
+        src_node: NodeID,
+        dst_node: NodeID,
+    ) -> SmallVec<[EdgeID; 4]> {
+        let mut removed_edges = SmallVec::new();
+
+        if !self.nodes.contains(src_node.0) || !self.nodes.contains(dst_node.0) {
+            return removed_edges;
+        };
+
+        for (edge_id, edge) in self.edges.iter() {
+            if edge.src_node == src_node && edge.dst_node == dst_node {
+                removed_edges.push(EdgeID(edge_id));
+            }
+        }
+
+        for &edge_id in removed_edges.iter() {
+            self.disconnect_by_edge_id(edge_id);
+        }
+
+        removed_edges
     }
 
     /// Remove a connection (edge) via the edge's unique ID.
