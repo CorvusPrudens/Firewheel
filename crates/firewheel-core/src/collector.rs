@@ -32,6 +32,12 @@ impl<T: ?Sized + Send + Sync + 'static> ArcGc<T> {
 
         value
     }
+
+    /// A wrapper around [std::sync::Arc::ptr_eq].
+    #[inline(always)]
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        Arc::ptr_eq(&this.0, &other.0)
+    }
 }
 
 impl<T: ?Sized + Send + Sync + 'static> Into<ArcGc<T>> for Arc<T> {

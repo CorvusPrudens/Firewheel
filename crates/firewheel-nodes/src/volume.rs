@@ -6,7 +6,10 @@ use firewheel_core::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
-    param::smoother::{SmoothedParam, SmootherConfig},
+    param::{
+        smoother::{SmoothedParam, SmootherConfig},
+        Diff, PatchParams,
+    },
     SilenceMask,
 };
 
@@ -26,16 +29,13 @@ impl Default for VolumeNodeConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Debug, Clone, Copy, PartialEq)]
 pub struct VolumeParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
 }
 
 impl VolumeParams {
-    /// The ID of the volume parameter.
-    pub const ID_VOLUME: u32 = 0;
-
     /// Create a volume pan node constructor using these parameters.
     pub fn constructor(
         &self,
@@ -46,22 +46,6 @@ impl VolumeParams {
             params: *self,
             channels,
             config,
-        }
-    }
-
-    /// Return an event type to sync the volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    /// Sync the given parameters.
-    pub fn sync_from(&mut self, params: &Self, queue_event: impl FnOnce(NodeEventType)) {
-        if self.normalized_volume != params.normalized_volume {
-            self.normalized_volume = params.normalized_volume;
-            (queue_event)(self.sync_volume_event());
         }
     }
 }
@@ -100,6 +84,7 @@ impl AudioNodeConstructor for Constructor {
         let gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
 
         Box::new(VolumeProcessor {
+            params: self.params,
             gain: SmoothedParam::new(
                 gain,
                 SmootherConfig {
@@ -115,6 +100,7 @@ impl AudioNodeConstructor for Constructor {
 
 struct VolumeProcessor {
     gain: SmoothedParam,
+    params: VolumeParams,
 
     prev_block_was_silent: bool,
 }
@@ -129,23 +115,20 @@ impl AudioNodeProcessor for VolumeProcessor {
         scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         events.for_each(|event| {
-            if let NodeEventType::F32Param { id, value } = event {
-                if *id == VolumeParams::ID_VOLUME {
-                    let mut gain = normalized_volume_to_raw_gain(*value);
+            self.params.patch_params(event);
+            let mut gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
 
-                    if gain < 0.00001 {
-                        gain = 0.0;
-                    } else if gain > 0.99999 && gain < 1.00001 {
-                        gain = 1.0
-                    }
+            if gain < 0.00001 {
+                gain = 0.0;
+            } else if gain > 0.99999 && gain < 1.00001 {
+                gain = 1.0
+            }
 
-                    self.gain.set_value(gain);
+            self.gain.set_value(gain);
 
-                    if self.prev_block_was_silent {
-                        // Previous block was silent, so no need to smooth.
-                        self.gain.reset();
-                    }
-                }
+            if self.prev_block_was_silent {
+                // Previous block was silent, so no need to smooth.
+                self.gain.reset();
             }
         });
 

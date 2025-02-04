@@ -1,12 +1,15 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
-    event::{NodeEventList, NodeEventType},
+    event::{NodeEventList, NodeEventType, ParamData},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
-    param::smoother::{SmoothedParam, SmootherConfig},
+    param::{
+        smoother::{SmoothedParam, SmootherConfig},
+        Diff, ParamPath, PatchParams, PathBuilder,
+    },
     SilenceMask,
 };
 
@@ -14,28 +17,19 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning.
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Debug, Clone, Copy, PartialEq)]
 pub struct VolumePanParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    pub normalized_volume: f32,
+    normalized_volume: f32,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
     /// fully right.
-    pub pan: f32,
+    pan: f32,
     /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
     /// to the corresponding gain values for the left and right channels.
-    ///
-    /// Use `NodeEventType::U32Param` for this parameter.
     pub pan_law: PanLaw,
 }
 
 impl VolumePanParams {
-    /// The ID of the volume parameter.
-    pub const ID_VOLUME: u32 = 0;
-    /// The ID of the pan parameter.
-    pub const ID_PAN: u32 = 1;
-    /// The ID of the "pan law" parameter.
-    pub const ID_PAN_LAW: u32 = 2;
-
     /// Create a volume pan node constructor using these parameters.
     pub fn constructor(&self, config: VolumeNodeConfig) -> Constructor {
         Constructor {
@@ -44,27 +38,49 @@ impl VolumePanParams {
         }
     }
 
+    /// Get the current volume.
+    pub fn volume(&self) -> f32 {
+        self.normalized_volume
+    }
+
+    /// Get the current pan.
+    pub fn pan(&self) -> f32 {
+        self.pan
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.normalized_volume = value.max(0.0);
+
+        if self.params.normalized_volume < 0.00001 {
+            self.normalized_volume = 0.0;
+        }
+    }
+
+    pub fn set_pan(&mut self, pan: f32) {
+        self.pan = value.clamp(-1.0, 1.0);
+    }
+
     /// Return an event type to sync the volume parameter.
     pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: VolumePanParams::ID_VOLUME,
-            value: self.normalized_volume,
+        NodeEventType::Param {
+            path: ParamPath::Single(0),
+            data: ParamData::F32(self.normalized_volume),
         }
     }
 
     /// Return an event type to sync the pan parameter.
     pub fn sync_pan_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: VolumePanParams::ID_PAN,
-            value: self.pan,
+        NodeEventType::Param {
+            path: ParamPath::Single(1),
+            data: ParamData::F32(self.pan),
         }
     }
 
     /// Return an event type to sync the pan law parameter.
     pub fn sync_pan_law_event(&self) -> NodeEventType {
-        NodeEventType::U32Param {
-            id: VolumePanParams::ID_PAN_LAW,
-            value: self.pan_law as u32,
+        NodeEventType::Param {
+            path: ParamPath::Single(2),
+            data: ParamData::U32(self.pan_law as u32),
         }
     }
 
@@ -172,30 +188,9 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         let mut params_changed = false;
 
-        events.for_each(|event| match event {
-            NodeEventType::F32Param { id, value } => match *id {
-                VolumePanParams::ID_VOLUME => {
-                    self.params.normalized_volume = value.max(0.0);
-
-                    if self.params.normalized_volume < 0.00001 {
-                        self.params.normalized_volume = 0.0;
-                    }
-
-                    params_changed = true;
-                }
-                VolumePanParams::ID_PAN => {
-                    self.params.pan = value.clamp(-1.0, 1.0);
-                    params_changed = true;
-                }
-                _ => {}
-            },
-            NodeEventType::U32Param { id, value } => {
-                if *id == VolumePanParams::ID_PAN_LAW {
-                    self.params.pan_law = PanLaw::from_u32(*value);
-                    params_changed = true;
-                }
-            }
-            _ => {}
+        events.for_each(|event| {
+            self.params.patch_params(event);
+            params_changed = true;
         });
 
         if params_changed {
