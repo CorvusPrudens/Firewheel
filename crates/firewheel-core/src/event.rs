@@ -1,6 +1,6 @@
-use std::any::Any;
+use core::any::Any;
 
-use crate::{clock::EventDelay, node::NodeID};
+use crate::{clock::EventDelay, node::NodeID, param::ParamPath};
 
 /// An event sent to an [`AudioNodeProcessor`].
 pub struct NodeEvent {
@@ -10,65 +10,56 @@ pub struct NodeEvent {
     pub event: NodeEventType,
 }
 
+pub enum ParamData {
+    F32(f32),
+    F64(f64),
+    I32(i32),
+    U32(u32),
+    U64(u64),
+    Bool(bool),
+    Vector2D([f32; 2]),
+    Vector3D([f32; 3]),
+    Any(Box<Box<dyn Any + Send>>),
+}
+
+macro_rules! param_data_from {
+    ($ty:ty, $variant:ident) => {
+        impl From<$ty> for ParamData {
+            fn from(value: $ty) -> Self {
+                Self::$variant(value)
+            }
+        }
+    };
+}
+
+param_data_from!(f32, F32);
+param_data_from!(f64, F64);
+param_data_from!(i32, I32);
+param_data_from!(u32, U32);
+param_data_from!(u64, U64);
+param_data_from!(bool, Bool);
+
+#[cfg(feature = "bevy")]
+impl From<bevy_math::prelude::Vec2> for ParamData {
+    fn from(value: bevy_math::prelude::Vec2) -> Self {
+        Self::Vector2D([value.x, value.y])
+    }
+}
+
+#[cfg(feature = "bevy")]
+impl From<bevy_math::prelude::Vec3> for ParamData {
+    fn from(value: bevy_math::prelude::Vec3) -> Self {
+        Self::Vector3D([value.x, value.y, value.z])
+    }
+}
+
 /// An event type associated with an [`AudioNodeProcessor`].
 pub enum NodeEventType {
-    /// Set the value of an `f32` parameter.
-    F32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f32,
-    },
-    /// Set the value of an `f64` parameter.
-    F64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f64,
-    },
-    /// Set the value of an `i32` parameter.
-    I32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: i32,
-    },
-    /// Set the value of an `u32` parameter.
-    U32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u32,
-    },
-    /// Set the value of an `u64` parameter.
-    U64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u64,
-    },
-    /// Set the value of a `bool` parameter.
-    BoolParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: bool,
-    },
-    /// Set the value of a parameter containing two
-    /// `f32` elements.
-    Vector2DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 2],
-    },
-    /// Set the value of a parameter containing three
-    /// `f32` elements.
-    Vector3DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 3],
+    Param {
+        /// Data for a specific parameter.
+        data: ParamData,
+        /// The path to the parameter.
+        path: ParamPath,
     },
     /// A command to control the current sequence in a node.
     ///

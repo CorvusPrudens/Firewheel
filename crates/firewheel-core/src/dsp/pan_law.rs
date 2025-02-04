@@ -1,5 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
+use crate::{event::ParamData, param::Diff};
+
 /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
 /// to the corresponding gain values for the left and right channels.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +65,33 @@ impl PanLaw {
             2 => Self::SquareRoot,
             3 => Self::Linear,
             _ => Self::EqualPower3dB,
+        }
+    }
+}
+
+impl Diff for PanLaw {
+    fn diff<E: crate::param::EventQueue>(
+        &self,
+        baseline: &Self,
+        path: crate::param::PathBuilder,
+        event_queue: &mut E,
+    ) {
+        if self != baseline {
+            event_queue.push_param(*self as u32, path);
+        }
+    }
+
+    fn patch(
+        &mut self,
+        data: &crate::event::ParamData,
+        path: &[u32],
+    ) -> Result<(), crate::param::PatchError> {
+        match data {
+            ParamData::U32(raw) => {
+                *self = Self::from_u32(*raw);
+                Ok(())
+            }
+            _ => Err(crate::param::PatchError::InvalidData),
         }
     }
 }

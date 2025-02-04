@@ -24,32 +24,33 @@ exclude = ["assets/"]
 
 [workspace]
 members = [
-    "crates/firewheel-core",
-    "crates/firewheel-cpal",
-    "crates/firewheel-graph",
-    "crates/firewheel-nodes",
-    "examples/beep_test",
-    "examples/custom_nodes",
-    "examples/play_sample",
-    "examples/sampler_pool",
-    "examples/sampler_test",
-    "examples/spatial_basic",
-    "examples/visual_node_graph",
+  "crates/firewheel-core",
+  "crates/firewheel-cpal",
+  "crates/firewheel-graph",
+  "crates/firewheel-nodes",
+  "crates/firewheel-macros",
+  "examples/beep_test",
+  "examples/custom_nodes",
+  "examples/play_sample",
+  "examples/sampler_pool",
+  "examples/sampler_test",
+  "examples/spatial_basic",
+  "examples/visual_node_graph",
 ]
 
 [features]
 default = [
-    "resampler",
-    "cpal",
-    "symphonium",
-    "sampler_pool",
-    "beep_test_node",
-    "peak_meter_node",
-    "sampler_node",
-    "spatial_basic_node",
-    "stereo_to_mono_node",
-    "volume_pan_node",
-    "volume_node",
+  "resampler",
+  "cpal",
+  "symphonium",
+  "sampler_pool",
+  "beep_test_node",
+  "peak_meter_node",
+  "sampler_node",
+  "spatial_basic_node",
+  "stereo_to_mono_node",
+  "volume_pan_node",
+  "volume_node",
 ]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]
@@ -62,12 +63,12 @@ symphonium = ["firewheel-core/symphonium"]
 sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]
 # Enables all built-in factory nodes
 all_nodes = [
-    "beep_test_node",
-    "peak_meter_node",
-    "sampler_node",
-    "stereo_to_mono_node",
-    "volume_pan_node",
-    "volume_node",
+  "beep_test_node",
+  "peak_meter_node",
+  "sampler_node",
+  "stereo_to_mono_node",
+  "volume_pan_node",
+  "volume_node",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
@@ -103,6 +104,7 @@ bitflags = "2.6"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
 fixed-resample = "0.1.5"
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.0" }
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
