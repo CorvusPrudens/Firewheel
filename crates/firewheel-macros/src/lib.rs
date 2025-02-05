@@ -10,18 +10,104 @@ mod firewheel_manifest;
 
 #[proc_macro_derive(Diff)]
 pub fn derive_diff(input: TokenStream) -> TokenStream {
-    derive_diff_inner(input, quote! { ::firewheel_core })
+    derive_diff_inner(input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
 
-fn derive_diff_inner(
-    input: TokenStream,
-    firewheel_path: TokenStream2,
-) -> syn::Result<TokenStream2> {
+fn derive_diff_inner(input: TokenStream) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;
     let identifier = &input.ident;
 
+    let fields = get_fields(&input)?;
+
+    let messages = fields.iter().enumerate().map(|(i, (identifier, _))| {
+        let index = i as u32;
+        quote! {
+            self.#identifier.diff(&baseline.#identifier, path.with(#index), event_queue);
+        }
+    });
+
+    let (_, diff_path) = get_paths();
+
+    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
+
+    let mut where_generics = where_generics.cloned().unwrap_or_else(|| syn::WhereClause {
+        where_token: Default::default(),
+        predicates: Default::default(),
+    });
+
+    for (_, ty) in &fields {
+        where_generics
+            .predicates
+            .push(syn::parse2(quote! { #ty: #diff_path::Diff }).unwrap());
+    }
+
+    Ok(quote! {
+        impl #impl_generics #diff_path::Diff for #identifier #ty_generics #where_generics {
+            fn diff<__E: #diff_path::EventQueue>(&self, baseline: &Self, path: #diff_path::PathBuilder, event_queue: &mut __E) {
+                #(#messages)*
+            }
+        }
+    })
+}
+
+#[proc_macro_derive(Patch)]
+pub fn derive_patch(input: TokenStream) -> TokenStream {
+    derive_patch_inner(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn derive_patch_inner(input: TokenStream) -> syn::Result<TokenStream2> {
+    let input: syn::DeriveInput = syn::parse(input)?;
+    let identifier = &input.ident;
+
+    let fields = get_fields(&input)?;
+
+    let patches = fields.iter().enumerate().map(|(i, (identifier, _))| {
+        let index = i as u32;
+        quote! {
+            #FQOption::Some(#index) => self.#identifier.patch(data, &path[1..])
+        }
+    });
+
+    let (firewheel_path, diff_path) = get_paths();
+
+    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
+
+    let mut where_generics = where_generics.cloned().unwrap_or_else(|| syn::WhereClause {
+        where_token: Default::default(),
+        predicates: Default::default(),
+    });
+
+    for (_, ty) in &fields {
+        where_generics
+            .predicates
+            .push(syn::parse2(quote! { #ty: #diff_path::Patch }).unwrap());
+    }
+
+    Ok(quote! {
+        impl #impl_generics #diff_path::Patch for #identifier #ty_generics #where_generics {
+            fn patch(&mut self, data: &#firewheel_path::event::ParamData, path: &[u32]) -> #FQResult<(), #diff_path::PatchError> {
+                match path.first() {
+                    #(#patches,)*
+                    _ => #FQResult::Err(#diff_path::PatchError::InvalidPath),
+                }
+            }
+        }
+    })
+}
+
+fn get_paths() -> (syn::Path, TokenStream2) {
+    let firewheel_path =
+        firewheel_manifest::FirewheelManifest::default().get_path("firewheel_core");
+    let diff_path = quote! { #firewheel_path::diff };
+
+    (firewheel_path, diff_path)
+}
+
+fn get_fields(input: &syn::DeriveInput) -> syn::Result<Vec<(TokenStream2, &syn::Type)>> {
     let syn::Data::Struct(data) = &input.data else {
         return Err(syn::Error::new(
             input.span(),
@@ -50,49 +136,5 @@ fn derive_diff_inner(
         syn::Fields::Unit => Vec::new(),
     };
 
-    let messages = fields.iter().enumerate().map(|(i, (identifier, _))| {
-        let index = i as u32;
-        quote! {
-            self.#identifier.diff(&baseline.#identifier, path.with(#index), event_queue);
-        }
-    });
-
-    let patches = fields.iter().enumerate().map(|(i, (identifier, _))| {
-        let index = i as u32;
-        quote! {
-            #FQOption::Some(#index) => self.#identifier.patch(data, &path[1..])
-        }
-    });
-
-    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
-
-    let mut where_generics = where_generics.cloned().unwrap_or_else(|| syn::WhereClause {
-        where_token: Default::default(),
-        predicates: Default::default(),
-    });
-
-    let firewheel_path =
-        firewheel_manifest::FirewheelManifest::default().get_path("firewheel_core");
-    let param_path = quote! { #firewheel_path::param };
-
-    for (_, ty) in &fields {
-        where_generics
-            .predicates
-            .push(syn::parse2(quote! { #ty: #param_path::Diff }).unwrap());
-    }
-
-    Ok(quote! {
-        impl #impl_generics #param_path::Diff for #identifier #ty_generics #where_generics {
-            fn diff<__E: #param_path::EventQueue>(&self, baseline: &Self, path: #param_path::PathBuilder, event_queue: &mut __E) {
-                #(#messages)*
-            }
-
-            fn patch(&mut self, data: &#firewheel_path::event::ParamData, path: &[u32]) -> #FQResult<(), #param_path::PatchError> {
-                match path.first() {
-                    #(#patches,)*
-                    _ => #FQResult::Err(#param_path::PatchError::InvalidPath),
-                }
-            }
-        }
-    })
+    Ok(fields)
 }

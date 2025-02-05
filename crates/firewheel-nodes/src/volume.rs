@@ -1,15 +1,13 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
+    diff::{Diff, Patch, PatchParams},
     dsp::decibel::normalized_volume_to_raw_gain,
-    event::{NodeEventList, NodeEventType},
+    event::{NodeEventList, TryConvert},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
-    param::{
-        smoother::{SmoothedParam, SmootherConfig},
-        Diff, PatchParams,
-    },
+    param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
 
@@ -33,6 +31,24 @@ impl Default for VolumeNodeConfig {
 pub struct VolumeParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
+}
+
+impl Patch for VolumeParams {
+    fn patch(
+        &mut self,
+        data: &firewheel_core::event::ParamData,
+        _path: &[u32],
+    ) -> Result<(), firewheel_core::diff::PatchError> {
+        self.normalized_volume = data.try_convert()?;
+
+        if self.normalized_volume < 0.00001 {
+            self.normalized_volume = 0.0;
+        } else if self.normalized_volume > 0.99999 && self.normalized_volume < 1.00001 {
+            self.normalized_volume = 1.0
+        }
+
+        Ok(())
+    }
 }
 
 impl VolumeParams {
@@ -116,15 +132,8 @@ impl AudioNodeProcessor for VolumeProcessor {
     ) -> ProcessStatus {
         events.for_each(|event| {
             self.params.patch_params(event);
-            let mut gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
 
-            if gain < 0.00001 {
-                gain = 0.0;
-            } else if gain > 0.99999 && gain < 1.00001 {
-                gain = 1.0
-            }
-
-            self.gain.set_value(gain);
+            self.gain.set_value(self.params.normalized_volume);
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.

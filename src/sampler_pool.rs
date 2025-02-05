@@ -1,6 +1,11 @@
 use std::num::NonZeroU32;
 
-use firewheel_core::{channel_config::NonZeroChannelCount, clock::EventDelay, node::NodeID};
+use firewheel_core::{
+    channel_config::NonZeroChannelCount,
+    clock::EventDelay,
+    diff::{Diff, PathBuilder},
+    node::NodeID,
+};
 use firewheel_cpal::FirewheelContext;
 use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerHandle, SamplerParams};
 use smallvec::SmallVec;
@@ -467,8 +472,12 @@ impl VolumePanChain {
         cx: &mut FirewheelContext,
     ) {
         let node_id = node_ids[0];
-        self.volume_pan
-            .sync_from(&params, |event| cx.queue_event_for(node_id, event));
+
+        self.volume_pan.diff(
+            &params,
+            PathBuilder::default(),
+            &mut cx.event_queue(node_id),
+        );
     }
 }
 
@@ -484,7 +493,7 @@ impl FxChain for VolumePanChain {
     ) -> Vec<NodeID> {
         let volume_pan_params = firewheel_nodes::volume_pan::VolumePanParams::default();
 
-        let volume_pan_node_id = cx.add_node(volume_pan_params.constructor(self.config.clone()));
+        let volume_pan_node_id = cx.add_node(volume_pan_params.constructor(self.config));
 
         cx.connect(
             sampler_node_id,
@@ -533,8 +542,12 @@ impl SpatialBasicChain {
         cx: &mut FirewheelContext,
     ) {
         let node_id = node_ids[0];
-        self.spatial_basic
-            .sync_from(&params, |event| cx.queue_event_for(node_id, event));
+
+        self.spatial_basic.diff(
+            &params,
+            PathBuilder::default(),
+            &mut cx.event_queue(node_id),
+        );
     }
 }
 
@@ -550,8 +563,7 @@ impl FxChain for SpatialBasicChain {
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicParams::default();
 
-        let spatial_basic_node_id =
-            cx.add_node(spatial_basic_params.constructor(self.config.clone()));
+        let spatial_basic_node_id = cx.add_node(spatial_basic_params.constructor(self.config));
 
         cx.connect(
             sampler_node_id,

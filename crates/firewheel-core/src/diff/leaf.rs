@@ -1,11 +1,10 @@
-//! A set of implementations for common leaf types.
+//! A set of diff and patch implementations for common leaf types.
 
-use super::{Diff, EventQueue, PatchError, PathBuilder};
+use super::{Diff, EventQueue, Patch, PatchError, PathBuilder};
 use crate::{
     collector::ArcGc,
     event::{NodeEventType, ParamData},
 };
-use smallvec::SmallVec;
 
 macro_rules! primitive_diff {
     ($ty:ty, $variant:ident) => {
@@ -15,7 +14,9 @@ macro_rules! primitive_diff {
                     event_queue.push_param(*self, path);
                 }
             }
+        }
 
+        impl Patch for $ty {
             fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
                 match data {
                     ParamData::$variant(value) => {
@@ -35,7 +36,9 @@ macro_rules! primitive_diff {
                     event_queue.push_param(*self as $cast, path);
                 }
             }
+        }
 
+        impl Patch for $ty {
             fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
                 match data {
                     ParamData::$variant(value) => {
@@ -74,61 +77,18 @@ impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
             });
         }
     }
+}
 
+impl<A: ?Sized + Send + Sync + 'static> Patch for ArcGc<A> {
     fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
-        match data {
-            ParamData::Any(any) => {
-                if let Some(data) = any.downcast_ref::<Self>() {
-                    *self = data.clone();
-                    return Ok(());
-                }
+        if let ParamData::Any(any) = data {
+            if let Some(data) = any.downcast_ref::<Self>() {
+                *self = data.clone();
+                return Ok(());
             }
-            _ => {}
         }
 
         Err(PatchError::InvalidData)
-    }
-}
-
-macro_rules! sequence_diff {
-    ($gen:ident, $ty:ty) => {
-        impl<$gen: Diff> Diff for $ty {
-            fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-                for (i, item) in self.iter().enumerate() {
-                    item.diff(&baseline[i], path.with(i as u32), event_queue);
-                }
-            }
-
-            fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-                let first = path.first().ok_or(PatchError::InvalidPath)?;
-                let target = self
-                    .get_mut(*first as usize)
-                    .ok_or(PatchError::InvalidPath)?;
-
-                target.patch(data, &path[1..])
-            }
-        }
-    };
-}
-
-sequence_diff!(T, Vec<T>);
-sequence_diff!(T, Box<[T]>);
-sequence_diff!(T, [T]);
-
-impl<T: Diff, const LEN: usize> Diff for [T; LEN] {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        for (i, item) in self.iter().enumerate() {
-            item.diff(&baseline[i], path.with(i as u32), event_queue);
-        }
-    }
-
-    fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-        let first = path.first().ok_or(PatchError::InvalidPath)?;
-        let target = self
-            .get_mut(*first as usize)
-            .ok_or(PatchError::InvalidPath)?;
-
-        target.patch(data, &path[1..])
     }
 }
 
@@ -139,7 +99,10 @@ impl Diff for bevy_math::prelude::Vec2 {
             event_queue.push_param(*self, path);
         }
     }
+}
 
+#[cfg(feature = "bevy")]
+impl Patch for bevy_math::prelude::Vec2 {
     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
         match data {
             ParamData::Vector2D([x, y]) => {
@@ -160,7 +123,10 @@ impl Diff for bevy_math::prelude::Vec3 {
             event_queue.push_param(*self, path);
         }
     }
+}
 
+#[cfg(feature = "bevy")]
+impl Patch for bevy_math::prelude::Vec3 {
     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
         match data {
             ParamData::Vector3D([x, y, z]) => {

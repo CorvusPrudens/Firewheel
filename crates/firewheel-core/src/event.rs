@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use crate::{clock::EventDelay, node::NodeID, param::ParamPath};
+use crate::{clock::EventDelay, diff::ParamPath, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`].
 pub struct NodeEvent {
@@ -22,11 +22,24 @@ pub enum ParamData {
     Any(Box<Box<dyn Any + Send>>),
 }
 
+pub trait TryConvert<T> {
+    fn try_convert(&self) -> Result<T, crate::diff::PatchError>;
+}
+
 macro_rules! param_data_from {
     ($ty:ty, $variant:ident) => {
         impl From<$ty> for ParamData {
             fn from(value: $ty) -> Self {
                 Self::$variant(value)
+            }
+        }
+
+        impl TryConvert<$ty> for ParamData {
+            fn try_convert(&self) -> Result<$ty, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(*value),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
             }
         }
     };

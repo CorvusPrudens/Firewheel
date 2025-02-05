@@ -1,15 +1,13 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch, PatchParams},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
-    event::{NodeEventList, NodeEventType, ParamData},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
-    param::{
-        smoother::{SmoothedParam, SmootherConfig},
-        Diff, ParamPath, PatchParams, PathBuilder,
-    },
+    param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
 
@@ -17,7 +15,7 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning.
 
-#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct VolumePanParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     normalized_volume: f32,
@@ -49,57 +47,15 @@ impl VolumePanParams {
     }
 
     pub fn set_volume(&mut self, volume: f32) {
-        self.normalized_volume = value.max(0.0);
+        self.normalized_volume = volume.max(0.0);
 
-        if self.params.normalized_volume < 0.00001 {
+        if self.normalized_volume < 0.00001 {
             self.normalized_volume = 0.0;
         }
     }
 
     pub fn set_pan(&mut self, pan: f32) {
-        self.pan = value.clamp(-1.0, 1.0);
-    }
-
-    /// Return an event type to sync the volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::Param {
-            path: ParamPath::Single(0),
-            data: ParamData::F32(self.normalized_volume),
-        }
-    }
-
-    /// Return an event type to sync the pan parameter.
-    pub fn sync_pan_event(&self) -> NodeEventType {
-        NodeEventType::Param {
-            path: ParamPath::Single(1),
-            data: ParamData::F32(self.pan),
-        }
-    }
-
-    /// Return an event type to sync the pan law parameter.
-    pub fn sync_pan_law_event(&self) -> NodeEventType {
-        NodeEventType::Param {
-            path: ParamPath::Single(2),
-            data: ParamData::U32(self.pan_law as u32),
-        }
-    }
-
-    /// Sync the given parameters.
-    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
-        if self.normalized_volume != params.normalized_volume {
-            self.normalized_volume = params.normalized_volume;
-            (queue_event)(self.sync_volume_event());
-        }
-
-        if self.pan != params.pan {
-            self.pan = params.pan;
-            (queue_event)(self.sync_pan_event());
-        }
-
-        if self.pan_law != params.pan_law {
-            self.pan_law = params.pan_law;
-            (queue_event)(self.sync_pan_law_event());
-        }
+        self.pan = pan.clamp(-1.0, 1.0);
     }
 
     pub fn compute_gains(&self) -> (f32, f32) {
