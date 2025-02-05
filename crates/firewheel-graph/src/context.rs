@@ -645,3 +645,27 @@ pub(crate) struct ClockValues {
     pub samples: AtomicI64,
     pub musical: AtomicF64,
 }
+
+impl<B: AudioBackend> FirewheelCtx<B> {
+    /// Construct an event queue for diffing.
+    pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_, B> {
+        ContextQueue { context: self, id }
+    }
+}
+
+/// An event queue acquired from [`FirewheelCtx`].
+///
+/// This avoids intermediate event queues.
+pub struct ContextQueue<'a, B: AudioBackend> {
+    context: &'a mut FirewheelCtx<B>,
+    id: NodeID,
+}
+
+impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
+    fn push(&mut self, data: NodeEventType) {
+        self.context.queue_event(NodeEvent {
+            event: data,
+            node_id: self.id,
+        });
+    }
+}

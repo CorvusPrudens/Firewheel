@@ -6,8 +6,9 @@ use std::f32::consts::PI;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch, PatchParams},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
-    event::{NodeEventList, NodeEventType},
+    event::{NodeEventList, TryConvert},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -39,7 +40,7 @@ impl Default for SpatialBasicConfig {
 /// The parameters for a 3D spatial positioning node using a basic (and naive) algorithm.
 /// It does not make use of any fancy binaural algorithms, rather it just applies basic
 /// panning and filtering.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Debug, Clone, Copy, PartialEq)]
 pub struct SpatialBasicParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain. This is
     /// applied before the spatialization algorithm.
@@ -91,6 +92,45 @@ pub struct SpatialBasicParams {
     pub panning_threshold: f32,
 }
 
+impl Patch for SpatialBasicParams {
+    fn patch(
+        &mut self,
+        data: &firewheel_core::event::ParamData,
+        path: &[u32],
+    ) -> Result<(), firewheel_core::diff::PatchError> {
+        match path.first() {
+            Some(0) => {
+                let value: f32 = data.try_convert()?;
+                self.normalized_volume = value.max(0.0);
+
+                if self.normalized_volume < 0.00001 {
+                    self.normalized_volume = 0.0;
+                }
+            }
+            Some(1) => {
+                self.offset.patch(data, &path[1..])?;
+
+                for x in self.offset.iter_mut() {
+                    if !x.is_normal() {
+                        *x = 0.0;
+                    }
+                }
+            }
+            Some(2) => {
+                let value: f32 = data.try_convert()?;
+                self.damping_factor = value.max(0.0);
+            }
+            Some(3) => {
+                let value: f32 = data.try_convert()?;
+                self.panning_threshold = value.clamp(0.0, 1.0);
+            }
+            _ => return Err(firewheel_core::diff::PatchError::InvalidPath),
+        }
+
+        Ok(())
+    }
+}
+
 impl Default for SpatialBasicParams {
     fn default() -> Self {
         Self {
@@ -103,75 +143,11 @@ impl Default for SpatialBasicParams {
 }
 
 impl SpatialBasicParams {
-    /// The ID of the volume parameter.
-    pub const ID_VOLUME: u32 = 0;
-    /// The ID of the offset paramter.
-    pub const ID_OFFSET: u32 = 1;
-    /// The ID of the damping factor paramter.
-    pub const ID_DAMPING_FACTOR: u32 = 2;
-    /// The ID of the damping factor paramter.
-    pub const ID_PANNING_THRESHOLD: u32 = 3;
-
     /// Create a volume pan node constructor using these parameters.
     pub fn constructor(&self, config: SpatialBasicConfig) -> Constructor {
         Constructor {
             params: *self,
             config,
-        }
-    }
-
-    /// Return an event type to sync the volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: SpatialBasicParams::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    /// Return an event type to sync the offset parameter.
-    pub fn sync_offset_event(&self) -> NodeEventType {
-        NodeEventType::Vector3DParam {
-            id: SpatialBasicParams::ID_OFFSET,
-            value: self.offset,
-        }
-    }
-
-    /// Return an event type to sync the damping factor parameter.
-    pub fn sync_damping_factor_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: SpatialBasicParams::ID_DAMPING_FACTOR,
-            value: self.damping_factor,
-        }
-    }
-
-    /// Return an event type to sync the pan threshold parameter.
-    pub fn sync_panning_threshold_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: SpatialBasicParams::ID_PANNING_THRESHOLD,
-            value: self.panning_threshold,
-        }
-    }
-
-    /// Sync the given parameters.
-    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
-        if self.normalized_volume != params.normalized_volume {
-            self.normalized_volume = params.normalized_volume;
-            (queue_event)(self.sync_volume_event());
-        }
-
-        if self.offset != params.offset {
-            self.offset = params.offset;
-            (queue_event)(self.sync_offset_event());
-        }
-
-        if self.damping_factor != params.damping_factor {
-            self.damping_factor = params.damping_factor;
-            (queue_event)(self.sync_damping_factor_event());
-        }
-
-        if self.panning_threshold != params.panning_threshold {
-            self.panning_threshold = params.panning_threshold;
-            (queue_event)(self.sync_panning_threshold_event());
         }
     }
 
@@ -308,45 +284,9 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         let mut params_changed = false;
 
-        events.for_each(|event| match event {
-            NodeEventType::F32Param { id, value } => match *id {
-                SpatialBasicParams::ID_VOLUME => {
-                    self.params.normalized_volume = value.max(0.0);
-
-                    if self.params.normalized_volume < 0.00001 {
-                        self.params.normalized_volume = 0.0;
-                    }
-
-                    params_changed = true;
-                }
-                SpatialBasicParams::ID_DAMPING_FACTOR => {
-                    self.params.damping_factor = value.max(0.0);
-                    params_changed = true;
-                }
-                SpatialBasicParams::ID_PANNING_THRESHOLD => {
-                    self.params.panning_threshold = value.clamp(0.0, 1.0);
-                    params_changed = true;
-                }
-                _ => {}
-            },
-            NodeEventType::Vector3DParam { id, value } => {
-                if *id == SpatialBasicParams::ID_OFFSET {
-                    // Protect against invalid values.
-                    if !value[0].is_normal() {
-                        value[0] = 0.0;
-                    }
-                    if !value[1].is_normal() {
-                        value[1] = 0.0;
-                    }
-                    if !value[2].is_normal() {
-                        value[2] = 0.0;
-                    }
-
-                    self.params.offset = *value;
-                    params_changed = true;
-                }
-            }
-            _ => {}
+        events.for_each(|event| {
+            self.params.patch_params(event);
+            params_changed = true;
         });
 
         if params_changed {
