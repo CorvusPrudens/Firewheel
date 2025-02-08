@@ -1,5 +1,7 @@
 use core::any::Any;
 
+pub use glam::{Vec2, Vec3};
+
 use crate::{clock::EventDelay, diff::ParamPath, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`].
@@ -8,62 +10,6 @@ pub struct NodeEvent {
     pub node_id: NodeID,
     /// The type of event.
     pub event: NodeEventType,
-}
-
-pub enum ParamData {
-    F32(f32),
-    F64(f64),
-    I32(i32),
-    U32(u32),
-    U64(u64),
-    Bool(bool),
-    Vector2D([f32; 2]),
-    Vector3D([f32; 3]),
-    Any(Box<Box<dyn Any + Send>>),
-}
-
-pub trait TryConvert<T> {
-    fn try_convert(&self) -> Result<T, crate::diff::PatchError>;
-}
-
-macro_rules! param_data_from {
-    ($ty:ty, $variant:ident) => {
-        impl From<$ty> for ParamData {
-            fn from(value: $ty) -> Self {
-                Self::$variant(value)
-            }
-        }
-
-        impl TryConvert<$ty> for ParamData {
-            fn try_convert(&self) -> Result<$ty, crate::diff::PatchError> {
-                match self {
-                    ParamData::$variant(value) => Ok(*value),
-                    _ => Err(crate::diff::PatchError::InvalidData),
-                }
-            }
-        }
-    };
-}
-
-param_data_from!(f32, F32);
-param_data_from!(f64, F64);
-param_data_from!(i32, I32);
-param_data_from!(u32, U32);
-param_data_from!(u64, U64);
-param_data_from!(bool, Bool);
-
-#[cfg(feature = "bevy")]
-impl From<bevy_math::prelude::Vec2> for ParamData {
-    fn from(value: bevy_math::prelude::Vec2) -> Self {
-        Self::Vector2D([value.x, value.y])
-    }
-}
-
-#[cfg(feature = "bevy")]
-impl From<bevy_math::prelude::Vec3> for ParamData {
-    fn from(value: bevy_math::prelude::Vec3) -> Self {
-        Self::Vector3D([value.x, value.y, value.z])
-    }
 }
 
 /// An event type associated with an [`AudioNodeProcessor`].
@@ -83,6 +29,52 @@ pub enum NodeEventType {
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 16]),
 }
+
+/// Data that can be used to patch an individual parameter.
+///
+/// The [`ParamData::Any`] variant is double-boxed to keep
+/// its size small on the stack.
+pub enum ParamData {
+    F32(f32),
+    F64(f64),
+    I32(i32),
+    U32(u32),
+    U64(u64),
+    Bool(bool),
+    Vector2D(Vec2),
+    Vector3D(Vec3),
+    Any(Box<Box<dyn Any + Send>>),
+}
+
+macro_rules! param_data_from {
+    ($ty:ty, $variant:ident) => {
+        impl From<$ty> for ParamData {
+            fn from(value: $ty) -> Self {
+                Self::$variant(value)
+            }
+        }
+
+        impl TryInto<$ty> for &ParamData {
+            type Error = crate::diff::PatchError;
+
+            fn try_into(self) -> Result<$ty, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(*value),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
+            }
+        }
+    };
+}
+
+param_data_from!(f32, F32);
+param_data_from!(f64, F64);
+param_data_from!(i32, I32);
+param_data_from!(u32, U32);
+param_data_from!(u64, U64);
+param_data_from!(bool, Bool);
+param_data_from!(Vec2, Vector2D);
+param_data_from!(Vec3, Vector3D);
 
 /// A command to control the current sequence in a node.
 ///

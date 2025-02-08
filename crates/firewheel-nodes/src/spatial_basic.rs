@@ -6,9 +6,9 @@ use std::f32::consts::PI;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    diff::{Diff, Patch, PatchParams},
+    diff::{Diff, Patch},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
-    event::{NodeEventList, TryConvert},
+    event::{NodeEventList, Vec3},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -41,6 +41,7 @@ impl Default for SpatialBasicConfig {
 /// It does not make use of any fancy binaural algorithms, rather it just applies basic
 /// panning and filtering.
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(Component))]
 pub struct SpatialBasicParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain. This is
     /// applied before the spatialization algorithm.
@@ -51,13 +52,13 @@ pub struct SpatialBasicParams {
     /// A 3D vector representing the offset between the listener and the
     /// sound source.
     ///
-    /// The coordinates are `[x, y, z]`.
+    /// The coordinates are `(x, y, z)`.
     ///
     /// * `-x` is to the left of the listener, and `+x` is the the right of the listener
     /// * `-y` is below the listener, and `+y` is above the listener.
     /// * `-z` is in front of the listener, and `+z` is behind the listener
     ///
-    /// The origin `[0.0, 0.0, 0.0]` will have a volume equal to the original signal
+    /// The origin `(0.0, 0.0, 0.0)` will have a volume equal to the original signal
     /// (with the `normalized_volume` paramter applied). A  distance  of `10.0`
     /// from the origin will have a volume equal to `-6dB`, a distance of `20.0` will
     /// have a volume equal to `-12dB`, a distance of `40.0` will have a volume equal
@@ -67,8 +68,8 @@ pub struct SpatialBasicParams {
     /// 1 unit is roughly equal to 1 meter (if I did my math right), but you may wish
     /// to scale this unit as you see fit.
     ///
-    /// By default this is set to `[0.0, 0.0, 0.0]`
-    pub offset: [f32; 3],
+    /// By default this is set to `(0.0, 0.0, 0.0)`
+    pub offset: Vec3,
 
     /// The amount of damping (lowpass) applied to the signal per unit distance.
     ///
@@ -100,7 +101,7 @@ impl Patch for SpatialBasicParams {
     ) -> Result<(), firewheel_core::diff::PatchError> {
         match path.first() {
             Some(0) => {
-                let value: f32 = data.try_convert()?;
+                let value: f32 = data.try_into()?;
                 self.normalized_volume = value.max(0.0);
 
                 if self.normalized_volume < 0.00001 {
@@ -110,18 +111,16 @@ impl Patch for SpatialBasicParams {
             Some(1) => {
                 self.offset.patch(data, &path[1..])?;
 
-                for x in self.offset.iter_mut() {
-                    if !x.is_normal() {
-                        *x = 0.0;
-                    }
+                if !self.offset.is_finite() {
+                    self.offset = Vec3::default();
                 }
             }
             Some(2) => {
-                let value: f32 = data.try_convert()?;
+                let value: f32 = data.try_into()?;
                 self.damping_factor = value.max(0.0);
             }
             Some(3) => {
-                let value: f32 = data.try_convert()?;
+                let value: f32 = data.try_into()?;
                 self.panning_threshold = value.clamp(0.0, 1.0);
             }
             _ => return Err(firewheel_core::diff::PatchError::InvalidPath),
@@ -135,7 +134,7 @@ impl Default for SpatialBasicParams {
     fn default() -> Self {
         Self {
             normalized_volume: 1.0,
-            offset: [0.0, 0.0, 0.0],
+            offset: Vec3::new(0.0, 0.0, 0.0),
             damping_factor: 0.9,
             panning_threshold: 0.58,
         }

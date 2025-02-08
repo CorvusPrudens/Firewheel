@@ -1,6 +1,6 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    diff::{Diff, Patch, PatchParams},
+    diff::{Diff, Patch},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
     event::NodeEventList,
     node::{
@@ -16,6 +16,7 @@ pub use super::volume::VolumeNodeConfig;
 // TODO: Option for true stereo panning.
 
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(Component))]
 pub struct VolumePanParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     normalized_volume: f32,
