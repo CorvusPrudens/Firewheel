@@ -105,3 +105,10 @@ firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.0" }
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "core"
+harness = false

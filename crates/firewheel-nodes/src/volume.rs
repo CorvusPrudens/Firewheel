@@ -1,8 +1,8 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
-    diff::{Diff, Patch, PatchParams},
+    diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
-    event::{NodeEventList, TryConvert},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -28,6 +28,7 @@ impl Default for VolumeNodeConfig {
 }
 
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(Component))]
 pub struct VolumeParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
@@ -39,7 +40,7 @@ impl Patch for VolumeParams {
         data: &firewheel_core::event::ParamData,
         _path: &[u32],
     ) -> Result<(), firewheel_core::diff::PatchError> {
-        self.normalized_volume = data.try_convert()?;
+        self.normalized_volume = data.try_into()?;
 
         if self.normalized_volume < 0.00001 {
             self.normalized_volume = 0.0;

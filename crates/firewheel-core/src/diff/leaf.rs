@@ -3,7 +3,7 @@
 use super::{Diff, EventQueue, Patch, PatchError, PathBuilder};
 use crate::{
     collector::ArcGc,
-    event::{NodeEventType, ParamData},
+    event::{NodeEventType, ParamData, Vec2, Vec3},
 };
 
 macro_rules! primitive_diff {
@@ -92,8 +92,7 @@ impl<A: ?Sized + Send + Sync + 'static> Patch for ArcGc<A> {
     }
 }
 
-#[cfg(feature = "bevy")]
-impl Diff for bevy_math::prelude::Vec2 {
+impl Diff for Vec2 {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
             event_queue.push_param(*self, path);
@@ -101,23 +100,14 @@ impl Diff for bevy_math::prelude::Vec2 {
     }
 }
 
-#[cfg(feature = "bevy")]
-impl Patch for bevy_math::prelude::Vec2 {
-    fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-        match data {
-            ParamData::Vector2D([x, y]) => {
-                self.x = *x;
-                self.y = *y;
-
-                Ok(())
-            }
-            _ => Err(PatchError::InvalidData),
-        }
+impl Patch for Vec2 {
+    fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
+        *self = data.try_into()?;
+        Ok(())
     }
 }
 
-#[cfg(feature = "bevy")]
-impl Diff for bevy_math::prelude::Vec3 {
+impl Diff for Vec3 {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
             event_queue.push_param(*self, path);
@@ -125,18 +115,9 @@ impl Diff for bevy_math::prelude::Vec3 {
     }
 }
 
-#[cfg(feature = "bevy")]
-impl Patch for bevy_math::prelude::Vec3 {
-    fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-        match data {
-            ParamData::Vector3D([x, y, z]) => {
-                self.x = *x;
-                self.y = *y;
-                self.z = *z;
-
-                Ok(())
-            }
-            _ => Err(PatchError::InvalidData),
-        }
+impl Patch for Vec3 {
+    fn patch(&mut self, data: &ParamData, _: &[u32]) -> Result<(), PatchError> {
+        *self = data.try_into()?;
+        Ok(())
     }
 }

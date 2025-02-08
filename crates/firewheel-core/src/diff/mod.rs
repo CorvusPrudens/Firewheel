@@ -17,11 +17,9 @@ pub use firewheel_macros::{Diff, Patch};
 /// itself.
 ///
 /// Fields are distinguished by their [`ParamPath`]. Since
-/// every non-cyclic struct can be represented as a tree,
+/// every non-sharing struct can be represented as a tree,
 /// a path of indeces can be used to distinguish any
-/// arbitrarily nested field. This is similar to techniques used
-/// in [reactive_stores](https://docs.rs/reactive_stores/latest/reactive_stores/)
-/// and [Xilem](https://raphlinus.github.io/rust/gui/2022/05/07/ui-architecture.html).
+/// arbitrarily nested field.
 pub trait Diff {
     /// Compare `self` to `baseline` and generate events to resolve any differences.
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E);
@@ -39,11 +37,13 @@ pub trait Patch {
     /// mutability, consider whether you're building
     /// realtime-appropriate behavior.
     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError>;
-}
 
-/// A convenience trait for types that implement `Patch`.
-pub trait PatchParams: Patch {
     /// Patch a set of parameters with incoming events.
+    ///
+    /// This is usefule as a convenience method for extracting the path
+    /// and data components from a top-level [`NodeEventType`].
+    /// It also allows types to use all of [`NodeEventType`]'s variants
+    /// for patching, if necessary.
     fn patch_params(&mut self, event: &NodeEventType) {
         if let NodeEventType::Param { data, path } = event {
             // NOTE: It may not be ideal to ignore errors.
@@ -53,12 +53,10 @@ pub trait PatchParams: Patch {
     }
 }
 
-impl<T: Patch> PatchParams for T {}
-
 /// A path of indeces that uniquely describes an arbitrarily nested field.
 pub enum ParamPath {
     Single(u32),
-    Multi(ArcGc<Box<[u32]>>),
+    Multi(ArcGc<SmallVec<[u32; 4]>>),
 }
 
 impl core::ops::Deref for ParamPath {
@@ -72,6 +70,16 @@ impl core::ops::Deref for ParamPath {
     }
 }
 
+// NOTE: Using a `SmallVec` instead of a `Box<[u32]>` yields
+// around an 8% performance uplift for cases where the path
+// is in the range 2..=4.
+//
+// Beyond this range, the performance drops off around 13%.
+//
+// Since this avoids extra allocations in the common < 5
+// scenario, this seems like a reasonable tradeoff.
+
+/// A simple builder for [`ParamPath`].
 #[derive(Debug, Default, Clone)]
 pub struct PathBuilder(SmallVec<[u32; 4]>);
 
@@ -88,14 +96,20 @@ impl PathBuilder {
         if self.0.len() == 1 {
             ParamPath::Single(self.0[0])
         } else {
-            ParamPath::Multi(ArcGc::new(self.0.as_ref().into()))
+            ParamPath::Multi(ArcGc::new(self.0.clone()))
         }
     }
 }
 
+/// An event queue for diffing.
 pub trait EventQueue {
+    /// Push an event to the queue.
     fn push(&mut self, data: NodeEventType);
 
+    /// Push an event to the queue.
+    ///
+    /// This is a convenience method for constructing a [`NodeEventType`]
+    /// from param data and a path.
     #[inline(always)]
     fn push_param(&mut self, data: impl Into<ParamData>, path: PathBuilder) {
         self.push(NodeEventType::Param {

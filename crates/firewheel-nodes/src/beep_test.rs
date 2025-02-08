@@ -1,6 +1,6 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    diff::{Diff, Patch, PatchParams},
+    diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
     event::NodeEventList,
     node::{
@@ -14,6 +14,7 @@ use firewheel_core::{
 /// Note that because this node is for testing purposes, it does not
 /// bother with parameter smoothing.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(Component))]
 pub struct BeepTestParams {
     /// The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
     /// value for testing is `440` (middle C).
