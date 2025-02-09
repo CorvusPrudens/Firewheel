@@ -46,24 +46,91 @@ impl ShallowParams {
 #[derive(Diff, Patch, Default, Clone)]
 struct SingleNesting {
     a: ShallowParams,
+    b: bool,
 }
 
 #[derive(Diff, Patch, Default, Clone)]
 struct DoubleNesting {
     a: SingleNesting,
+    b: bool,
 }
 
 #[derive(Diff, Patch, Default, Clone)]
 struct TripleNesting {
     a: DoubleNesting,
+    b: bool,
 }
 
+/// This struct will force additional path allocation.
 #[derive(Diff, Patch, Default, Clone)]
 struct QuadNesting {
     a: TripleNesting,
+    b: bool,
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
+    let mut rng = XorRng::new();
+    let mut sources = vec![ShallowParams::default(); 128];
+    for source in &mut sources {
+        source.randomize(&mut rng);
+    }
+
+    let mut target = ShallowParams::default();
+    let mut messages = Vec::with_capacity(128 * 3);
+
+    c.bench_function("diffing shallow", |b| {
+        b.iter(|| {
+            for source in &sources {
+                source.diff(&target, PathBuilder::default(), &mut messages);
+            }
+
+            black_box(&messages);
+            messages.clear();
+        })
+    });
+
+    let mut rng = XorRng::new();
+    let mut sources = vec![ShallowParams::default(); 128];
+    for source in &mut sources {
+        source.randomize(&mut rng);
+    }
+
+    let mut target = ShallowParams::default();
+    let mut messages = Vec::with_capacity(128 * 3);
+    for source in &sources {
+        source.diff(&target, PathBuilder::default(), &mut messages);
+    }
+
+    c.bench_function("patching shallow", |b| {
+        b.iter(|| {
+            for message in &messages {
+                target.patch_params(&message);
+                black_box(&target);
+            }
+        })
+    });
+
+    let mut rng = XorRng::new();
+    let mut sources = vec![DoubleNesting::default(); 128];
+    for source in &mut sources {
+        source.a.a.randomize(&mut rng);
+    }
+
+    let mut target = DoubleNesting::default();
+    let mut messages = Vec::with_capacity(128 * 3);
+    for source in &sources {
+        source.diff(&target, PathBuilder::default(), &mut messages);
+    }
+
+    c.bench_function("patching three", |b| {
+        b.iter(|| {
+            for message in &messages {
+                target.patch_params(&message);
+                black_box(&target);
+            }
+        })
+    });
+
     let mut rng = XorRng::new();
     let mut sources = vec![ShallowParams::default(); 128];
 
@@ -87,6 +154,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
+    let mut rng = XorRng::new();
     let mut sources = vec![DoubleNesting::default(); 128];
     for source in &mut sources {
         source.a.a.randomize(&mut rng);
@@ -108,6 +176,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
+    let mut rng = XorRng::new();
     let mut sources = vec![QuadNesting::default(); 128];
     for source in &mut sources {
         source.a.a.a.a.randomize(&mut rng);
