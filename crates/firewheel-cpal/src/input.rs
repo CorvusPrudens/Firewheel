@@ -328,6 +328,12 @@ impl CpalInputNodeHandle {
         let stream_handle = in_device.build_input_stream(
             &stream_config,
             move |input: &[f32], _info: &cpal::InputCallbackInfo| {
+                // Wait until the output stream has recieved the producer before
+                // pushing more samples into the channel.
+                if !shared_state.channel_started.load(Ordering::Relaxed) {
+                    return;
+                }
+
                 let total_frames = input.len() / num_in_channels;
 
                 if tmp_intl_buf.is_empty() {
@@ -496,6 +502,12 @@ impl AudioNodeProcessor for Processor {
         }
 
         if let Some(channel_rx) = &mut self.channel_rx {
+            // Notify the input stream that the output stream has begun
+            // reading data.
+            self.shared_state
+                .channel_started
+                .store(true, Ordering::Relaxed);
+
             let num_discarded_samples =
                 channel_rx.discard_jitter(self.discard_jitter_threshold_seconds);
             if num_discarded_samples > 0 {
@@ -565,6 +577,7 @@ impl Into<NodeEventType> for NewInputStreamEvent {
 
 struct SharedState {
     stream_active: AtomicBool,
+    channel_started: AtomicBool,
     underflow_occurred: AtomicBool,
     overflow_occurred: AtomicBool,
 }
@@ -573,6 +586,7 @@ impl SharedState {
     fn new() -> Self {
         Self {
             stream_active: AtomicBool::new(false),
+            channel_started: AtomicBool::new(false),
             underflow_occurred: AtomicBool::new(false),
             overflow_occurred: AtomicBool::new(false),
         }
@@ -580,6 +594,7 @@ impl SharedState {
 
     fn reset(&self) {
         self.stream_active.store(false, Ordering::Relaxed);
+        self.channel_started.store(false, Ordering::Relaxed);
         self.underflow_occurred.store(false, Ordering::Relaxed);
         self.overflow_occurred.store(false, Ordering::Relaxed);
     }
