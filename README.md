@@ -28,7 +28,7 @@ Firewheel is a fully-featured libre open source audio graph engine for games and
 | ----------------------------------------------------- | ---------------------------------------------------- |
 | Core audio graph engine                               | ✅                                                   |
 | 3rd party plugin API                                  | ✅                                                   |
-| [CPAL] audio backend                                  | 🚧 (audio output works, audio input WIP)             |
+| [CPAL] audio backend                                  | ✅                                                   |
 | Loading audio files with [Symphonium]                 | ✅                                                   |
 | Volume node                                           | ✅                                                   |
 | VolumePan node                                        | ✅                                                   |

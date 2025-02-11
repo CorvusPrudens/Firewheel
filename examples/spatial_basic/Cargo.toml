@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-firewheel = { path = "../../" }
+firewheel = { path = "../../", features = ["spatial_basic_node"] }
 log.workspace = true
 egui = "0.29"
 eframe = { version = "0.29", default-features = false, features = [

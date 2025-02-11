@@ -20,9 +20,12 @@ default = [
     "peak_meter",
     "sampler",
     "spatial_basic",
-    "stereo_to_mono",
-    "volume_pan",
-    "volume",
+]
+all_nodes = [
+    "beep_test",
+    "peak_meter",
+    "sampler",
+    "spatial_basic",
 ]
 # Enables the "beep test" node
 beep_test = []
@@ -32,12 +35,6 @@ peak_meter = ["dep:atomic_float"]
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
 spatial_basic = []
-# Enables the stereo to mono node
-stereo_to_mono = []
-# Enables the volume pan node
-volume_pan = []
-# Enables the volume node
-volume = []
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.2.4-beta.0" }

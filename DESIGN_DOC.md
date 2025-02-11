@@ -10,7 +10,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 ## Goals for First Release
 
 * [x] Modular design that can be run on any backend that provides an audio stream.
-    * [ ] (partially complete, needs input device support) [CPAL] backend. This gives us support for Windows, Mac, Linux, Android, iOS, and WebAssembly.
+    * [x] [CPAL] backend. This gives us support for Windows, Mac, Linux, Android, iOS, and WebAssembly.
 * [x] Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * [x] Cycle detection for invalid audio graphs
 * Key built-in nodes:

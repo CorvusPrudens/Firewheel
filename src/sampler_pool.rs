@@ -451,14 +451,12 @@ pub struct PlayResult {
 /// A default [`SamplerPool`] [`FxChain`] for 2D game audio.
 ///
 /// This chain contains a single `VolumePan` node.
-#[cfg(feature = "volume_pan_node")]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct VolumePanChain {
     pub volume_pan: firewheel_nodes::volume_pan::VolumePanParams,
     pub config: firewheel_nodes::volume_pan::VolumeNodeConfig,
 }
 
-#[cfg(feature = "volume_pan_node")]
 impl VolumePanChain {
     pub fn set_params(
         &mut self,
@@ -472,7 +470,6 @@ impl VolumePanChain {
     }
 }
 
-#[cfg(feature = "volume_pan_node")]
 impl FxChain for VolumePanChain {
     fn construct_and_connect(
         &mut self,

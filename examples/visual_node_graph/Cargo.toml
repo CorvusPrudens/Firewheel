@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-firewheel = { path = "../../" }
+firewheel = { path = "../../", features = ["beep_test_node"] }
 log.workspace = true
 egui = "0.29"
 egui-snarl = "0.5.0"

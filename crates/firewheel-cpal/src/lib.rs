@@ -9,6 +9,9 @@ use firewheel_graph::{
 };
 use ringbuf::traits::{Consumer, Producer, Split};
 
+#[cfg(feature = "input")]
+pub mod input;
+
 /// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
@@ -189,6 +192,8 @@ impl AudioBackend for CpalBackend {
     }
 
     fn start_stream(config: Self::Config) -> Result<(Self, StreamInfo), Self::StartStreamError> {
+        log::info!("Attempting to start output audio stream...");
+
         let host = if let Some(host_id) = config.host {
             match cpal::host_from_id(host_id) {
                 Ok(host) => host,
@@ -216,7 +221,7 @@ impl AudioBackend for CpalBackend {
                     } else if config.fallback {
                         log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_name);
                     } else {
-                        return Err(StreamStartError::OutputDeviceNotFound(device_name.clone()));
+                        return Err(StreamStartError::DeviceNotFound(device_name.clone()));
                     }
                 }
                 Err(e) => {
@@ -279,21 +284,9 @@ impl AudioBackend for CpalBackend {
             buffer_size: desired_buffer_size,
         };
 
-        log::info!(
-            "Starting output audio stream with device \"{}\" with configuration {:?}",
-            &out_device_name,
-            &config
-        );
-
         let max_block_frames = match stream_config.buffer_size {
             cpal::BufferSize::Default => DEFAULT_MAX_BLOCK_FRAMES as usize,
             cpal::BufferSize::Fixed(f) => f as usize,
-        };
-
-        let stream_latency_frames = if let cpal::BufferSize::Fixed(s) = stream_config.buffer_size {
-            Some(s)
-        } else {
-            None
         };
 
         let (to_stream_tx, from_cx_rx) =
@@ -306,6 +299,12 @@ impl AudioBackend for CpalBackend {
             target_os = "netbsd"
         ))]
         let is_alsa = cpal::HostId::name(&host.id()) == "ALSA";
+
+        log::info!(
+            "Starting output audio stream with device \"{}\" with configuration {:?}",
+            &out_device_name,
+            &config
+        );
 
         let mut data_callback = DataCallback::new(
             num_out_channels,
@@ -340,7 +339,6 @@ impl AudioBackend for CpalBackend {
             max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
             num_stream_in_channels: 0,
             num_stream_out_channels: num_out_channels as u32,
-            stream_latency_frames,
             output_device_name: Some(out_device_name),
             // The engine will overwrite the other values.
             ..Default::default()
@@ -554,13 +552,11 @@ enum CtxToStreamMsg {
 /// An error occured while trying to start a CPAL audio stream.
 #[derive(Debug, thiserror::Error)]
 pub enum StreamStartError {
-    #[error("The requested input audio device was not found: {0}")]
-    InputDeviceNotFound(String),
-    #[error("The requested output audio device was not found: {0}")]
-    OutputDeviceNotFound(String),
+    #[error("The requested audio device was not found: {0}")]
+    DeviceNotFound(String),
     #[error("Could not get audio devices: {0}")]
     FailedToGetDevices(#[from] cpal::DevicesError),
-    #[error("Failed to get default audio output device")]
+    #[error("Failed to get default audio device")]
     DefaultDeviceNotFound,
     #[error("Failed to get audio device configs: {0}")]
     FailedToGetConfigs(#[from] cpal::SupportedStreamConfigsError),
@@ -570,4 +566,11 @@ pub enum StreamStartError {
     BuildStreamError(#[from] cpal::BuildStreamError),
     #[error("Failed to play audio stream: {0}")]
     PlayStreamError(#[from] cpal::PlayStreamError),
+
+    #[cfg(feature = "input")]
+    #[error("An input stream is already active on this handle")]
+    InputStreamAlreadyActive,
+    #[cfg(all(feature = "input", not(feature = "resample_inputs")))]
+    #[error("Not able to use a samplerate of {0} for the input audio device")]
+    CouldNotMatchSampleRate(u32),
 }
