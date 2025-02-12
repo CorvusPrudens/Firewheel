@@ -15,8 +15,8 @@ use firewheel::{
     FirewheelContext,
 };
 
-const CHANNEL_CAPACITY_SECONDS: f64 = 3.0;
-const JITTER_THRESHOLD_SECONDS: f64 = 2.5;
+const CHANNEL_CAPACITY_SECONDS: f64 = 5.0;
+const JITTER_THRESHOLD_SECONDS: f64 = 4.5;
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 const IN_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(44100).unwrap();
 const OUT_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(48000).unwrap();
@@ -114,9 +114,9 @@ fn main() {
                 // The "jitter value" can be used to get the difference in speed between the
                 // input and output channels.
                 //
-                // Here, if the value drops below `0.0`, then we know we should push a new
-                // packet of data.
-                if handle.jitter_seconds().unwrap() <= 0.0 {
+                // Here, if the value drops below the size of a packet `2.0`, then we know we
+                // should push a new packet of data.
+                if handle.jitter_seconds().unwrap() < 2.0 {
                     // Generate a sine wave on all channels.
                     for chunk in in_buf.chunks_exact_mut(NUM_CHANNELS.get().get() as usize) {
                         let val = (phasor * std::f32::consts::TAU).sin() * 0.5;
