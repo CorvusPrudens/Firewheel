@@ -62,7 +62,7 @@ fn main() {
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // Notify the input node that the output stream has stopped. This
                 // will automatically stop any running input audio streams.
-                input_node_handle.notify_output_stream_stopped();
+                input_node_handle.stop_stream();
 
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)

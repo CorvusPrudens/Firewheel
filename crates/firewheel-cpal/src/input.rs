@@ -16,8 +16,13 @@ use firewheel_core::{
     },
     SilenceMask, StreamInfo,
 };
-use fixed_resample::{ReadStatus, ResamplingChannelConfig};
+use fixed_resample::ReadStatus;
 use ringbuf::traits::{Consumer, Producer, Split};
+
+pub use fixed_resample::ResamplingChannelConfig;
+
+#[cfg(feature = "resample_inputs")]
+pub use fixed_resample::ResampleQuality;
 
 use crate::{BUILD_STREAM_TIMEOUT, DEFAULT_MAX_BLOCK_FRAMES};
 
@@ -145,8 +150,8 @@ impl CpalInputNodeHandle {
     /// Returns `true` if an underflow occured (due to the output stream
     /// running faster than the input stream).
     ///
-    /// If this happens, you may want to consider increasing
-    /// `[CpalInputConfig::channel_config.latency_seconds`.
+    /// If this happens in Release mode, you may want to consider increasing
+    /// `[CpalInputNodeConfig::channel_config.latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
     /// underflow occurred.)
@@ -159,6 +164,9 @@ impl CpalInputNodeHandle {
     /// Returns `true` if an overflow occured (due to the input stream
     /// running faster than the output stream).
     ///
+    /// If this happens in Release mode, you may want to consider increasing
+    /// `[CpalInputNodeConfig::channel_config.capacity_seconds`].
+    ///
     /// (Calling this will also reset the flag indicating whether an
     /// overflow occurred.)
     pub fn overflow_occurred(&self) -> bool {
@@ -168,6 +176,8 @@ impl CpalInputNodeHandle {
     }
 
     /// Start a new input audio stream on this node.
+    ///
+    /// The returned event must be sent to the node's processor for this to take effect.
     ///
     /// * `config` - The configuration of the input stream.
     /// * `output_stream_sample_rate` - The sample rate of the active output audio stream.
@@ -297,9 +307,6 @@ impl CpalInputNodeHandle {
             &config
         );
 
-        dbg!(num_in_channels);
-        dbg!(self.channels);
-
         let mut tmp_intl_buf = if num_in_channels != self.channels.get().get() as usize {
             (0..self.channels.get().get() as usize)
                 .map(|_| {
@@ -422,13 +429,6 @@ impl CpalInputNodeHandle {
 
         Ok(())
     }
-
-    // Notify the handle that the output stream has been stopped. This will also
-    // stop any active input streams on this handle.
-    pub fn notify_output_stream_stopped(&mut self) {
-        self.active_state = None;
-        self.shared_state.reset();
-    }
 }
 
 impl Drop for CpalInputNodeHandle {
@@ -447,7 +447,7 @@ pub struct Constructor {
 impl AudioNodeConstructor for Constructor {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            debug_name: "peak_meter",
+            debug_name: "cpal_input",
             channel_config: ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: self.channels.get(),
@@ -501,66 +501,67 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if let Some(channel_rx) = &mut self.channel_rx {
-            // Notify the input stream that the output stream has begun
-            // reading data.
-            self.shared_state
-                .channel_started
-                .store(true, Ordering::Relaxed);
+        let Some(channel_rx) = &mut self.channel_rx else {
+            return ProcessStatus::ClearAllOutputs;
+        };
 
-            let num_discarded_samples =
-                channel_rx.discard_jitter(self.discard_jitter_threshold_seconds);
-            if num_discarded_samples > 0 {
+        // Notify the input stream that the output stream has begun
+        // reading data.
+        self.shared_state
+            .channel_started
+            .store(true, Ordering::Relaxed);
+
+        let num_discarded_samples =
+            channel_rx.discard_jitter(self.discard_jitter_threshold_seconds);
+        if num_discarded_samples > 0 {
+            self.shared_state
+                .overflow_occurred
+                .store(true, Ordering::Relaxed);
+        }
+
+        match channel_rx.read(outputs, 0..proc_info.frames) {
+            ReadStatus::Ok => {}
+            ReadStatus::Underflow => {
                 self.shared_state
-                    .overflow_occurred
+                    .underflow_occurred
                     .store(true, Ordering::Relaxed);
             }
-
-            match channel_rx.read(outputs, 0..proc_info.frames) {
-                ReadStatus::Ok => {}
-                ReadStatus::Underflow => {
-                    self.shared_state
-                        .underflow_occurred
-                        .store(true, Ordering::Relaxed);
-                }
-                ReadStatus::WaitingForFrames => {
-                    return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(
-                        outputs.len(),
-                    ));
-                }
+            ReadStatus::WaitingForFrames => {
+                return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
             }
+        }
 
-            let mut silence_mask = SilenceMask::NONE_SILENT;
-            if self.check_for_silence {
-                let resampler_channels = channel_rx.num_channels().get();
+        let mut silence_mask = SilenceMask::NONE_SILENT;
+        if self.check_for_silence {
+            let resampler_channels = channel_rx.num_channels().get();
 
-                for (ch_i, ch) in outputs.iter().enumerate() {
-                    if ch_i >= resampler_channels {
-                        // `channel_rx.read()` clears any extra channels
+            for (ch_i, ch) in outputs.iter().enumerate() {
+                if ch_i >= resampler_channels {
+                    // `channel_rx.read()` clears any extra channels
+                    silence_mask.set_channel(ch_i, true);
+                } else {
+                    let mut all_silent = true;
+                    for &s in ch[..proc_info.frames].iter() {
+                        if s != 0.0 {
+                            all_silent = false;
+                            break;
+                        }
+                    }
+
+                    if all_silent {
                         silence_mask.set_channel(ch_i, true);
-                    } else {
-                        let mut all_silent = true;
-                        for &s in ch[..proc_info.frames].iter() {
-                            if s != 0.0 {
-                                all_silent = false;
-                                break;
-                            }
-                        }
-
-                        if all_silent {
-                            silence_mask.set_channel(ch_i, true);
-                        }
                     }
                 }
             }
-
-            ProcessStatus::outputs_modified(silence_mask)
-        } else {
-            ProcessStatus::ClearAllOutputs
         }
+
+        ProcessStatus::outputs_modified(silence_mask)
     }
 
     fn stream_stopped(&mut self) {
+        self.shared_state
+            .stream_active
+            .store(false, Ordering::Relaxed);
         self.channel_rx = None;
     }
 }

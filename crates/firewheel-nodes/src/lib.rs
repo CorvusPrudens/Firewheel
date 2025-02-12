@@ -10,6 +10,9 @@ pub mod sampler;
 #[cfg(feature = "spatial_basic")]
 pub mod spatial_basic;
 
+#[cfg(feature = "stream")]
+pub mod stream;
+
 mod stereo_to_mono;
 pub use stereo_to_mono::StereoToMonoNode;
 

@@ -35,6 +35,7 @@ members = [
     "examples/sampler_pool",
     "examples/sampler_test",
     "examples/spatial_basic",
+    "examples/stream_nodes",
     "examples/visual_node_graph",
 ]
 
@@ -65,6 +66,7 @@ all_nodes = [
     "peak_meter_node",
     "sampler_node",
     "spatial_basic_node",
+    "stream_nodes",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
@@ -74,6 +76,9 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 sampler_node = ["firewheel-nodes/sampler"]
 # Enables the basic 3D spatial positioning node
 spatial_basic_node = ["firewheel-nodes/spatial_basic"]
+# Enables the stream input/output nodes for sending/receiving audio
+# directly to/from the audio graph from another thread.
+stream_nodes = ["firewheel-nodes/stream"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.2.4-beta.0" }
@@ -93,7 +98,8 @@ atomic_float = "1"
 bitflags = "2.6"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
-fixed-resample = { version = "0.3.0", default-features = false }
+#fixed-resample = { version = "0.3.0", default-features = false }
+fixed-resample = { path = "../fixed-resample", default-features = false }
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
