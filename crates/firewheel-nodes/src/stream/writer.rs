@@ -9,6 +9,7 @@ use std::{
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
+    dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
@@ -300,6 +301,7 @@ impl AudioNodeConstructor for Constructor {
             shared_state: Arc::clone(&self.shared_state),
             discard_jitter_threshold_seconds: self.config.discard_jitter_threshold_seconds,
             check_for_silence: self.config.check_for_silence,
+            pause_declicker: Declicker::SettledAt0,
         })
     }
 }
@@ -342,6 +344,7 @@ struct Processor {
     shared_state: Arc<SharedState>,
     discard_jitter_threshold_seconds: Option<f64>,
     check_for_silence: bool,
+    pause_declicker: Declicker,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -363,13 +366,18 @@ impl AudioNodeProcessor for Processor {
             }
         });
 
-        if !self.shared_state.stream_active.load(Ordering::Relaxed)
-            || self.shared_state.paused.load(Ordering::Relaxed)
-        {
+        let enabled = self.shared_state.stream_active.load(Ordering::Relaxed)
+            && !self.shared_state.paused.load(Ordering::Relaxed);
+
+        self.pause_declicker
+            .fade_to_enabled(enabled, proc_info.declick_values);
+
+        if self.pause_declicker.disabled() {
             return ProcessStatus::ClearAllOutputs;
         }
 
         let Some(cons) = &mut self.cons else {
+            self.pause_declicker.reset_to_0();
             return ProcessStatus::ClearAllOutputs;
         };
 
@@ -398,6 +406,16 @@ impl AudioNodeProcessor for Processor {
             ReadStatus::WaitingForFrames => {
                 return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
             }
+        }
+
+        if !self.pause_declicker.is_settled() {
+            self.pause_declicker.process(
+                outputs,
+                0..proc_info.frames,
+                proc_info.declick_values,
+                1.0,
+                FadeType::EqualPower3dB,
+            );
         }
 
         let mut silence_mask = SilenceMask::NONE_SILENT;
@@ -432,6 +450,7 @@ impl AudioNodeProcessor for Processor {
             .stream_active
             .store(false, Ordering::Relaxed);
         self.cons = None;
+        self.pause_declicker.reset_to_0();
     }
 }
 
