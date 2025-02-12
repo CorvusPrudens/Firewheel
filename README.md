@@ -37,8 +37,8 @@ Firewheel is a fully-featured libre open source audio graph engine for games and
 | Beep test node                                        | ✅                                                   |
 | Sampler node                                          | 🚧 (one-shot works, pitch shift WIP, sequencer WIP)  |
 | Basic spatial positioning node                        | ✅                                                   |
-| Input stream node (stream audio into the graph)       | ⬛                                                   |
-| Output stream node (stream audio out of the graph)    | ⬛                                                   |
+| Stream writer node (stream audio into the graph)      | ✅                                                   |
+| Stream reader node (stream audio out of the graph)    | ✅                                                   |
 | Blending sampler node (blend between music tracks)    | ⬛                                                   |
 | Disk streaming SampleResource (using [creek])         | ⬛                                                   |
 | Network streaming SampleResource                      | ❔ (only if demand is there)                         |

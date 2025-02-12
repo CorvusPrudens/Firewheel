@@ -8,8 +8,8 @@ use firewheel::{
     channel_config::NonZeroChannelCount,
     error::UpdateError,
     nodes::stream::{
-        input::{StreamInputConfig, StreamInputHandle},
-        output::{StreamOutputConfig, StreamOutputHandle},
+        reader::{StreamReaderConfig, StreamReaderHandle},
+        writer::{StreamWriterConfig, StreamWriterHandle},
         ReadStatus, ResamplingChannelConfig,
     },
     FirewheelContext,
@@ -33,8 +33,8 @@ fn main() {
 
     let graph_out_node = cx.graph_out_node();
 
-    let mut in_stream_handle = StreamInputHandle::new(
-        StreamInputConfig {
+    let mut stream_writer_handle = StreamWriterHandle::new(
+        StreamWriterConfig {
             channel_config: ResamplingChannelConfig {
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
                 // capacity buffer depending on your use case.
@@ -46,8 +46,8 @@ fn main() {
         NUM_CHANNELS,
     );
 
-    let mut out_stream_handle = StreamOutputHandle::new(
-        StreamOutputConfig {
+    let mut stream_reader_handle = StreamReaderHandle::new(
+        StreamReaderConfig {
             channel_config: ResamplingChannelConfig {
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
                 // capacity buffer depending on your use case.
@@ -59,31 +59,31 @@ fn main() {
         NUM_CHANNELS,
     );
 
-    let in_stream_id = cx.add_node(in_stream_handle.constructor());
-    let out_stream_id = cx.add_node(out_stream_handle.constructor());
+    let stream_writer_id = cx.add_node(stream_writer_handle.constructor());
+    let stream_reader_id = cx.add_node(stream_reader_handle.constructor());
 
-    cx.connect(in_stream_id, graph_out_node, &[(0, 0), (1, 1)], false)
+    cx.connect(stream_writer_id, graph_out_node, &[(0, 0), (1, 1)], false)
         .unwrap();
-    cx.connect(in_stream_id, out_stream_id, &[(0, 0), (1, 1)], false)
+    cx.connect(stream_writer_id, stream_reader_id, &[(0, 0), (1, 1)], false)
         .unwrap();
 
-    let event = in_stream_handle
+    let event = stream_writer_handle
         .start_stream(IN_SAMPLE_RATE, output_stream_sample_rate)
         .unwrap();
     // This event must be sent to the node's processor for the stream to take effect.
-    cx.queue_event_for(in_stream_id, event.into());
+    cx.queue_event_for(stream_writer_id, event.into());
 
-    let event = out_stream_handle
+    let event = stream_reader_handle
         .start_stream(OUT_SAMPLE_RATE, output_stream_sample_rate)
         .unwrap();
     // This event must be sent to the node's processor for the stream to take effect.
-    cx.queue_event_for(out_stream_id, event.into());
+    cx.queue_event_for(stream_reader_id, event.into());
 
     // Wrap the handles in an `Arc<Mutex<T>>>` so that we can send them to other threads.
-    let in_stream_handle = Arc::new(Mutex::new(in_stream_handle));
-    let out_stream_handle = Arc::new(Mutex::new(out_stream_handle));
+    let stream_writer_handle = Arc::new(Mutex::new(stream_writer_handle));
+    let stream_reader_handle = Arc::new(Mutex::new(stream_reader_handle));
 
-    let in_stream_handle_2 = Arc::clone(&in_stream_handle);
+    let stream_writer_handle_2 = Arc::clone(&stream_writer_handle);
     std::thread::spawn(move || {
         let mut phasor: f32 = 0.0;
         let phasor_inc: f32 = 440.0 / IN_SAMPLE_RATE.get() as f32;
@@ -93,20 +93,20 @@ fn main() {
             vec![0.0; IN_SAMPLE_RATE.get() as usize * NUM_CHANNELS.get().get() as usize];
 
         loop {
-            let mut handle = in_stream_handle_2.lock().unwrap();
+            let mut handle = stream_writer_handle_2.lock().unwrap();
 
             // If this happens excessively in Release mode, you may want to consider
-            // increasing [`StreamInputConfig::channel_config.latency_seconds`].
+            // increasing [`StreamWriterConfig::channel_config.latency_seconds`].
             if handle.underflow_occurred() {
-                println!("Underflow occured in input stream node!");
+                println!("Underflow occured in stream writer node!");
             }
 
             // If this happens excessively in Release mode, you may want to consider
-            // increasing [`StreamInputConfig::channel_config.capacity_seconds`]. For
+            // increasing [`StreamWriterConfig::channel_config.capacity_seconds`]. For
             // example, if you are streaming data from a network, you may want to
             // increase the capacity to several seconds.
             if handle.overflow_occurred() {
-                println!("Overflow occured in input stream node!");
+                println!("Overflow occured in stream writer node!");
             }
 
             // Wait until the node's processor is ready to receive data.
@@ -129,7 +129,7 @@ fn main() {
 
                     handle.push_interleaved(&in_buf);
 
-                    println!("Input stream pushed data.");
+                    println!("Stream writer pushed data.");
                 }
             }
 
@@ -137,7 +137,7 @@ fn main() {
         }
     });
 
-    let out_stream_handle_2 = Arc::clone(&out_stream_handle);
+    let stream_reader_handle_2 = Arc::clone(&stream_reader_handle);
     std::thread::spawn(move || {
         // We will read packets of data that are 15 ms long, this time in
         // de-interleaved format.
@@ -148,20 +148,20 @@ fn main() {
             .collect();
 
         loop {
-            let mut handle = out_stream_handle_2.lock().unwrap();
+            let mut handle = stream_reader_handle_2.lock().unwrap();
 
             // If this happens excessively in Release mode, you may want to consider
-            // increasing [`StreamOutputConfig::channel_config.latency_seconds`].
+            // increasing [`StreamReaderConfig::channel_config.latency_seconds`].
             if handle.underflow_occurred() {
-                println!("Underflow occured in output stream node!");
+                println!("Underflow occured in stream reader node!");
             }
 
             // If this happens excessively in Release mode, you may want to consider
-            // increasing [`StreamOutputConfig::channel_config.capacity_seconds`]. For
+            // increasing [`StreamReaderConfig::channel_config.capacity_seconds`]. For
             // example, if you are streaming data from a network, you may want to
             // increase the capacity to several seconds.
             if handle.overflow_occurred() {
-                println!("Overflow occured in output stream node!");
+                println!("Overflow occured in stream reader node!");
             }
 
             // Wait until the node's processor is ready to send data.
@@ -173,8 +173,8 @@ fn main() {
                 // an extra packet of data to correct for the jitter.
                 let discarded_frames = handle.discard_jitter(JITTER_THRESHOLD_SECONDS);
                 if discarded_frames > 0 {
-                    println!("Overflow occured in output stream node!");
-                    println!("Discarded frames in output stream: {}", discarded_frames);
+                    println!("Overflow occured in stream reader node!");
+                    println!("Discarded frames in stream reader: {}", discarded_frames);
                 }
 
                 let status = handle.read(&mut out_buf, 0..packet_frames).unwrap();
@@ -191,7 +191,7 @@ fn main() {
                     ReadStatus::Underflow => {
                         // An input underflow occured. This may result in audible audio
                         // glitches.
-                        println!("Underflow occured in output stream node!");
+                        println!("Underflow occured in stream reader node!");
                     }
                     ReadStatus::WaitingForFrames => {
                         // The channel is waiting for a certain number of frames to be
@@ -212,8 +212,8 @@ fn main() {
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // Notify the stream node handles that the output stream has stopped.
                 // This will automatically stop any active streams on the nodes.
-                in_stream_handle.lock().unwrap().stop_stream();
-                out_stream_handle.lock().unwrap().stop_stream();
+                stream_writer_handle.lock().unwrap().stop_stream();
+                stream_reader_handle.lock().unwrap().stop_stream();
 
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)

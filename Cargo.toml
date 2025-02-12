@@ -76,7 +76,7 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 sampler_node = ["firewheel-nodes/sampler"]
 # Enables the basic 3D spatial positioning node
 spatial_basic_node = ["firewheel-nodes/spatial_basic"]
-# Enables the stream input/output nodes for sending/receiving audio
+# Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream_nodes = ["firewheel-nodes/stream"]
 
@@ -98,8 +98,7 @@ atomic_float = "1"
 bitflags = "2.6"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
-#fixed-resample = { version = "0.3.0", default-features = false }
-fixed-resample = { path = "../fixed-resample", default-features = false }
+fixed-resample = { version = "0.3.1", default-features = false }
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

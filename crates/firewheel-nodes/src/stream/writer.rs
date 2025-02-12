@@ -5,7 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    usize,
 };
 
 use firewheel_core::{
@@ -15,37 +14,59 @@ use firewheel_core::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
-    StreamInfo,
+    SilenceMask, StreamInfo,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StreamOutputConfig {
+pub struct StreamWriterConfig {
     /// The configuration of the input to output channel.
     pub channel_config: ResamplingChannelConfig,
+
+    /// If the input stream is running faster than the output stream by this
+    /// amount in seconds, then discard samples to reduce the percieved
+    /// glitchiness due to excessive overflows.
+    ///
+    /// This can happen if there are a lot of underruns occuring in the
+    /// output audio thread.
+    ///
+    /// If this is `None`, then the threshold will be the entire capacity of
+    /// the channel.
+    ///
+    /// By default this is set to `None`.
+    pub discard_jitter_threshold_seconds: Option<f64>,
+
+    /// Whether or not to check for silence in the input stream. Highly
+    /// recommened to set this to `true` to improve audio graph performance
+    /// when there is no input on the microphone.
+    ///
+    /// By default this is set to `true`.
+    pub check_for_silence: bool,
 }
 
-impl Default for StreamOutputConfig {
+impl Default for StreamWriterConfig {
     fn default() -> Self {
         Self {
             channel_config: ResamplingChannelConfig::default(),
+            discard_jitter_threshold_seconds: None,
+            check_for_silence: true,
         }
     }
 }
 
-pub struct StreamOutputHandle {
+pub struct StreamWriterHandle {
     /// The configuration of the stream.
     ///
     /// Changing this will have no effect until a new stream is started.
-    pub config: StreamOutputConfig,
+    pub config: StreamWriterConfig,
 
     channels: NonZeroChannelCount,
     active_state: Option<ActiveState>,
     shared_state: Arc<SharedState>,
 }
 
-impl StreamOutputHandle {
-    pub fn new(config: StreamOutputConfig, channels: NonZeroChannelCount) -> Self {
+impl StreamWriterHandle {
+    pub fn new(config: StreamWriterConfig, channels: NonZeroChannelCount) -> Self {
         Self {
             config,
             channels,
@@ -57,6 +78,7 @@ impl StreamOutputHandle {
     pub fn constructor(&self) -> Constructor {
         Constructor {
             shared_state: Arc::clone(&self.shared_state),
+            config: self.config.clone(),
             channels: self.channels,
         }
     }
@@ -82,7 +104,7 @@ impl StreamOutputHandle {
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamOutputConfig::channel_config.latency_seconds`].
+    /// increasing [`StreamWriterConfig::channel_config.latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
     /// underflow occurred.)
@@ -96,7 +118,7 @@ impl StreamOutputHandle {
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamOutputConfig::channel_config.capacity_seconds`]. For
+    /// increasing [`StreamWriterConfig::channel_config.capacity_seconds`]. For
     /// example, if you are streaming data from a network, you may want to
     /// increase the capacity to several seconds.
     ///
@@ -114,7 +136,7 @@ impl StreamOutputHandle {
     /// greater than 0.0 means the input channel is faster than the output channel.
     ///
     /// This value can be used to correct for jitter and avoid underflows/overflows. For
-    /// example, if this value goes above a certain threshold, then you can read an extra
+    /// example, if this value goes below a certain threshold, then you can push an extra
     /// packet of data to correct for the jitter.
     ///
     /// This number will be in the range `[-latency_seconds, capacity_seconds - latency_seconds]`,
@@ -126,10 +148,25 @@ impl StreamOutputHandle {
     ///
     /// Returns `None` if there is no active stream.
     pub fn jitter_seconds(&self) -> Option<f64> {
-        self.active_state.as_ref().map(|s| s.cons.jitter_seconds())
+        self.active_state.as_ref().map(|s| s.prod.jitter_seconds())
     }
 
-    /// Begin the output audio stream on this node.
+    /// The total number of frames (not samples) that can currently be pushed to the stream.
+    ///
+    /// If there is no active stream, the stream is paused, or the processor end
+    /// is not ready to receive samples, then this will return `0`.
+    pub fn available_frames(&self) -> usize {
+        if self.is_ready() {
+            self.active_state
+                .as_ref()
+                .map(|s| s.prod.available_frames())
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Begin the input audio stream on this node.
     ///
     /// The returned event must be sent to the node's processor for this to take effect.
     ///
@@ -142,7 +179,7 @@ impl StreamOutputHandle {
         &mut self,
         sample_rate: NonZeroU32,
         output_stream_sample_rate: NonZeroU32,
-    ) -> Result<NewOutputStreamEvent, ()> {
+    ) -> Result<NewInputStreamEvent, ()> {
         if self.is_active() {
             return Err(());
         }
@@ -150,116 +187,62 @@ impl StreamOutputHandle {
         self.shared_state.reset();
 
         let (prod, cons) = fixed_resample::resampling_channel::<f32>(
-            output_stream_sample_rate.get(),
             sample_rate.get(),
+            output_stream_sample_rate.get(),
             self.channels.get().get() as usize,
             self.config.channel_config,
         );
 
-        self.active_state = Some(ActiveState { cons, sample_rate });
+        self.active_state = Some(ActiveState { prod, sample_rate });
         self.shared_state
             .stream_active
             .store(true, Ordering::Relaxed);
 
-        Ok(NewOutputStreamEvent { prod: Some(prod) })
+        Ok(NewInputStreamEvent { cons: Some(cons) })
     }
 
-    /// The total number of frames (not samples) that can currently be read from
-    /// the stream.
+    /// Push the given data in interleaved format.
+    ///
+    /// Returns the number of frames (not samples) that were successfully pushed.
+    /// If this number is less than the number of frames in `data`, then it means
+    /// an overflow has occured.
     ///
     /// If there is no active stream, the stream is paused, or the processor end
-    /// is not ready to receive samples, then this will return `0`.
-    pub fn available_frames(&self) -> usize {
-        if self.is_ready() {
-            self.active_state
-                .as_ref()
-                .map(|s| s.cons.available_frames())
-                .unwrap_or(0)
-        } else {
-            0
-        }
-    }
-
-    /// Read from the channel and write the results into the given output buffer
-    /// in interleaved format.
-    ///
-    /// If there is no active stream, the stream is paused, or the processor end
-    /// is not ready to send samples, then the output will be filled with zeros
-    /// and `None` will be returned.
-    pub fn read_interleaved(&mut self, output: &mut [f32]) -> Option<ReadStatus> {
+    /// is not ready to receive samples, then no data will be sent and this will
+    /// return `0`.
+    pub fn push_interleaved(&mut self, data: &[f32]) -> usize {
         if !self.is_ready() {
-            output.fill(0.0);
-            return None;
+            return 0;
         }
 
-        Some(
-            self.active_state
-                .as_mut()
-                .unwrap()
-                .cons
-                .read_interleaved(output),
-        )
+        self.active_state
+            .as_mut()
+            .unwrap()
+            .prod
+            .push_interleaved(data)
     }
 
-    /// Read from the channel and write the results into the given output buffer in
-    /// de-interleaved format.
+    /// Push the given data in de-interleaved format.
     ///
-    /// * `output` - The channels to write data to.
-    /// * `range` - The range in each slice in `output` to write to.
+    /// * `data` - The channels of data to push to the channel.
+    /// * `range` - The range in each slice in `input` to read data from.
+    ///
+    /// Returns the number of frames (not samples) that were successfully pushed.
+    /// If this number is less than the number of frames in `data`, then it means
+    /// an overflow has occured.
     ///
     /// If there is no active stream, the stream is paused, or the processor end
-    /// is not ready to send samples, then the output will be filled with zeros
-    /// and `None` will be returned.
-    pub fn read<Vin: AsMut<[f32]>>(
-        &mut self,
-        output: &mut [Vin],
-        range: Range<usize>,
-    ) -> Option<ReadStatus> {
+    /// is not ready to receive samples, then no data will be sent and this will
+    /// return `0`.
+    pub fn push<Vin: AsRef<[f32]>>(&mut self, data: &[Vin], range: Range<usize>) -> usize {
         if !self.is_ready() {
-            for ch in output.iter_mut() {
-                ch.as_mut()[range.clone()].fill(0.0);
-            }
-            return None;
+            return 0;
         }
 
-        Some(self.active_state.as_mut().unwrap().cons.read(output, range))
+        self.active_state.as_mut().unwrap().prod.push(data, range)
     }
 
-    /// Discard all data currently in the channel.
-    ///
-    /// Note, you should typically wait for [`StreamOutputHandle::jitter_seconds`]
-    /// to be `>= 0.0` (or for [`StreamOutputHandle::available_frames`]
-    /// to be greater than or equal to the equivalant of
-    /// [`StreamOutputConfig::channel_config.latency_seconds`]) before reading
-    /// from the channel again.
-    ///
-    /// Returns the number of input frames that were discarded.
-    pub fn discard_all(&mut self) -> usize {
-        if let Some(state) = &mut self.active_state {
-            state.cons.discard_frames(usize::MAX)
-        } else {
-            0
-        }
-    }
-
-    /// If the value of [`StreamOutputHandle::jitter_seconds`] is greater than
-    /// the given threshold in seconds, then discard the number of frames needed
-    /// to bring the jitter value back to `0.0` to avoid overflows.
-    ///
-    /// Note, it is typical for the jitter value to be around plus or minus the
-    /// size of a packet of pushed/read data even when the streams are perfectly
-    /// in sync).
-    ///
-    /// Returns the number of input frames that were discarded.
-    pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
-        if let Some(state) = &mut self.active_state {
-            state.cons.discard_jitter(threshold_seconds)
-        } else {
-            0
-        }
-    }
-
-    /// Returns `true` if the processor end of the stream is ready to start sending
+    /// Returns `true` if the processor end of the stream is ready to start receiving
     /// data.
     pub fn is_ready(&self) -> bool {
         self.active_state.is_some()
@@ -286,7 +269,7 @@ impl StreamOutputHandle {
     }
 }
 
-impl Drop for StreamOutputHandle {
+impl Drop for StreamWriterHandle {
     fn drop(&mut self) {
         self.stop_stream();
     }
@@ -295,16 +278,17 @@ impl Drop for StreamOutputHandle {
 #[derive(Clone)]
 pub struct Constructor {
     shared_state: Arc<SharedState>,
+    config: StreamWriterConfig,
     channels: NonZeroChannelCount,
 }
 
 impl AudioNodeConstructor for Constructor {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
-            debug_name: "stream_output",
+            debug_name: "stream_input",
             channel_config: ChannelConfig {
-                num_inputs: self.channels.get(),
-                num_outputs: ChannelCount::ZERO,
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: self.channels.get(),
             },
             uses_events: true,
         }
@@ -312,14 +296,16 @@ impl AudioNodeConstructor for Constructor {
 
     fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(Processor {
-            prod: None,
+            cons: None,
             shared_state: Arc::clone(&self.shared_state),
+            discard_jitter_threshold_seconds: self.config.discard_jitter_threshold_seconds,
+            check_for_silence: self.config.check_for_silence,
         })
     }
 }
 
 struct ActiveState {
-    cons: fixed_resample::ResamplingCons<f32>,
+    prod: fixed_resample::ResamplingProd<f32>,
     sample_rate: NonZeroU32,
 }
 
@@ -352,25 +338,27 @@ impl SharedState {
 }
 
 struct Processor {
-    prod: Option<fixed_resample::ResamplingProd<f32>>,
+    cons: Option<fixed_resample::ResamplingCons<f32>>,
     shared_state: Arc<SharedState>,
+    discard_jitter_threshold_seconds: Option<f64>,
+    check_for_silence: bool,
 }
 
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        _outputs: &mut [&mut [f32]],
+        _inputs: &[&[f32]],
+        outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
         proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {
-                if let Some(out_stream_event) = event.downcast_mut::<NewOutputStreamEvent>() {
+                if let Some(in_stream_event) = event.downcast_mut::<NewInputStreamEvent>() {
                     // Swap the memory so that the old channel will be properly
                     // dropped outside of the audio thread.
-                    std::mem::swap(&mut self.prod, &mut out_stream_event.prod);
+                    std::mem::swap(&mut self.cons, &mut in_stream_event.cons);
                 }
             }
         });
@@ -378,11 +366,11 @@ impl AudioNodeProcessor for Processor {
         if !self.shared_state.stream_active.load(Ordering::Relaxed)
             || self.shared_state.paused.load(Ordering::Relaxed)
         {
-            return ProcessStatus::Bypass;
+            return ProcessStatus::ClearAllOutputs;
         }
 
-        let Some(prod) = &mut self.prod else {
-            return ProcessStatus::Bypass;
+        let Some(cons) = &mut self.cons else {
+            return ProcessStatus::ClearAllOutputs;
         };
 
         // Notify the input stream that the output stream has begun
@@ -391,30 +379,67 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        let pushed_frames = prod.push(inputs, 0..proc_info.frames);
-
-        if pushed_frames < proc_info.frames {
-            self.shared_state
-                .overflow_occurred
-                .store(true, Ordering::Relaxed);
+        if let Some(threshold) = self.discard_jitter_threshold_seconds {
+            let num_discarded_samples = cons.discard_jitter(threshold);
+            if num_discarded_samples > 0 {
+                self.shared_state
+                    .overflow_occurred
+                    .store(true, Ordering::Relaxed);
+            }
         }
 
-        ProcessStatus::Bypass
+        match cons.read(outputs, 0..proc_info.frames) {
+            ReadStatus::Ok => {}
+            ReadStatus::Underflow => {
+                self.shared_state
+                    .underflow_occurred
+                    .store(true, Ordering::Relaxed);
+            }
+            ReadStatus::WaitingForFrames => {
+                return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
+            }
+        }
+
+        let mut silence_mask = SilenceMask::NONE_SILENT;
+        if self.check_for_silence {
+            let resampler_channels = cons.num_channels().get();
+
+            for (ch_i, ch) in outputs.iter().enumerate() {
+                if ch_i >= resampler_channels {
+                    // `cons.read()` clears any extra channels
+                    silence_mask.set_channel(ch_i, true);
+                } else {
+                    let mut all_silent = true;
+                    for &s in ch[..proc_info.frames].iter() {
+                        if s != 0.0 {
+                            all_silent = false;
+                            break;
+                        }
+                    }
+
+                    if all_silent {
+                        silence_mask.set_channel(ch_i, true);
+                    }
+                }
+            }
+        }
+
+        ProcessStatus::outputs_modified(silence_mask)
     }
 
     fn stream_stopped(&mut self) {
         self.shared_state
             .stream_active
             .store(false, Ordering::Relaxed);
-        self.prod = None;
+        self.cons = None;
     }
 }
 
-pub struct NewOutputStreamEvent {
-    prod: Option<fixed_resample::ResamplingProd<f32>>,
+pub struct NewInputStreamEvent {
+    cons: Option<fixed_resample::ResamplingCons<f32>>,
 }
 
-impl Into<NodeEventType> for NewOutputStreamEvent {
+impl Into<NodeEventType> for NewInputStreamEvent {
     fn into(self) -> NodeEventType {
         NodeEventType::Custom(Box::new(self))
     }

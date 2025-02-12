@@ -37,7 +37,7 @@ peak_meter = ["dep:atomic_float"]
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
 spatial_basic = []
-# Enables the stream input/output nodes for sending/receiving audio
+# Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream = ["dep:fixed-resample"]
 
