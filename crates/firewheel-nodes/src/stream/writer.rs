@@ -404,6 +404,7 @@ impl AudioNodeProcessor for Processor {
                     .store(true, Ordering::Relaxed);
             }
             ReadStatus::WaitingForFrames => {
+                self.pause_declicker.reset_to_target();
                 return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
             }
         }
