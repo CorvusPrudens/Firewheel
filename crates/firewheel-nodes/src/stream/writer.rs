@@ -24,9 +24,10 @@ pub struct StreamWriterConfig {
     /// The configuration of the input to output channel.
     pub channel_config: ResamplingChannelConfig,
 
-    /// If the input stream is running faster than the output stream by this
-    /// amount in seconds, then discard samples to reduce the percieved
-    /// glitchiness due to excessive overflows.
+    /// If the value of ResamplingCons::occupied_seconds() is greater than the
+    /// given threshold in seconds, then discard the number of input frames
+    /// needed to bring the value back down to ResamplingCons::latency_seconds()
+    /// to avoid excessive overflows and reduce perceived audible glitchiness.
     ///
     /// This can happen if there are a lot of underruns occuring in the
     /// output audio thread.
@@ -84,18 +85,6 @@ impl StreamWriterHandle {
         }
     }
 
-    /// The number of channels in this node.
-    pub fn channels(&self) -> NonZeroChannelCount {
-        self.channels
-    }
-
-    /// The sample rate of the active stream.
-    ///
-    /// Returns `None` if there is no active stream.
-    pub fn sample_rate(&self) -> Option<NonZeroU32> {
-        self.active_state.as_ref().map(|s| s.sample_rate)
-    }
-
     /// Returns `true` if there is there is currently an active stream on this node.
     pub fn is_active(&self) -> bool {
         self.active_state.is_some() && self.shared_state.stream_active.load(Ordering::Relaxed)
@@ -131,27 +120,6 @@ impl StreamWriterHandle {
             .swap(false, Ordering::Relaxed)
     }
 
-    /// An number describing the current amount of jitter in seconds between the input and
-    /// output streams. A value of 0.0 means the two channels are perfectly synced, a value
-    /// less than 0.0 means the input channel is slower than the input channel, and a value
-    /// greater than 0.0 means the input channel is faster than the output channel.
-    ///
-    /// This value can be used to correct for jitter and avoid underflows/overflows. For
-    /// example, if this value goes below a certain threshold, then you can push an extra
-    /// packet of data to correct for the jitter.
-    ///
-    /// This number will be in the range `[-latency_seconds, capacity_seconds - latency_seconds]`,
-    /// where `latency_seconds` and `capacity_seconds` are the values passed in
-    /// `ResamplingChannelConfig` when this channel was constructed.
-    ///
-    /// Note, it is typical for the jitter value to be around plus or minus the size of a
-    /// packet of pushed/read data even when the streams are perfectly in sync).
-    ///
-    /// Returns `None` if there is no active stream.
-    pub fn jitter_seconds(&self) -> Option<f64> {
-        self.active_state.as_ref().map(|s| s.prod.jitter_seconds())
-    }
-
     /// The total number of frames (not samples) that can currently be pushed to the stream.
     ///
     /// If there is no active stream, the stream is paused, or the processor end
@@ -165,6 +133,71 @@ impl StreamWriterHandle {
         } else {
             0
         }
+    }
+
+    /// The amount of data in seconds that is currently available to read.
+    pub fn available_seconds(&self) -> f64 {
+        if self.is_ready() {
+            self.active_state
+                .as_ref()
+                .map(|s| s.prod.available_seconds())
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The amount of data in seconds that is currently occupied in the channel.
+    ///
+    /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn occupied_seconds(&self) -> Option<f64> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.prod.occupied_seconds())
+    }
+
+    /// Returns the number of frames (samples in a single channel) that are currently
+    /// occupied in the channel.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn occupied_frames(&self) -> Option<usize> {
+        self.active_state.as_ref().map(|s| s.prod.occupied_frames())
+    }
+
+    /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
+    /// this channel was created.
+    pub fn latency_seconds(&self) -> f64 {
+        self.config.channel_config.latency_seconds
+    }
+
+    /// The capacity of the channel in seconds.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn capacity_seconds(&self) -> Option<f64> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.prod.capacity_seconds())
+    }
+
+    /// The capacity of the channel in frames (samples in a single channel).
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn capacity_frames(&self) -> Option<usize> {
+        self.active_state.as_ref().map(|s| s.prod.capacity_frames())
+    }
+
+    /// The number of channels in this node.
+    pub fn num_channels(&self) -> NonZeroChannelCount {
+        self.channels
+    }
+
+    /// The sample rate of the active stream.
+    ///
+    /// Returns `None` if there is no active stream.
+    pub fn sample_rate(&self) -> Option<NonZeroU32> {
+        self.active_state.as_ref().map(|s| s.sample_rate)
     }
 
     /// Begin the input audio stream on this node.

@@ -15,8 +15,8 @@ use firewheel::{
     FirewheelContext,
 };
 
-const CHANNEL_CAPACITY_SECONDS: f64 = 5.0;
-const JITTER_THRESHOLD_SECONDS: f64 = 4.5;
+const CHANNEL_CAPACITY_SECONDS: f64 = 4.0;
+const JITTER_THRESHOLD_SECONDS: f64 = 3.5;
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 const IN_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(44100).unwrap();
 const OUT_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(48000).unwrap();
@@ -37,7 +37,8 @@ fn main() {
         StreamWriterConfig {
             channel_config: ResamplingChannelConfig {
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
-                // capacity buffer depending on your use case.
+                // capacity buffer depending on your use case. Generally this value should
+                // be at least twice as large as the size of packets you intend to send.
                 capacity_seconds: CHANNEL_CAPACITY_SECONDS,
                 ..Default::default()
             },
@@ -49,9 +50,16 @@ fn main() {
     let mut stream_reader_handle = StreamReaderHandle::new(
         StreamReaderConfig {
             channel_config: ResamplingChannelConfig {
+                // For stream readers, the `latency_seconds` value should also be at least
+                // the size of packets you intend to read. Here, we use twice that size to
+                // be safe.
+                latency_seconds: 0.3,
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
-                // capacity buffer depending on your use case.
-                capacity_seconds: CHANNEL_CAPACITY_SECONDS,
+                // capacity buffer depending on your use case. Generally this value should
+                // be at least twice as large as the size of packets you intend to send.
+                //
+                // This value should also be at least twice as large as `latency_seconds`.
+                capacity_seconds: 0.6,
                 ..Default::default()
             },
             ..Default::default()
@@ -88,9 +96,10 @@ fn main() {
         let mut phasor: f32 = 0.0;
         let phasor_inc: f32 = 440.0 / IN_SAMPLE_RATE.get() as f32;
 
-        // We will send packets of data that are 2 seconds long.
-        let mut in_buf =
-            vec![0.0; IN_SAMPLE_RATE.get() as usize * NUM_CHANNELS.get().get() as usize];
+        // We will send packets of data that are 1 second long.
+        let packet_frames = IN_SAMPLE_RATE.get() as usize;
+
+        let mut in_buf = vec![0.0; packet_frames * NUM_CHANNELS.get().get() as usize];
 
         loop {
             let mut handle = stream_writer_handle_2.lock().unwrap();
@@ -114,9 +123,18 @@ fn main() {
                 // The "jitter value" can be used to get the difference in speed between the
                 // input and output channels.
                 //
-                // Here, if the value drops below the size of a packet `2.0`, then we know we
+                // Here, if the value drops below the size of a packet `1.0`, then we know we
                 // should push a new packet of data.
-                if handle.jitter_seconds().unwrap() < 2.0 {
+                //
+                // Alternatively you could do:
+                //
+                // while handle.occupied_seconds().unwrap() < handle.latency_seconds() {
+                //
+                // or
+                //
+                // while handle.available_frames() >= packet_frames {
+                //
+                while handle.occupied_seconds().unwrap() < 1.0 {
                     // Generate a sine wave on all channels.
                     for chunk in in_buf.chunks_exact_mut(NUM_CHANNELS.get().get() as usize) {
                         let val = (phasor * std::f32::consts::TAU).sin() * 0.5;
@@ -166,8 +184,11 @@ fn main() {
 
             // Wait until the node's processor is ready to send data.
             if handle.is_ready() {
-                // Optionally, we can discard frames if the jitter value exceeds a given
-                // threshold to avoid excessive overflows.
+                // Optionally, If the value of `StreamReaderHandle::occupied_seconds()`
+                // is greater than the given threshold in seconds, then discard the
+                // number of input frames needed to bring the value back down to
+                // `StreamReaderHandle::latency_seconds()` to avoid excessive overflows
+                // and reduce perceived audible glitchiness.
                 //
                 // Alternatively, instead of discarding samples, you may choose to read
                 // an extra packet of data to correct for the jitter.
@@ -178,11 +199,6 @@ fn main() {
                 }
 
                 let status = handle.read(&mut out_buf, 0..packet_frames).unwrap();
-
-                // Alternatively, if you just wish to read all available frames in the
-                // channel, the number of available frames can be gotten with
-                // `handle.available_frames()`. Then read like normal into a buffer of
-                // that length.
 
                 match status {
                     ReadStatus::Ok => {
@@ -199,6 +215,15 @@ fn main() {
                         // or a reset. The output will contain silence.
                     }
                 }
+
+                // Alternatively, if you just wish to read all available frames in the
+                // channel, then you could do:
+                //
+                // while handle.available_frames() >= packet_frames {
+                //     let status = handle.read(&mut out_buf, 0..packet_frames).unwrap();
+                //
+                //     // Send data over the network, for example.
+                // }
             }
 
             std::thread::sleep(UPDATE_INTERVAL);

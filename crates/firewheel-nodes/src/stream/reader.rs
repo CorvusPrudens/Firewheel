@@ -61,18 +61,6 @@ impl StreamReaderHandle {
         }
     }
 
-    /// The number of channels in this node.
-    pub fn channels(&self) -> NonZeroChannelCount {
-        self.channels
-    }
-
-    /// The sample rate of the active stream.
-    ///
-    /// Returns `None` if there is no active stream.
-    pub fn sample_rate(&self) -> Option<NonZeroU32> {
-        self.active_state.as_ref().map(|s| s.sample_rate)
-    }
-
     /// Returns `true` if there is there is currently an active stream on this node.
     pub fn is_active(&self) -> bool {
         self.active_state.is_some() && self.shared_state.stream_active.load(Ordering::Relaxed)
@@ -106,27 +94,6 @@ impl StreamReaderHandle {
         self.shared_state
             .overflow_occurred
             .swap(false, Ordering::Relaxed)
-    }
-
-    /// An number describing the current amount of jitter in seconds between the input and
-    /// output streams. A value of 0.0 means the two channels are perfectly synced, a value
-    /// less than 0.0 means the input channel is slower than the input channel, and a value
-    /// greater than 0.0 means the input channel is faster than the output channel.
-    ///
-    /// This value can be used to correct for jitter and avoid underflows/overflows. For
-    /// example, if this value goes above a certain threshold, then you can read an extra
-    /// packet of data to correct for the jitter.
-    ///
-    /// This number will be in the range `[-latency_seconds, capacity_seconds - latency_seconds]`,
-    /// where `latency_seconds` and `capacity_seconds` are the values passed in
-    /// `ResamplingChannelConfig` when this channel was constructed.
-    ///
-    /// Note, it is typical for the jitter value to be around plus or minus the size of a
-    /// packet of pushed/read data even when the streams are perfectly in sync).
-    ///
-    /// Returns `None` if there is no active stream.
-    pub fn jitter_seconds(&self) -> Option<f64> {
-        self.active_state.as_ref().map(|s| s.cons.jitter_seconds())
     }
 
     /// Begin the output audio stream on this node.
@@ -178,6 +145,82 @@ impl StreamReaderHandle {
         } else {
             0
         }
+    }
+
+    /// The amount of data in seconds that is currently available to read.
+    ///
+    /// If there is no active stream, the stream is paused, or the processor end
+    /// is not ready to receive samples, then this will return `0.0`.
+    pub fn available_seconds(&self) -> f64 {
+        if self.is_ready() {
+            self.active_state
+                .as_ref()
+                .map(|s| s.cons.available_seconds())
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The amount of data in seconds that is currently occupied in the channel.
+    ///
+    /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
+    ///
+    /// This can also be used to detect when an extra packet of data should be read or
+    /// discarded to correct for jitter.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn occupied_seconds(&self) -> Option<f64> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.cons.occupied_seconds())
+    }
+
+    /// Returns the number of input frames (samples in a single channel) from the producer
+    /// (not output frames from this consumer) that are currently occupied in the channel.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn occupied_input_frames(&self) -> Option<usize> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.cons.occupied_input_frames())
+    }
+
+    /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
+    /// this channel was created.
+    pub fn latency_seconds(&self) -> f64 {
+        self.config.channel_config.latency_seconds
+    }
+
+    /// The capacity of the channel in seconds.
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn capacity_seconds(&self) -> Option<f64> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.cons.capacity_seconds())
+    }
+
+    /// The capacity of the channel in input frames (samples in a single channel) from
+    /// the producer (not output frames from this consumer).
+    ///
+    /// If there is no active stream, then this will return `None`.
+    pub fn capacity_input_frames(&self) -> Option<usize> {
+        self.active_state
+            .as_ref()
+            .map(|s| s.cons.capacity_input_frames())
+    }
+
+    /// The number of channels in this node.
+    pub fn num_channels(&self) -> NonZeroChannelCount {
+        self.channels
+    }
+
+    /// The sample rate of the active stream.
+    ///
+    /// Returns `None` if there is no active stream.
+    pub fn sample_rate(&self) -> Option<NonZeroU32> {
+        self.active_state.as_ref().map(|s| s.sample_rate)
     }
 
     /// Read from the channel and write the results into the given output buffer
@@ -236,21 +279,22 @@ impl StreamReaderHandle {
     /// Returns the number of input frames that were discarded.
     pub fn discard_all(&mut self) -> usize {
         if let Some(state) = &mut self.active_state {
-            state.cons.discard_frames(usize::MAX)
+            state.cons.discard_input_frames(usize::MAX)
         } else {
             0
         }
     }
 
-    /// If the value of [`StreamReaderHandle::jitter_seconds`] is greater than
-    /// the given threshold in seconds, then discard the number of frames needed
-    /// to bring the jitter value back to `0.0` to avoid overflows.
+    /// If the value of [`StreamReaderHandle::occupied_seconds()`] is greater than the
+    /// given threshold in seconds, then discard the number of input frames needed to
+    /// bring the value back down to [`StreamReaderHandle::latency_seconds()`] to avoid
+    /// excessive overflows and reduce perceived audible glitchiness.
     ///
-    /// Note, it is typical for the jitter value to be around plus or minus the
-    /// size of a packet of pushed/read data even when the streams are perfectly
-    /// in sync).
+    /// Returns the number of input frames from the producer (not output frames from
+    /// this consumer) that were discarded.
     ///
-    /// Returns the number of input frames that were discarded.
+    /// If `threshold_seconds` is less than [`StreamReaderHandle::latency_seconds()`],
+    /// then this will do nothing.
     pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
         if let Some(state) = &mut self.active_state {
             state.cons.discard_jitter(threshold_seconds)
