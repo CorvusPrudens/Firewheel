@@ -31,6 +31,7 @@ pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
     pub channels: NonZeroChannelCount,
@@ -94,6 +95,7 @@ impl Default for SharedState {
 }
 
 #[derive(Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerParams {
     /// The current sequence loaded into the sampler.
     pub sequence: Option<SequenceType>,
@@ -130,6 +132,7 @@ impl Default for SamplerParams {
 
 /// The state of a sampler node.
 #[derive(Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerHandle {
     shared_state: ArcGc<SharedState>,
 }

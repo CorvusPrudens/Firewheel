@@ -28,7 +28,7 @@ impl Default for VolumeNodeConfig {
 }
 
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(Component))]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumeParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,

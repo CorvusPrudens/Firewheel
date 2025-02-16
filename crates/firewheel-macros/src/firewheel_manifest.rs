@@ -69,21 +69,6 @@ impl FirewheelManifest {
     }
 
     /// Returns the path for the crate with the given name.
-    ///
-    /// This is a convenience method for constructing a [manifest] and
-    /// calling the [`get_path`] method.
-    ///
-    /// This method should only be used where you just need the path and can't
-    /// cache the [manifest]. If caching is possible, it's recommended to create
-    /// the [manifest] yourself and use the [`get_path`] method.
-    ///
-    /// [`get_path`]: Self::get_path
-    /// [manifest]: Self
-    pub fn get_path_direct(name: &str) -> syn::Path {
-        Self::default().get_path(name)
-    }
-
-    /// Returns the path for the crate with the given name.
     pub fn get_path(&self, name: &str) -> syn::Path {
         self.maybe_get_path(name)
             .unwrap_or_else(|| Self::parse_str(name))
@@ -103,19 +88,5 @@ impl FirewheelManifest {
     /// [`try_parse_str`]: Self::try_parse_str
     pub fn parse_str<T: syn::parse::Parse>(path: &str) -> T {
         Self::try_parse_str(path).unwrap()
-    }
-
-    /// Attempt to get a subcrate [path](syn::Path) under Firewheel by [name](str)
-    pub fn get_subcrate(&self, subcrate: &str) -> Option<syn::Path> {
-        self.maybe_get_path(FIREWHEEL)
-            .map(|bevy_path| {
-                let mut segments = bevy_path.segments;
-                segments.push(FirewheelManifest::parse_str(subcrate));
-                syn::Path {
-                    leading_colon: None,
-                    segments,
-                }
-            })
-            .or_else(|| self.maybe_get_path(&format!("firewheel_{subcrate}")))
     }
 }

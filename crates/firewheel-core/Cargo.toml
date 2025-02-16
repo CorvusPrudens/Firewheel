@@ -17,6 +17,7 @@ all-features = true
 [features]
 symphonium = ["dep:symphonium"]
 resampler = ["symphonium?/resampler"]
+bevy = ["dep:bevy_ecs"]
 
 [dependencies]
 firewheel-macros.workspace = true
@@ -26,3 +27,4 @@ thunderdome.workspace = true
 symphonium = { version = "0.3", default-features = false, optional = true }
 smallvec.workspace = true
 glam = "0.29"
+bevy_ecs = { version = "0.15", optional = true }

@@ -25,7 +25,7 @@ pub enum NodeEventType {
     /// This only has an effect on certain nodes.
     SequenceCommand(SequenceCommand),
     /// Custom event type.
-    Custom(Box<dyn Any + Send>),
+    Custom(Box<dyn Any + Send + Sync>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 16]),
 }
@@ -43,7 +43,25 @@ pub enum ParamData {
     Bool(bool),
     Vector2D(Vec2),
     Vector3D(Vec3),
-    Any(Box<Box<dyn Any + Send>>),
+    Any(Box<Box<dyn Any + Send + Sync>>),
+}
+
+impl ParamData {
+    /// Construct a [`ParamData::Any`] variant.
+    pub fn any<T: Any + Send + Sync>(value: T) -> Self {
+        Self::Any(Box::new(Box::new(value)))
+    }
+
+    /// Try to downcast [`ParamData::Any`] into `T`.
+    ///
+    /// If this enum doesn't hold [`ParamData::Any`] or
+    /// the downcast fails, this returns `None`.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        match self {
+            Self::Any(any) => any.downcast_ref(),
+            _ => None,
+        }
+    }
 }
 
 macro_rules! param_data_from {

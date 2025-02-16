@@ -80,6 +80,8 @@ spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream_nodes = ["firewheel-nodes/stream"]
+# Enables `Component` derive macros for node parameters
+bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.2.4-beta.0" }

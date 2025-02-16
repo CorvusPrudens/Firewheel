@@ -15,17 +15,45 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning.
 
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(Component))]
+#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumePanParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    normalized_volume: f32,
+    pub normalized_volume: f32,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
     /// fully right.
-    pan: f32,
+    pub pan: f32,
     /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
     /// to the corresponding gain values for the left and right channels.
     pub pan_law: PanLaw,
+}
+
+impl Patch for VolumePanParams {
+    fn patch(
+        &mut self,
+        data: &firewheel_core::event::ParamData,
+        path: &[u32],
+    ) -> Result<(), firewheel_core::diff::PatchError> {
+        match path.first() {
+            Some(0) => {
+                let volume: f32 = data.try_into()?;
+                self.normalized_volume = volume.max(0.0);
+
+                if self.normalized_volume < 0.00001 {
+                    self.normalized_volume = 0.0;
+                }
+
+                Ok(())
+            }
+            Some(1) => {
+                let pan: f32 = data.try_into()?;
+                self.pan = pan.clamp(-1.0, 1.0);
+                Ok(())
+            }
+            Some(2) => self.pan_law.patch(data, &path[1..]),
+            _ => Err(firewheel_core::diff::PatchError::InvalidPath),
+        }
+    }
 }
 
 impl VolumePanParams {
@@ -35,28 +63,6 @@ impl VolumePanParams {
             params: *self,
             config,
         }
-    }
-
-    /// Get the current volume.
-    pub fn volume(&self) -> f32 {
-        self.normalized_volume
-    }
-
-    /// Get the current pan.
-    pub fn pan(&self) -> f32 {
-        self.pan
-    }
-
-    pub fn set_volume(&mut self, volume: f32) {
-        self.normalized_volume = volume.max(0.0);
-
-        if self.normalized_volume < 0.00001 {
-            self.normalized_volume = 0.0;
-        }
-    }
-
-    pub fn set_pan(&mut self, pan: f32) {
-        self.pan = pan.clamp(-1.0, 1.0);
     }
 
     pub fn compute_gains(&self) -> (f32, f32) {
