@@ -1,4 +1,4 @@
-use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, NodeID};
+use firewheel_core::node::{AudioNode, AudioNodeInfo, NodeID};
 use smallvec::SmallVec;
 use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
@@ -13,7 +13,7 @@ use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
 pub struct NodeEntry {
     pub id: NodeID,
     pub info: AudioNodeInfo,
-    pub constructor: Box<dyn AudioNodeConstructor>,
+    pub constructor: Box<dyn AudioNode>,
     pub activated: bool,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
@@ -22,7 +22,7 @@ pub struct NodeEntry {
 }
 
 impl NodeEntry {
-    pub fn new(info: AudioNodeInfo, constructor: Box<dyn AudioNodeConstructor>) -> Self {
+    pub fn new(info: AudioNodeInfo, constructor: Box<dyn AudioNode>) -> Self {
         Self {
             id: NodeID::DANGLING,
             info,

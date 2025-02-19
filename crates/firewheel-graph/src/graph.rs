@@ -11,7 +11,9 @@ use thunderdome::Arena;
 
 use crate::error::{AddEdgeError, CompileGraphError};
 use crate::FirewheelConfig;
-use firewheel_core::node::{AudioNodeConstructor, AudioNodeInfo, DummyConfig, NodeID};
+use firewheel_core::node::{
+    AudioNode, AudioNodeConstructor, AudioNodeInfo, Constructor, DummyConfig, NodeID,
+};
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
@@ -103,10 +105,17 @@ impl AudioGraph {
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node(&mut self, node: impl AudioNodeConstructor + 'static) -> NodeID {
-        let info = node.info();
+    pub fn add_node<T>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID
+    where
+        T: AudioNodeConstructor + 'static,
+    {
+        let constructor = Constructor::new(node, config);
+        let info = constructor.info();
 
-        let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
+        let new_id = NodeID(
+            self.nodes
+                .insert(NodeEntry::new(info, Box::new(constructor))),
+        );
         self.nodes[new_id.0].id = new_id;
 
         self.needs_compile = true;

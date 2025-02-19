@@ -11,7 +11,9 @@ use firewheel_core::{
 pub struct StereoToMonoNode;
 
 impl AudioNodeConstructor for StereoToMonoNode {
-    fn info(&self) -> AudioNodeInfo {
+    type Configuration = ();
+
+    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stereo_to_mono",
             channel_config: ChannelConfig {
@@ -23,10 +25,11 @@ impl AudioNodeConstructor for StereoToMonoNode {
     }
 
     fn processor(
-        &mut self,
+        &self,
+        _: &Self::Configuration,
         _stream_info: &firewheel_core::StreamInfo,
-    ) -> Box<dyn AudioNodeProcessor> {
-        Box::new(StereoToMonoProcessor {})
+    ) -> impl AudioNodeProcessor {
+        StereoToMonoProcessor
     }
 }
 

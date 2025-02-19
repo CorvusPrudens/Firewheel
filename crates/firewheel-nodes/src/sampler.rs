@@ -394,37 +394,43 @@ pub struct Constructor {
 }
 
 impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    type Configuration = SamplerConfig;
+
+    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "sampler",
             channel_config: ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
-                num_outputs: self.config.channels.get(),
+                num_outputs: config.channels.get(),
             },
             uses_events: true,
         }
     }
 
-    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        let stop_declicker_buffers = if self.config.num_declickers == 0 {
+    fn processor(
+        &self,
+        config: &Self::Configuration,
+        stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        let stop_declicker_buffers = if config.num_declickers == 0 {
             None
         } else {
             Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
-                self.config.num_declickers as usize,
-                NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
+                config.num_declickers as usize,
+                NonZeroUsize::new(config.channels.get().get() as usize).unwrap(),
                 stream_info.declick_frames.get() as usize,
             ))
         };
 
-        let mut sampler = Box::new(SamplerProcessor {
-            config: self.config.clone(),
+        let mut sampler = SamplerProcessor {
+            config: config.clone(),
             params: SamplerParams { sequence: None },
             shared_state: ArcGc::clone(&self.shared_state),
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             playback_state: PlaybackState::Stopped,
             stop_declicker_buffers,
-            stop_declickers: smallvec::smallvec![StopDeclickerState::default(); self.config.num_declickers as usize],
+            stop_declickers: smallvec::smallvec![StopDeclickerState::default(); config.num_declickers as usize],
             num_active_stop_declickers: 0,
             playback_start_time_seconds: ClockSeconds::default(),
             playback_pause_time_seconds: ClockSeconds::default(),
@@ -432,11 +438,11 @@ impl AudioNodeConstructor for Constructor {
             playback_pause_time_frames: ClockSamples::default(),
             start_delay: None,
             sample_rate: stream_info.sample_rate.get() as f64,
-        });
+        };
 
         sampler.set_sequence(
             &mut self.params.sequence.clone(),
-            self.config.channels.get().get() as usize,
+            config.channels.get().get() as usize,
         );
 
         sampler

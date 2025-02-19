@@ -56,15 +56,15 @@ impl Patch for VolumePanParams {
     }
 }
 
-impl VolumePanParams {
-    /// Create a volume pan node constructor using these parameters.
-    pub fn constructor(&self, config: VolumeNodeConfig) -> Constructor {
-        Constructor {
-            params: *self,
-            config,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumePanNodeConfig {
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.01` (10ms).
+    pub smooth_secs: f32,
+}
 
+impl VolumePanParams {
     pub fn compute_gains(&self) -> (f32, f32) {
         let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
@@ -84,14 +84,10 @@ impl Default for VolumePanParams {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Constructor {
-    pub params: VolumePanParams,
-    pub config: VolumeNodeConfig,
-}
+impl AudioNodeConstructor for VolumePanParams {
+    type Configuration = VolumeNodeConfig;
 
-impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "volume_pan",
             channel_config: ChannelConfig {
@@ -103,16 +99,17 @@ impl AudioNodeConstructor for Constructor {
     }
 
     fn processor(
-        &mut self,
+        &self,
+        config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
-    ) -> Box<dyn AudioNodeProcessor> {
-        let (gain_l, gain_r) = self.params.compute_gains();
+    ) -> impl AudioNodeProcessor {
+        let (gain_l, gain_r) = self.compute_gains();
 
-        Box::new(Processor {
+        Processor {
             gain_l: SmoothedParam::new(
                 gain_l,
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
@@ -120,14 +117,14 @@ impl AudioNodeConstructor for Constructor {
             gain_r: SmoothedParam::new(
                 gain_r,
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
             ),
-            params: self.params,
+            params: *self,
             prev_block_was_silent: true,
-        })
+        }
     }
 }
 

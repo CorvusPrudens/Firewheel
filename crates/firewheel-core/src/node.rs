@@ -38,13 +38,52 @@ pub struct AudioNodeInfo {
 }
 
 pub trait AudioNodeConstructor {
+    type Configuration: Default;
+
     /// Get information about this node.
     ///
-    /// This method is only called once after node is added to the audio graph.
-    fn info(&self) -> AudioNodeInfo;
+    /// This method is only called once after the node is added to the audio graph.
+    fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo;
 
     /// Construct a processor for this node.
-    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn processor(
+        &self,
+        configuration: &Self::Configuration,
+        stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor;
+}
+
+/// A type-erased [`AudioNodeConstructor`].
+pub trait AudioNode {
+    fn info(&self) -> AudioNodeInfo;
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+}
+
+/// Pairs constructors with their configurations.
+///
+/// This is useful for type-erasing an [`AudioNodeConstructor`].
+pub struct Constructor<T, C> {
+    constructor: T,
+    configuration: C,
+}
+
+impl<T: AudioNodeConstructor> Constructor<T, T::Configuration> {
+    pub fn new(constructor: T, configuration: Option<T::Configuration>) -> Self {
+        Self {
+            constructor,
+            configuration: configuration.unwrap_or_default(),
+        }
+    }
+}
+
+impl<T: AudioNodeConstructor> AudioNode for Constructor<T, T::Configuration> {
+    fn info(&self) -> AudioNodeInfo {
+        self.constructor.info(&self.configuration)
+    }
+
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(self.constructor.processor(&self.configuration, stream_info))
+    }
 }
 
 /// The trait describing the realtime processor counterpart to an
@@ -211,7 +250,7 @@ pub struct DummyConfig {
     pub channel_config: ChannelConfig,
 }
 
-impl AudioNodeConstructor for DummyConfig {
+impl AudioNode for DummyConfig {
     fn info(&self) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "dummy",
@@ -220,7 +259,7 @@ impl AudioNodeConstructor for DummyConfig {
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(DummyProcessor)
     }
 }
