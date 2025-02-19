@@ -1,6 +1,6 @@
 use crate::{
     collector::ArcGc,
-    event::{NodeEventType, ParamData},
+    event::{NodeEventList, NodeEventType, ParamData},
 };
 
 use smallvec::SmallVec;
@@ -40,16 +40,35 @@ pub trait Patch {
 
     /// Patch a set of parameters with incoming events.
     ///
+    /// Returns `true` if any parameters have changed.
+    ///
     /// This is usefule as a convenience method for extracting the path
-    /// and data components from a top-level [`NodeEventType`].
-    /// It also allows types to use all of [`NodeEventType`]'s variants
-    /// for patching, if necessary.
-    fn patch_params(&mut self, event: &NodeEventType) {
+    /// and data components from a [`NodeEventType`]. Errors produced
+    /// here are ignored.
+    fn patch_event(&mut self, event: &NodeEventType) -> bool {
         if let NodeEventType::Param { data, path } = event {
             // NOTE: It may not be ideal to ignore errors.
             // Would it be possible to log these in debug mode?
-            let _ = self.patch(data, path);
+            self.patch(data, path).is_ok()
+        } else {
+            false
         }
+    }
+
+    /// Patch a set of parameters with a list of incoming events.
+    ///
+    /// Returns `true` if any parameters have changed.
+    ///
+    /// This is usefule as a convenience method for patching parameters
+    /// directly from a [`NodeEventList`]. Errors produced here are ignored.
+    fn patch_list(&mut self, mut event_list: NodeEventList) -> bool {
+        let mut changed = false;
+
+        event_list.for_each(|e| {
+            changed |= self.patch_event(e);
+        });
+
+        changed
     }
 }
 

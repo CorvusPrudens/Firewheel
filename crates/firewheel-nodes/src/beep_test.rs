@@ -92,7 +92,7 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        events: NodeEventList,
         _proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
@@ -100,13 +100,7 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        let mut params_changed = false;
-        events.for_each(|event| {
-            self.params.patch_params(event);
-            params_changed = true;
-        });
-
-        if params_changed {
+        if self.params.patch_list(events) {
             self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
             self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
         }

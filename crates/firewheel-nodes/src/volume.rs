@@ -127,20 +127,18 @@ impl AudioNodeProcessor for VolumeProcessor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        events: NodeEventList,
         proc_info: &ProcInfo,
         scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        events.for_each(|event| {
-            self.params.patch_params(event);
-
+        if self.params.patch_list(events) {
             self.gain.set_value(self.params.normalized_volume);
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
                 self.gain.reset();
             }
-        });
+        }
 
         self.prev_block_was_silent = false;
 
