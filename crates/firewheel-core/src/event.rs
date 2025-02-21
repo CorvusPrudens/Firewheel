@@ -1,6 +1,8 @@
-use std::any::Any;
+use core::any::Any;
 
-use crate::{clock::EventDelay, node::NodeID};
+pub use glam::{Vec2, Vec3};
+
+use crate::{clock::EventDelay, diff::ParamPath, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`].
 pub struct NodeEvent {
@@ -12,73 +14,85 @@ pub struct NodeEvent {
 
 /// An event type associated with an [`AudioNodeProcessor`].
 pub enum NodeEventType {
-    /// Set the value of an `f32` parameter.
-    F32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f32,
-    },
-    /// Set the value of an `f64` parameter.
-    F64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: f64,
-    },
-    /// Set the value of an `i32` parameter.
-    I32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: i32,
-    },
-    /// Set the value of an `u32` parameter.
-    U32Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u32,
-    },
-    /// Set the value of an `u64` parameter.
-    U64Param {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: u64,
-    },
-    /// Set the value of a `bool` parameter.
-    BoolParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: bool,
-    },
-    /// Set the value of a parameter containing two
-    /// `f32` elements.
-    Vector2DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 2],
-    },
-    /// Set the value of a parameter containing three
-    /// `f32` elements.
-    Vector3DParam {
-        /// The unique ID of the paramater.
-        id: u32,
-        /// The parameter value.
-        value: [f32; 3],
+    Param {
+        /// Data for a specific parameter.
+        data: ParamData,
+        /// The path to the parameter.
+        path: ParamPath,
     },
     /// A command to control the current sequence in a node.
     ///
     /// This only has an effect on certain nodes.
     SequenceCommand(SequenceCommand),
     /// Custom event type.
-    Custom(Box<dyn Any + Send>),
+    Custom(Box<dyn Any + Send + Sync>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 16]),
 }
+
+/// Data that can be used to patch an individual parameter.
+///
+/// The [`ParamData::Any`] variant is double-boxed to keep
+/// its size small on the stack.
+pub enum ParamData {
+    F32(f32),
+    F64(f64),
+    I32(i32),
+    U32(u32),
+    U64(u64),
+    Bool(bool),
+    Vector2D(Vec2),
+    Vector3D(Vec3),
+    Any(Box<Box<dyn Any + Send + Sync>>),
+}
+
+impl ParamData {
+    /// Construct a [`ParamData::Any`] variant.
+    pub fn any<T: Any + Send + Sync>(value: T) -> Self {
+        Self::Any(Box::new(Box::new(value)))
+    }
+
+    /// Try to downcast [`ParamData::Any`] into `T`.
+    ///
+    /// If this enum doesn't hold [`ParamData::Any`] or
+    /// the downcast fails, this returns `None`.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        match self {
+            Self::Any(any) => any.downcast_ref(),
+            _ => None,
+        }
+    }
+}
+
+macro_rules! param_data_from {
+    ($ty:ty, $variant:ident) => {
+        impl From<$ty> for ParamData {
+            fn from(value: $ty) -> Self {
+                Self::$variant(value)
+            }
+        }
+
+        impl TryInto<$ty> for &ParamData {
+            type Error = crate::diff::PatchError;
+
+            fn try_into(self) -> Result<$ty, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(*value),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
+            }
+        }
+    };
+}
+
+param_data_from!(f32, F32);
+param_data_from!(f64, F64);
+param_data_from!(i32, I32);
+param_data_from!(u32, U32);
+param_data_from!(u64, U64);
+param_data_from!(bool, Bool);
+param_data_from!(Vec2, Vector2D);
+param_data_from!(Vec3, Vector3D);
 
 /// A command to control the current sequence in a node.
 ///

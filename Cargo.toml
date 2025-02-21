@@ -28,6 +28,7 @@ members = [
     "crates/firewheel-cpal",
     "crates/firewheel-graph",
     "crates/firewheel-nodes",
+    "crates/firewheel-macros",
     "examples/beep_test",
     "examples/cpal_input",
     "examples/custom_nodes",
@@ -79,6 +80,8 @@ spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream_nodes = ["firewheel-nodes/stream"]
+# Enables `Component` derive macros for node parameters
+bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.2.4-beta.0" }
@@ -99,7 +102,15 @@ bitflags = "2.6"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
 fixed-resample = { version = "0.4.2", default-features = false }
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.0" }
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "core"
+harness = false

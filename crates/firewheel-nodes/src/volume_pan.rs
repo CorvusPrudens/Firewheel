@@ -1,7 +1,8 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
-    event::{NodeEventList, NodeEventType},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -14,7 +15,8 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning.
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumePanParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
@@ -23,66 +25,43 @@ pub struct VolumePanParams {
     pub pan: f32,
     /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
     /// to the corresponding gain values for the left and right channels.
-    ///
-    /// Use `NodeEventType::U32Param` for this parameter.
     pub pan_law: PanLaw,
 }
 
-impl VolumePanParams {
-    /// The ID of the volume parameter.
-    pub const ID_VOLUME: u32 = 0;
-    /// The ID of the pan parameter.
-    pub const ID_PAN: u32 = 1;
-    /// The ID of the "pan law" parameter.
-    pub const ID_PAN_LAW: u32 = 2;
+impl Patch for VolumePanParams {
+    fn patch(
+        &mut self,
+        data: &firewheel_core::event::ParamData,
+        path: &[u32],
+    ) -> Result<(), firewheel_core::diff::PatchError> {
+        match path.first() {
+            Some(0) => {
+                let volume: f32 = data.try_into()?;
+                self.normalized_volume = volume.max(0.0);
 
+                if self.normalized_volume < 0.00001 {
+                    self.normalized_volume = 0.0;
+                }
+
+                Ok(())
+            }
+            Some(1) => {
+                let pan: f32 = data.try_into()?;
+                self.pan = pan.clamp(-1.0, 1.0);
+                Ok(())
+            }
+            Some(2) => self.pan_law.patch(data, &path[1..]),
+            _ => Err(firewheel_core::diff::PatchError::InvalidPath),
+        }
+    }
+}
+
+impl VolumePanParams {
     /// Create a volume pan node constructor using these parameters.
     pub fn constructor(&self, config: VolumeNodeConfig) -> Constructor {
         Constructor {
             params: *self,
             config,
-        }
-    }
-
-    /// Return an event type to sync the volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: VolumePanParams::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    /// Return an event type to sync the pan parameter.
-    pub fn sync_pan_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: VolumePanParams::ID_PAN,
-            value: self.pan,
-        }
-    }
-
-    /// Return an event type to sync the pan law parameter.
-    pub fn sync_pan_law_event(&self) -> NodeEventType {
-        NodeEventType::U32Param {
-            id: VolumePanParams::ID_PAN_LAW,
-            value: self.pan_law as u32,
-        }
-    }
-
-    /// Sync the given parameters.
-    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
-        if self.normalized_volume != params.normalized_volume {
-            self.normalized_volume = params.normalized_volume;
-            (queue_event)(self.sync_volume_event());
-        }
-
-        if self.pan != params.pan {
-            self.pan = params.pan;
-            (queue_event)(self.sync_pan_event());
-        }
-
-        if self.pan_law != params.pan_law {
-            self.pan_law = params.pan_law;
-            (queue_event)(self.sync_pan_law_event());
         }
     }
 
@@ -166,39 +145,11 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        events: NodeEventList,
         proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        let mut params_changed = false;
-
-        events.for_each(|event| match event {
-            NodeEventType::F32Param { id, value } => match *id {
-                VolumePanParams::ID_VOLUME => {
-                    self.params.normalized_volume = value.max(0.0);
-
-                    if self.params.normalized_volume < 0.00001 {
-                        self.params.normalized_volume = 0.0;
-                    }
-
-                    params_changed = true;
-                }
-                VolumePanParams::ID_PAN => {
-                    self.params.pan = value.clamp(-1.0, 1.0);
-                    params_changed = true;
-                }
-                _ => {}
-            },
-            NodeEventType::U32Param { id, value } => {
-                if *id == VolumePanParams::ID_PAN_LAW {
-                    self.params.pan_law = PanLaw::from_u32(*value);
-                    params_changed = true;
-                }
-            }
-            _ => {}
-        });
-
-        if params_changed {
+        if self.params.patch_list(events) {
             let (gain_l, gain_r) = self.params.compute_gains();
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);

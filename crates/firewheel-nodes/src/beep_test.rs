@@ -1,7 +1,8 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
-    event::{NodeEventList, NodeEventType},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -12,7 +13,8 @@ use firewheel_core::{
 ///
 /// Note that because this node is for testing purposes, it does not
 /// bother with parameter smoothing.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct BeepTestParams {
     /// The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
     /// value for testing is `440` (middle C).
@@ -28,57 +30,9 @@ pub struct BeepTestParams {
 }
 
 impl BeepTestParams {
-    /// The ID of the volume parameter.
-    pub const ID_VOLUME: u32 = 0;
-    /// The ID of the frequency parameter.
-    pub const ID_FREQUENCY: u32 = 1;
-    /// The ID of the enabled parameter.
-    pub const ID_ENABLED: u32 = 2;
-
     /// Create a beep test node constructor using these parameters.
     pub fn constructor(&self) -> Constructor {
         Constructor { params: *self }
-    }
-
-    /// Return an event type to sync the volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    /// Return an event type to sync the frequency parameter.
-    pub fn sync_freq_hz_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_FREQUENCY,
-            value: self.freq_hz,
-        }
-    }
-
-    /// Return an event type to sync the enabled parameter.
-    pub fn sync_enabled_event(&mut self) -> NodeEventType {
-        NodeEventType::BoolParam {
-            id: Self::ID_ENABLED,
-            value: self.enabled,
-        }
-    }
-
-    pub fn sync_from(&mut self, params: &Self, mut queue_event: impl FnMut(NodeEventType)) {
-        if self.freq_hz != params.freq_hz {
-            self.freq_hz = params.freq_hz;
-            (queue_event)(self.sync_freq_hz_event());
-        }
-
-        if self.normalized_volume != params.normalized_volume {
-            self.normalized_volume = params.normalized_volume;
-            (queue_event)(self.sync_volume_event());
-        }
-
-        if self.enabled != params.enabled {
-            self.enabled = params.enabled;
-            (queue_event)(self.sync_enabled_event());
-        }
     }
 }
 
@@ -119,6 +73,7 @@ impl AudioNodeConstructor for Constructor {
             gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
             sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
             enabled: self.params.enabled,
+            params: self.params,
         })
     }
 }
@@ -129,6 +84,7 @@ struct Processor {
     gain: f32,
     sample_rate_recip: f32,
     enabled: bool,
+    params: BeepTestParams,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -136,7 +92,7 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         _inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        events: NodeEventList,
         _proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
@@ -144,21 +100,10 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        events.for_each(|event| match event {
-            NodeEventType::BoolParam { id, value } => {
-                if *id == BeepTestParams::ID_ENABLED {
-                    self.enabled = *value;
-                }
-            }
-            NodeEventType::F32Param { id, value } => match *id {
-                BeepTestParams::ID_VOLUME => self.gain = normalized_volume_to_raw_gain(*value),
-                BeepTestParams::ID_FREQUENCY => {
-                    self.phasor_inc = value.clamp(20.0, 20_000.0) * self.sample_rate_recip
-                }
-                _ => {}
-            },
-            _ => {}
-        });
+        if self.params.patch_list(events) {
+            self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
+            self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+        }
 
         if !self.enabled {
             return ProcessStatus::ClearAllOutputs;
