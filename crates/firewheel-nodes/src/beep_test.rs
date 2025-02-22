@@ -72,7 +72,6 @@ impl AudioNodeConstructor for Constructor {
                 * stream_info.sample_rate_recip as f32,
             gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
             sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
-            enabled: self.params.enabled,
             params: self.params,
         })
     }
@@ -83,7 +82,6 @@ struct Processor {
     phasor_inc: f32,
     gain: f32,
     sample_rate_recip: f32,
-    enabled: bool,
     params: BeepTestParams,
 }
 
@@ -103,10 +101,9 @@ impl AudioNodeProcessor for Processor {
         if self.params.patch_list(events) {
             self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
             self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
-            self.enabled = self.params.enabled;
         }
 
-        if !self.enabled {
+        if !self.params.enabled {
             return ProcessStatus::ClearAllOutputs;
         }
 
