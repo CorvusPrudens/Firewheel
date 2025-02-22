@@ -4,7 +4,7 @@ pub use glam::{Vec2, Vec3};
 
 use crate::{clock::EventDelay, diff::ParamPath, node::NodeID};
 
-/// An event sent to an [`AudioNodeProcessor`].
+/// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEvent {
     /// The ID of the node that should receive the event.
     pub node_id: NodeID,
@@ -12,7 +12,7 @@ pub struct NodeEvent {
     pub event: NodeEventType,
 }
 
-/// An event type associated with an [`AudioNodeProcessor`].
+/// An event type associated with an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub enum NodeEventType {
     Param {
         /// Data for a specific parameter.
@@ -113,7 +113,7 @@ pub enum SequenceCommand {
     Stop,
 }
 
-/// A list of events for an [`AudioNodeProcessor`].
+/// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {
     event_buffer: &'a mut [NodeEvent],
     indices: &'a [u32],

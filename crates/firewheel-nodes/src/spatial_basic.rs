@@ -277,18 +277,11 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        events: NodeEventList,
         proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        let mut params_changed = false;
-
-        events.for_each(|event| {
-            self.params.patch_params(event);
-            params_changed = true;
-        });
-
-        if params_changed {
+        if self.params.patch_list(events) {
             let computed_values = self.params.compute_values();
 
             self.gain_l.set_value(computed_values.gain_l);
@@ -402,7 +395,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        return ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT);
+        ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {

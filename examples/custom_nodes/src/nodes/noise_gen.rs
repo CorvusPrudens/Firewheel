@@ -2,8 +2,9 @@
 
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
-    event::{NodeEventList, NodeEventType},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -12,7 +13,7 @@ use firewheel::{
 };
 
 // The parameter struct holds all of the parameters of the node as plain values.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct NoiseGenParams {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     ///
@@ -32,10 +33,6 @@ impl Default for NoiseGenParams {
 }
 
 impl NoiseGenParams {
-    // Store the IDs of your parameters as constants.
-    pub const ID_VOLUME: u32 = 0;
-    pub const ID_ENABLED: u32 = 1;
-
     // Add a method to create a new node constructor using these parameters.
     //
     // You may also pass any additional configuration for the node here. Here
@@ -44,24 +41,6 @@ impl NoiseGenParams {
         Constructor {
             params: *self,
             seed: seed.unwrap_or(17),
-        }
-    }
-
-    // A helper method to generate an event type to sync the new value of the
-    // volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    // A helper method to generate an event type to sync the new value of the
-    // enabled parameter.
-    pub fn sync_enabled_event(&self) -> NodeEventType {
-        NodeEventType::BoolParam {
-            id: Self::ID_ENABLED,
-            value: self.enabled,
         }
     }
 }
@@ -105,7 +84,7 @@ impl AudioNodeConstructor for Constructor {
         Box::new(Processor {
             fpd: seed,
             gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
-            enabled: self.params.enabled,
+            params: self.params,
         })
     }
 }
@@ -113,8 +92,8 @@ impl AudioNodeConstructor for Constructor {
 // The realtime processor counterpart to your node.
 struct Processor {
     fpd: u32,
+    params: NoiseGenParams,
     gain: f32,
-    enabled: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -128,37 +107,18 @@ impl AudioNodeProcessor for Processor {
         // gave in `info()`.`
         outputs: &mut [&mut [f32]],
         // The list of events for our node to process.
-        mut events: NodeEventList,
+        events: NodeEventList,
         // Additional information about the process.
         _proc_info: &ProcInfo,
         // Optional scratch buffers that can be used for processing.
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         // Process the events.
-        events.for_each(|event| {
-            match event {
-                NodeEventType::F32Param { id, value } => {
-                    if *id == NoiseGenParams::ID_VOLUME {
-                        // Note, while parameter smoothing doesn't really matter for white
-                        // noise, you will generally want to smooth parameters. See the
-                        // custom filter node for examples of how to do that.
-                        self.gain = normalized_volume_to_raw_gain(*value);
-                    }
-                }
-                NodeEventType::BoolParam { id, value } => {
-                    if *id == NoiseGenParams::ID_ENABLED {
-                        // Note, while declicking doesn't matter for white noise, you may
-                        // want to declick the output when turning on/off a generator
-                        // node. See the custom filter node for an example of how to do
-                        // that.
-                        self.enabled = *value;
-                    }
-                }
-                _ => {}
-            }
-        });
+        if self.params.patch_list(events) {
+            self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+        }
 
-        if !self.enabled {
+        if !self.params.enabled {
             // Tell the engine to automatically and efficiently clear the output buffers
             // for us. This is equivalent to doing:
             // ```

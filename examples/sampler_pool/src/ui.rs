@@ -74,12 +74,13 @@ impl App for DemoApp {
                         // you would want to reset the parameters to the desired state when playing
                         // a new sample.
                         fx_chain_state.fx_chain.volume.normalized_volume = 1.0;
-                        cx.queue_event_for(
-                            // The nodes IDs appear in the same order as what was returned in
-                            // [`MyCustomChain::construct_and_connect`].
-                            fx_chain_state.node_ids[1],
-                            fx_chain_state.fx_chain.volume.sync_volume_event(),
-                        );
+
+                        // The nodes IDs appear in the same order as what was returned in
+                        // [`MyCustomChain::construct_and_connect`].
+                        fx_chain_state
+                            .fx_chain
+                            .volume
+                            .update_memo(&mut cx.event_queue(fx_chain_state.node_ids[1]));
                     },
                 );
             }

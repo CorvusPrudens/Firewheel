@@ -176,9 +176,6 @@ impl FirewheelProcessorInner {
     // TODO: Add a `process_deinterleaved` method.
 
     /// Process the given buffers of audio data.
-    ///
-    /// If this returns [`ProcessStatus::DropProcessor`], then this
-    /// [`FirewheelProcessorInner`] must be dropped.
     pub fn process_interleaved(
         &mut self,
         input: &[f32],

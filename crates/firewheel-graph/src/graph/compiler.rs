@@ -34,7 +34,7 @@ impl NodeEntry {
     }
 }
 
-/// The index of an input/output port on a particular [Node].
+/// The index of an input/output port on a particular node.
 pub type PortIdx = u32;
 
 /// A globally unique identifier for an [Edge].
@@ -203,7 +203,7 @@ impl<'a> GraphIR<'a> {
     }
 
     /// Sort the nodes topologically using Kahn's algorithm.
-    /// https://www.geeksforgeeks.org/topological-sorting-indegree-based-solution/
+    /// <https://www.geeksforgeeks.org/topological-sorting-indegree-based-solution/>
     fn sort_topologically(mut self, build_schedule: bool) -> Result<Self, CompileGraphError> {
         let mut in_degree = vec![0i32; self.nodes.capacity()];
         let mut queue = VecDeque::with_capacity(self.nodes.len());

@@ -36,77 +36,51 @@ impl App for DemoApp {
         egui::CentralPanel::default().show(cx, |ui| {
             ui.label("Noise gen");
 
-            if ui
-                .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.noise_gen_params.normalized_volume,
-                        0.0..=1.0,
-                    )
-                    .text("volume"),
+            ui.add(
+                egui::Slider::new(
+                    &mut self.audio_system.noise_gen_params.normalized_volume,
+                    0.0..=1.0,
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.noise_gen_node,
-                    self.audio_system.noise_gen_params.sync_volume_event(),
-                );
-            }
+                .text("volume"),
+            );
 
-            if ui
-                .checkbox(&mut self.audio_system.noise_gen_params.enabled, "enabled")
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.noise_gen_node,
-                    self.audio_system.noise_gen_params.sync_enabled_event(),
-                );
-            }
+            ui.checkbox(&mut self.audio_system.noise_gen_params.enabled, "enabled");
+
+            self.audio_system.noise_gen_params.update_memo(
+                &mut self
+                    .audio_system
+                    .cx
+                    .event_queue(self.audio_system.noise_gen_node),
+            );
 
             ui.separator();
             ui.label("Filter");
 
-            if ui
-                .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.filter_params.normalized_volume,
-                        0.0..=1.0,
-                    )
-                    .text("volume"),
+            ui.add(
+                egui::Slider::new(
+                    &mut self.audio_system.filter_params.normalized_volume,
+                    0.0..=1.0,
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.filter_node,
-                    self.audio_system.filter_params.sync_volume_event(),
-                );
-            }
+                .text("volume"),
+            );
 
-            if ui
-                .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.filter_params.cutoff_hz,
-                        20.0..=20_000.0,
-                    )
-                    .text("cutoff")
-                    .logarithmic(true),
+            ui.add(
+                egui::Slider::new(
+                    &mut self.audio_system.filter_params.cutoff_hz,
+                    20.0..=20_000.0,
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.filter_node,
-                    self.audio_system.filter_params.sync_cutoff_event(),
-                );
-            }
+                .text("cutoff")
+                .logarithmic(true),
+            );
 
-            if ui
-                .checkbox(&mut self.audio_system.filter_params.enabled, "enabled")
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.filter_node,
-                    self.audio_system.filter_params.sync_enabled_event(),
-                );
-            }
+            ui.checkbox(&mut self.audio_system.filter_params.enabled, "enabled");
+
+            self.audio_system.filter_params.update_memo(
+                &mut self
+                    .audio_system
+                    .cx
+                    .event_queue(self.audio_system.filter_node),
+            );
 
             ui.separator();
             ui.label("RMS meter");

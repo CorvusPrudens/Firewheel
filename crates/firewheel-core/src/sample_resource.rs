@@ -448,6 +448,8 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
 /// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
 /// * `sample_rate` - The sample rate of the audio stream.
 /// * `resample_quality` - The quality of the resampler to use.
+///
+/// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
 #[cfg(feature = "symphonium")]
 pub fn load_audio_file_from_source(
     loader: &mut symphonium::SymphoniumLoader,

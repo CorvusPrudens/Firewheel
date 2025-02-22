@@ -75,7 +75,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         source.randomize(&mut rng);
     }
 
-    let mut target = ShallowParams::default();
+    let target = ShallowParams::default();
     let mut messages = Vec::with_capacity(128 * 3);
 
     c.bench_function("diffing shallow", |b| {
@@ -104,7 +104,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("patching shallow", |b| {
         b.iter(|| {
             for message in &messages {
-                target.patch_params(&message);
+                target.patch_event(&message);
                 black_box(&target);
             }
         })
@@ -125,7 +125,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("patching three", |b| {
         b.iter(|| {
             for message in &messages {
-                target.patch_params(&message);
+                target.patch_event(&message);
                 black_box(&target);
             }
         })
@@ -148,7 +148,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.patch_params(&message);
+                target.patch_event(&message);
                 black_box(&target);
             }
         })
@@ -170,7 +170,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.patch_params(&message);
+                target.patch_event(&message);
                 black_box(&target);
             }
         })
@@ -192,7 +192,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.patch_params(&message);
+                target.patch_event(&message);
                 black_box(&target);
             }
         })

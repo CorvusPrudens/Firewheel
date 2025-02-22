@@ -7,7 +7,7 @@ use firewheel::{
         beep_test::BeepTestParams, volume::VolumeParams, volume_pan::VolumePanParams,
         StereoToMonoNode,
     },
-    FirewheelContext,
+    ContextQueue, CpalBackend, FirewheelContext,
 };
 
 use crate::ui::GuiAudioNode;
@@ -58,20 +58,20 @@ impl AudioSystem {
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {
                 id,
-                params: BeepTestParams::default(),
+                params: Default::default(),
             },
             NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
             NodeType::VolumeMono => GuiAudioNode::VolumeMono {
                 id,
-                params: VolumeParams::default(),
+                params: Default::default(),
             },
             NodeType::VolumeStereo => GuiAudioNode::VolumeStereo {
                 id,
-                params: VolumeParams::default(),
+                params: Default::default(),
             },
             NodeType::VolumePan => GuiAudioNode::VolumePan {
                 id,
-                params: VolumePanParams::default(),
+                params: Default::default(),
             },
         }
     }
@@ -131,7 +131,12 @@ impl AudioSystem {
         }
     }
 
+    #[expect(dead_code)]
     pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
         self.cx.queue_event(NodeEvent { node_id, event });
+    }
+
+    pub fn event_queue(&mut self, node_id: NodeID) -> ContextQueue<CpalBackend> {
+        self.cx.event_queue(node_id)
     }
 }

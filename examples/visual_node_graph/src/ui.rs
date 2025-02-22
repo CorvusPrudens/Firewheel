@@ -4,8 +4,9 @@ use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
-use firewheel::nodes::{
-    beep_test::BeepTestParams, volume::VolumeParams, volume_pan::VolumePanParams,
+use firewheel::{
+    diff::Memo,
+    nodes::{beep_test::BeepTestParams, volume::VolumeParams, volume_pan::VolumePanParams},
 };
 
 use crate::system::{AudioSystem, NodeType};
@@ -18,22 +19,22 @@ pub enum GuiAudioNode {
     SystemOut,
     BeepTest {
         id: firewheel::node::NodeID,
-        params: BeepTestParams,
+        params: Memo<BeepTestParams>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
     },
     VolumeMono {
         id: firewheel::node::NodeID,
-        params: VolumeParams,
+        params: Memo<VolumeParams>,
     },
     VolumeStereo {
         id: firewheel::node::NodeID,
-        params: VolumeParams,
+        params: Memo<VolumeParams>,
     },
     VolumePan {
         id: firewheel::node::NodeID,
-        params: VolumePanParams,
+        params: Memo<VolumePanParams>,
     },
 }
 
@@ -283,31 +284,19 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         match snarl.get_node_mut(node).unwrap() {
             GuiAudioNode::BeepTest { id, params } => {
                 ui.vertical(|ui| {
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut params.normalized_volume, 0.0..=1.0)
-                                .text("volume"),
-                        )
-                        .changed()
-                    {
-                        self.audio_system
-                            .queue_event(*id, params.sync_volume_event());
-                    }
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("frequency"),
-                        )
-                        .changed()
-                    {
-                        self.audio_system
-                            .queue_event(*id, params.sync_freq_hz_event());
-                    }
-                    if ui.checkbox(&mut params.enabled, "enabled").changed() {
-                        self.audio_system
-                            .queue_event(*id, params.sync_enabled_event());
-                    }
+                    ui.add(
+                        egui::Slider::new(&mut params.normalized_volume, 0.0..=1.0).text("volume"),
+                    );
+
+                    ui.add(
+                        egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
+                            .logarithmic(true)
+                            .text("frequency"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
             GuiAudioNode::VolumeMono { id, params } => {
@@ -315,8 +304,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     .add(egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"))
                     .changed()
                 {
-                    self.audio_system
-                        .queue_event(*id, params.sync_volume_event());
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
                 }
             }
             GuiAudioNode::VolumeStereo { id, params } => {
@@ -324,28 +312,18 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     .add(egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"))
                     .changed()
                 {
-                    self.audio_system
-                        .queue_event(*id, params.sync_volume_event());
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
                 }
             }
             GuiAudioNode::VolumePan { id, params } => {
                 ui.vertical(|ui| {
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0)
-                                .text("volume"),
-                        )
-                        .changed()
-                    {
-                        self.audio_system
-                            .queue_event(*id, params.sync_volume_event());
-                    }
-                    if ui
-                        .add(egui::Slider::new(&mut params.pan, -1.0..=1.0).text("pan"))
-                        .changed()
-                    {
-                        self.audio_system.queue_event(*id, params.sync_pan_event());
-                    }
+                    ui.add(
+                        egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"),
+                    );
+
+                    ui.add(egui::Slider::new(&mut params.pan, -1.0..=1.0).text("pan"));
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
             _ => {}

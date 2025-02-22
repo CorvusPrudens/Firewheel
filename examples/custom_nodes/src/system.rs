@@ -1,4 +1,4 @@
-use firewheel::{error::UpdateError, node::NodeID, FirewheelContext};
+use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
 
 use crate::nodes::{
     filter::FilterParams,
@@ -9,8 +9,8 @@ use crate::nodes::{
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
-    pub noise_gen_params: NoiseGenParams,
-    pub filter_params: FilterParams,
+    pub noise_gen_params: Memo<NoiseGenParams>,
+    pub filter_params: Memo<FilterParams>,
     pub rms_params: RmsParams,
     pub rms_handle: RmsHandle,
 
@@ -42,8 +42,8 @@ impl AudioSystem {
 
         Self {
             cx,
-            noise_gen_params,
-            filter_params,
+            noise_gen_params: Memo::new(noise_gen_params),
+            filter_params: Memo::new(filter_params),
             rms_params,
             rms_handle,
             noise_gen_node,

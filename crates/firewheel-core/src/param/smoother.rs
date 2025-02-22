@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use crate::{dsp::smoothing_filter, StreamInfo};
 
-/// The configuration for a [`ParamSmoother`]
+/// The configuration for a [`SmoothedParam`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SmootherConfig {
     /// The amount of smoothing in seconds
