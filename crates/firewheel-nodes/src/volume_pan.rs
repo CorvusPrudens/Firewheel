@@ -5,7 +5,7 @@ use firewheel_core::{
     event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        ScratchBuffers,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -147,7 +147,7 @@ impl AudioNodeProcessor for Processor {
         outputs: &mut [&mut [f32]],
         events: NodeEventList,
         proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
             let (gain_l, gain_r) = self.params.compute_gains();

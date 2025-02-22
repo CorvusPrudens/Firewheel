@@ -11,7 +11,7 @@ use firewheel::{
     event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        ScratchBuffers,
     },
     StreamInfo,
 };
@@ -157,7 +157,7 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         proc_info: &ProcInfo,
         // Optional scratch buffers that can be used for processing.
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if !self.shared_state.enabled.load(Ordering::Relaxed) {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
