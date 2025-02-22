@@ -270,11 +270,10 @@ impl StreamReaderHandle {
 
     /// Discard all data currently in the channel.
     ///
-    /// Note, you should typically wait for [`StreamReaderHandle::jitter_seconds`]
-    /// to be `>= 0.0` (or for [`StreamReaderHandle::available_frames`]
-    /// to be greater than or equal to the equivalant of
-    /// [`ResamplingChannelConfig::latency_seconds`]) before reading
-    /// from the channel again.
+    /// Note, you should typically wait for [`StreamReaderHandle::occupied_seconds`]
+    /// to be `>=` [`StreamReaderHandle::latency_seconds`] (or for
+    /// [`StreamReaderHandle::available_frames`] to be `>=` to the equivalant of
+    /// [`StreamReaderHandle::latency_seconds`]) before reading from the channel again.
     ///
     /// Returns the number of input frames that were discarded.
     pub fn discard_all(&mut self) -> usize {
