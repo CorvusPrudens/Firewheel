@@ -16,7 +16,7 @@ all-features = true
 
 [features]
 symphonium = ["dep:symphonium"]
-resampler = ["symphonium?/resampler"]
+resampler = ["dep:fixed-resample", "symphonium?/resampler"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
@@ -24,7 +24,8 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.3", default-features = false, optional = true }
+symphonium = { version = "0.3.4", default-features = false, optional = true }
+fixed-resample = { version = "0.4.2", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
 smallvec.workspace = true
 glam = "0.29"
 bevy_ecs = { version = "0.15", optional = true }

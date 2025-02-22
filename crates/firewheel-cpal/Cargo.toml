@@ -16,7 +16,7 @@ all-features = true
 
 [features]
 input = ["dep:fixed-resample"]
-resample_inputs = ["input", "fixed-resample?/resampler", "fixed-resample?/fft-resampler"]
+resample_inputs = ["input", "fixed-resample?/fft-resampler"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.2.4-beta.0" }
@@ -25,4 +25,4 @@ cpal = "0.15.3"
 log.workspace = true
 ringbuf.workspace = true
 thiserror.workspace = true
-fixed-resample = { workspace = true, default-features = false, features = ["channel"], optional = true }
+fixed-resample = { version = "0.4.2", default-features = false, features = ["channel"], optional = true }

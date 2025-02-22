@@ -254,7 +254,7 @@ impl CpalInputNodeHandle {
             .desired_sample_rate
             .unwrap_or(output_stream_sample_rate.get());
         #[cfg(not(feature = "resample_inputs"))]
-        let mut desired_sample_rate = out_sample_rate.get();
+        let mut desired_sample_rate = output_stream_sample_rate.get();
 
         let desired_latency_frames =
             if let &cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
@@ -274,9 +274,9 @@ impl CpalInputNodeHandle {
         desired_sample_rate = desired_sample_rate.clamp(min_sample_rate, max_sample_rate);
 
         #[cfg(not(feature = "resample_inputs"))]
-        if desired_sample_rate != out_sample_rate.get() {
+        if desired_sample_rate != output_stream_sample_rate.get() {
             return Err(StreamStartError::CouldNotMatchSampleRate(
-                out_sample_rate.get(),
+                output_stream_sample_rate.get(),
             ));
         }
 

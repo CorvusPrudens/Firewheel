@@ -101,7 +101,6 @@ atomic_float = "1"
 bitflags = "2.6"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
-fixed-resample = { version = "0.4.2", default-features = false }
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.0" }
 
 # Optimize all dependencies in debug builds:
