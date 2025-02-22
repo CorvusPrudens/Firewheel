@@ -103,6 +103,7 @@ impl AudioNodeProcessor for Processor {
         if self.params.patch_list(events) {
             self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
             self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+            self.enabled = self.params.enabled;
         }
 
         if !self.enabled {

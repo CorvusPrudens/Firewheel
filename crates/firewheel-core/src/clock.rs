@@ -11,8 +11,8 @@ pub enum EventDelay {
     /// Note, this clock is not perfectly accurate, but it does correctly
     /// account for any output underflows that may occur.
     ///
-    /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`FirewheelCtx::clock_now`] to get the current time of the clock.
+    /// The value is an absolute time, *NOT* a delta time. Use the context's
+    /// `clock_now` method to get the current time of the clock.
     DelayUntilSeconds(ClockSeconds),
 
     /// The event should happen when the clock reaches the given time in
@@ -22,8 +22,8 @@ pub enum EventDelay {
     /// account for any output underflows that may occur. This clock is
     /// ideal for syncing events to a custom musical transport.
     ///
-    /// The value is an absolute time, *NOT* a delta time. Use
-    /// [`FirewheelCtx::clock_samples`] to get the current time of the clock.
+    /// The value is an absolute time, *NOT* a delta time. Use the context's
+    /// `clock_samples` to get the current time of the clock.
     DelayUntilSamples(ClockSamples),
 
     /// The event should happen when the musical clock reaches the given

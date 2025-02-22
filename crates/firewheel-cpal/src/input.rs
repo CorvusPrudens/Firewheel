@@ -14,6 +14,7 @@ use firewheel_core::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
+    sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
 };
 use fixed_resample::ReadStatus;
@@ -130,7 +131,7 @@ impl CpalInputNodeHandle {
     pub fn constructor(&self) -> Constructor {
         Constructor {
             shared_state: Arc::clone(&self.shared_state),
-            config: self.config.clone(),
+            config: self.config,
             channels: self.channels,
         }
     }
@@ -489,7 +490,10 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {
-                if let Some(in_stream_event) = event.downcast_mut::<NewInputStreamEvent>() {
+                if let Some(in_stream_event) = event
+                    .downcast_mut::<SyncWrapper<NewInputStreamEvent>>()
+                    .and_then(SyncWrapper::get_mut)
+                {
                     // Swap the memory so that the old channel will be properly
                     // dropped outside of the audio thread.
                     std::mem::swap(&mut self.channel_rx, &mut in_stream_event.channel_rx);
@@ -570,9 +574,9 @@ pub struct NewInputStreamEvent {
     channel_rx: Option<fixed_resample::ResamplingCons<f32>>,
 }
 
-impl Into<NodeEventType> for NewInputStreamEvent {
-    fn into(self) -> NodeEventType {
-        NodeEventType::Custom(Box::new(self))
+impl From<NewInputStreamEvent> for NodeEventType {
+    fn from(value: NewInputStreamEvent) -> Self {
+        NodeEventType::Custom(Box::new(SyncWrapper::new(value)))
     }
 }
 

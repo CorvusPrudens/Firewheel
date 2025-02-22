@@ -54,7 +54,7 @@ pub enum CompileGraphError {
 }
 
 /// An error occurred while attempting to activate an audio stream in
-/// a [`FirewheelCtx`].
+/// a [`FirewheelCtx`][crate::context::FirewheelCtx].
 #[derive(Debug, thiserror::Error)]
 pub enum StartStreamError<E: Error> {
     /// An audio stream is already running in this context.
@@ -77,7 +77,7 @@ pub enum StartStreamError<E: Error> {
     BackendError(E),
 }
 
-/// An error occured while updating a [`FirewheelCtx`].
+/// An error occured while updating a [`FirewheelCtx`][crate::context::FirewheelCtx].
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError<E: Error> {
     /// The context to processor message channel is full.

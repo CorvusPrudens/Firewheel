@@ -8,6 +8,7 @@ pub mod node;
 pub mod param;
 pub mod sample_resource;
 mod silence_mask;
+pub mod sync_wrapper;
 
 use std::num::NonZeroU32;
 

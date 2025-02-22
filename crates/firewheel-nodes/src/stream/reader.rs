@@ -5,7 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    usize,
 };
 
 use firewheel_core::{
@@ -15,6 +14,7 @@ use firewheel_core::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
     },
+    sync_wrapper::SyncWrapper,
     StreamInfo,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
@@ -273,7 +273,7 @@ impl StreamReaderHandle {
     /// Note, you should typically wait for [`StreamReaderHandle::jitter_seconds`]
     /// to be `>= 0.0` (or for [`StreamReaderHandle::available_frames`]
     /// to be greater than or equal to the equivalant of
-    /// [`StreamReaderConfig::channel_config.latency_seconds`]) before reading
+    /// [`ResamplingChannelConfig::latency_seconds`]) before reading
     /// from the channel again.
     ///
     /// Returns the number of input frames that were discarded.
@@ -411,7 +411,10 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {
-                if let Some(out_stream_event) = event.downcast_mut::<NewOutputStreamEvent>() {
+                if let Some(out_stream_event) = event
+                    .downcast_mut::<SyncWrapper<NewOutputStreamEvent>>()
+                    .and_then(SyncWrapper::get_mut)
+                {
                     // Swap the memory so that the old channel will be properly
                     // dropped outside of the audio thread.
                     std::mem::swap(&mut self.prod, &mut out_stream_event.prod);
@@ -458,8 +461,8 @@ pub struct NewOutputStreamEvent {
     prod: Option<fixed_resample::ResamplingProd<f32>>,
 }
 
-impl Into<NodeEventType> for NewOutputStreamEvent {
-    fn into(self) -> NodeEventType {
-        NodeEventType::Custom(Box::new(self))
+impl From<NewOutputStreamEvent> for NodeEventType {
+    fn from(value: NewOutputStreamEvent) -> Self {
+        NodeEventType::Custom(Box::new(SyncWrapper::new(value)))
     }
 }

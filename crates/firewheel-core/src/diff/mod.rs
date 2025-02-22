@@ -7,6 +7,9 @@ use smallvec::SmallVec;
 
 mod collections;
 mod leaf;
+mod memo;
+
+pub use memo::Memo;
 
 pub use firewheel_macros::{Diff, Patch};
 

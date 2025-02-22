@@ -9,7 +9,7 @@ use firewheel_core::{
 
 use super::{InsertedSum, NodeID};
 
-/// A [ScheduledNode] is a [Node] that has been assigned buffers
+/// A [ScheduledNode] is a node that has been assigned buffers
 /// and a place in the schedule.
 #[derive(Clone)]
 pub(super) struct ScheduledNode {

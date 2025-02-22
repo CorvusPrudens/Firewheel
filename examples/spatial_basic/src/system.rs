@@ -1,4 +1,5 @@
 use firewheel::{
+    diff::Memo,
     error::UpdateError,
     node::NodeID,
     nodes::{
@@ -16,7 +17,7 @@ pub struct AudioSystem {
     pub _sampler_handle: SamplerHandle,
     pub _sampler_node: NodeID,
 
-    pub spatial_basic_params: SpatialBasicParams,
+    pub spatial_basic_params: Memo<SpatialBasicParams>,
     pub spatial_basic_node: NodeID,
 }
 
@@ -64,7 +65,7 @@ impl AudioSystem {
             _sampler_params: sampler_params,
             _sampler_handle: sampler_handle,
             _sampler_node: sampler_node,
-            spatial_basic_params,
+            spatial_basic_params: Memo::new(spatial_basic_params),
             spatial_basic_node,
         }
     }

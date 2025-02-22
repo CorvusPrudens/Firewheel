@@ -8,11 +8,12 @@ use std::f32::consts::PI;
 
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch},
     dsp::{
         decibel::normalized_volume_to_raw_gain,
         declick::{Declicker, FadeType},
     },
-    event::{NodeEventList, NodeEventType},
+    event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
         NUM_SCRATCH_BUFFERS,
@@ -22,7 +23,7 @@ use firewheel::{
 };
 
 // The parameter struct holds all of the parameters of the node as plain values.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct FilterParams {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
     pub cutoff_hz: f32,
@@ -43,43 +44,11 @@ impl Default for FilterParams {
 }
 
 impl FilterParams {
-    // Store the IDs of your parameters as constants.
-    pub const ID_CUTOFF: u32 = 0;
-    pub const ID_VOLUME: u32 = 1;
-    pub const ID_ENABLED: u32 = 2;
-
     // Add a method to create a new node constructor using these parameters.
     //
     // You may also pass any additional configuration for the node here.
     pub fn constructor(&self) -> Constructor {
         Constructor { params: *self }
-    }
-
-    // A helper method to generate an event type to sync the new value of the
-    // volume parameter.
-    pub fn sync_cutoff_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_CUTOFF,
-            value: self.cutoff_hz,
-        }
-    }
-
-    // A helper method to generate an event type to sync the new value of the
-    // volume parameter.
-    pub fn sync_volume_event(&self) -> NodeEventType {
-        NodeEventType::F32Param {
-            id: Self::ID_VOLUME,
-            value: self.normalized_volume,
-        }
-    }
-
-    // A helper method to generate an event type to sync the new value of the
-    // enabled parameter.
-    pub fn sync_enabled_event(&self) -> NodeEventType {
-        NodeEventType::BoolParam {
-            id: Self::ID_ENABLED,
-            value: self.enabled,
-        }
     }
 }
 
@@ -130,6 +99,7 @@ impl AudioNodeConstructor for Constructor {
             cutoff_hz: SmoothedParam::new(cutoff_hz, Default::default(), stream_info.sample_rate),
             gain: SmoothedParamBuffer::new(gain, Default::default(), stream_info),
             enable_declicker: Declicker::from_enabled(self.params.enabled),
+            params: self.params,
             sample_rate_recip,
         })
     }
@@ -139,6 +109,7 @@ impl AudioNodeConstructor for Constructor {
 struct Processor {
     filter_l: OnePoleLPBiquad,
     filter_r: OnePoleLPBiquad,
+    params: FilterParams,
     // A helper struct to smooth a parameter.
     cutoff_hz: SmoothedParam,
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer
@@ -160,30 +131,26 @@ impl AudioNodeProcessor for Processor {
         // gave in `info()`.`
         outputs: &mut [&mut [f32]],
         // The list of events for our node to process.
-        mut events: NodeEventList,
+        events: NodeEventList,
         // Additional information about the process.
         proc_info: &ProcInfo,
         // Optional scratch buffers that can be used for processing.
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
         // Process the events.
-        events.for_each(|event| match event {
-            NodeEventType::F32Param { id, value } => {
-                if *id == FilterParams::ID_CUTOFF {
-                    self.cutoff_hz.set_value(value.clamp(20.0, 20_000.0));
-                } else if *id == FilterParams::ID_VOLUME {
-                    self.gain.set_value(normalized_volume_to_raw_gain(*value));
-                }
+        let enabled = self.params.enabled;
+        if self.params.patch_list(events) {
+            self.cutoff_hz
+                .set_value(self.params.cutoff_hz.clamp(20.0, 20_000.0));
+            self.gain
+                .set_value(normalized_volume_to_raw_gain(self.params.normalized_volume));
+
+            if enabled != self.params.enabled {
+                // Tell the declicker to crossfade.
+                self.enable_declicker
+                    .fade_to_enabled(self.params.enabled, proc_info.declick_values);
             }
-            NodeEventType::BoolParam { id, value } => {
-                if *id == FilterParams::ID_ENABLED {
-                    // Tell the declicker to crossfade.
-                    self.enable_declicker
-                        .fade_to_enabled(*value, proc_info.declick_values);
-                }
-            }
-            _ => {}
-        });
+        }
 
         if self.enable_declicker.disabled() {
             // Disabled. Bypass this node.

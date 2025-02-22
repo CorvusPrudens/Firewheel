@@ -38,7 +38,9 @@ impl App for DemoApp {
         });
 
         egui::CentralPanel::default().show(cx, |ui| {
-            if ui
+            let mut updated = false;
+
+            updated |= ui
                 .add(
                     egui::Slider::new(
                         &mut self.audio_system.spatial_basic_params.normalized_volume,
@@ -47,64 +49,42 @@ impl App for DemoApp {
                     .step_by(0.0)
                     .text("volume"),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system.spatial_basic_params.sync_volume_event(),
-                );
-            }
+                .changed();
 
-            if ui
+            updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset[0],
+                        &mut self.audio_system.spatial_basic_params.offset.x,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
                     .text("x"),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system.spatial_basic_params.sync_offset_event(),
-                );
-            }
-            if ui
+                .changed();
+
+            updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset[1],
+                        &mut self.audio_system.spatial_basic_params.offset.y,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
                     .text("y"),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system.spatial_basic_params.sync_offset_event(),
-                );
-            }
-            if ui
+                .changed();
+
+            updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset[2],
+                        &mut self.audio_system.spatial_basic_params.offset.z,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
                     .text("z"),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system.spatial_basic_params.sync_offset_event(),
-                );
-            }
+                .changed();
 
-            if ui
+            updated |= ui
                 .add(
                     egui::Slider::new(
                         &mut self.audio_system.spatial_basic_params.damping_factor,
@@ -114,17 +94,9 @@ impl App for DemoApp {
                     .text("damping factor")
                     .logarithmic(true),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system
-                        .spatial_basic_params
-                        .sync_damping_factor_event(),
-                );
-            }
+                .changed();
 
-            if ui
+            updated |= ui
                 .add(
                     egui::Slider::new(
                         &mut self.audio_system.spatial_basic_params.panning_threshold,
@@ -133,31 +105,25 @@ impl App for DemoApp {
                     .step_by(0.0)
                     .text("panning threshold"),
                 )
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system
-                        .spatial_basic_params
-                        .sync_panning_threshold_event(),
-                );
-            }
+                .changed();
 
-            let (x, yz) = self
-                .audio_system
-                .spatial_basic_params
-                .offset
-                .split_first_mut()
-                .unwrap();
-            let z = &mut yz[1];
-            if ui
+            let offset = &mut self.audio_system.spatial_basic_params.offset;
+            let x = &mut offset.x;
+            let z = &mut offset.z;
+
+            updated |= ui
                 .add(XYPad::new(x, z, RANGE.clone(), RANGE.clone(), 200.0))
-                .changed()
-            {
-                self.audio_system.cx.queue_event_for(
-                    self.audio_system.spatial_basic_node,
-                    self.audio_system.spatial_basic_params.sync_offset_event(),
-                );
+                .changed();
+
+            if updated {
+                let mut queue = self
+                    .audio_system
+                    .cx
+                    .event_queue(self.audio_system.spatial_basic_node);
+
+                self.audio_system
+                    .spatial_basic_params
+                    .update_memo(&mut queue);
             }
         });
 

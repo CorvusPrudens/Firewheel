@@ -1,5 +1,6 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
+    diff::Memo,
     error::UpdateError,
     nodes::{
         sampler::{RepeatMode, SamplerParams},
@@ -96,7 +97,7 @@ impl AudioSystem {
 #[derive(Default)]
 pub struct MyCustomChain {
     pub _stereo_to_mono: StereoToMonoNode,
-    pub volume: VolumeParams,
+    pub volume: Memo<VolumeParams>,
 }
 
 impl FxChain for MyCustomChain {

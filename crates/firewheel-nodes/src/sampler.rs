@@ -292,7 +292,7 @@ impl SamplerHandle {
 
     /// Manually mark the playback state of this node. This can be used to account
     /// for the delay between when creating a [`SamplerEvent`] and when the processor
-    /// receives the event when using [`SamplerNode::worker_score`].
+    /// receives the event when using [`SamplerHandle::worker_score`].
     ///
     /// Note, if you use the methods on this struct to construct the events, then
     /// this is automatically done for you.

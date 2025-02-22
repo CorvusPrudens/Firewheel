@@ -4,4 +4,4 @@ pub mod error;
 pub mod graph;
 pub mod processor;
 
-pub use context::{FirewheelConfig, FirewheelCtx};
+pub use context::{ContextQueue, FirewheelConfig, FirewheelCtx};

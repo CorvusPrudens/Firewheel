@@ -66,7 +66,7 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// * `scratch_buffers` - A list of extra scratch buffers that can be
     /// used for processing. This removes the need for nodes to allocate
     /// their own scratch buffers. Each buffer has a length of
-    /// [`StreamInfo::max_block_samples`]. These buffers are shared across
+    /// [`StreamInfo::max_block_frames`]. These buffers are shared across
     /// all nodes, so assume that they contain junk data.
     fn process(
         &mut self,
@@ -124,7 +124,7 @@ pub struct ProcInfo<'a> {
     /// have been processed since the start of the audio stream.
     ///
     /// This value can be used for more accurate timing than
-    /// [`ProcInfo::clock_secs`], but note it does *NOT* account for any
+    /// [`ProcInfo::clock_seconds`], but note it does *NOT* account for any
     /// output underflows that may occur.
     pub clock_samples: ClockSamples,
 
