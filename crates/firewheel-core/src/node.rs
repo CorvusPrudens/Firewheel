@@ -62,7 +62,7 @@ pub trait AudioNodeConstructor {
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct EmptyConfig;
 
-/// A type-erased [`AudioNodeConstructor`].
+/// A dyn-compatible [`AudioNodeConstructor`].
 pub trait AudioNode {
     fn info(&self) -> AudioNodeInfo;
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
