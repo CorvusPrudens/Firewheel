@@ -38,6 +38,11 @@ pub struct AudioNodeInfo {
 }
 
 pub trait AudioNodeConstructor {
+    /// A type representing this constructor's configuration.
+    ///
+    /// This is intended as a one-time configuration to be used
+    /// when constructing an audio processor. When no configuration
+    /// is required, [`EmptyConfig`] should be used.
     type Configuration: Default;
 
     /// Get information about this node.
