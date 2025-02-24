@@ -5,7 +5,7 @@ use firewheel_core::{
     event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        ScratchBuffers,
     },
 };
 
@@ -92,7 +92,7 @@ impl AudioNodeProcessor for Processor {
         outputs: &mut [&mut [f32]],
         events: NodeEventList,
         _proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         let Some(out) = outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;

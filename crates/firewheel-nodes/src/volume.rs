@@ -5,7 +5,7 @@ use firewheel_core::{
     event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        ScratchBuffers,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -129,7 +129,7 @@ impl AudioNodeProcessor for VolumeProcessor {
         outputs: &mut [&mut [f32]],
         events: NodeEventList,
         proc_info: &ProcInfo,
-        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
             self.gain.set_value(self.params.normalized_volume);
