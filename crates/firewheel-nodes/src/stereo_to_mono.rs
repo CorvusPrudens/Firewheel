@@ -2,16 +2,17 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
 };
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StereoToMonoNode;
 
 impl AudioNodeConstructor for StereoToMonoNode {
-    type Configuration = ();
+    type Configuration = EmptyConfig;
 
     fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {

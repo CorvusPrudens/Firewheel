@@ -20,7 +20,7 @@ fn main() {
 
     let mut input_node_handle =
         CpalInputNodeHandle::new(Default::default(), NonZeroChannelCount::MONO);
-    let input_node_id = cx.add_node(input_node_handle.constructor());
+    let input_node_id = cx.add_node(input_node_handle.constructor(), None);
 
     cx.connect(input_node_id, graph_out_node, &[(0, 0), (0, 1)], false)
         .unwrap();

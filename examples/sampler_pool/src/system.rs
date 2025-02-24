@@ -4,7 +4,7 @@ use firewheel::{
     error::UpdateError,
     nodes::{
         sampler::{RepeatMode, SamplerParams},
-        volume::VolumeParams,
+        volume::{VolumeNodeConfig, VolumeParams},
         StereoToMonoNode,
     },
     sampler_pool::{FxChain, SamplerPool, VolumePanChain},
@@ -120,11 +120,16 @@ impl FxChain for MyCustomChain {
         assert_eq!(sampler_num_channels, NonZeroChannelCount::STEREO);
         assert_eq!(dst_num_channels, NonZeroChannelCount::STEREO);
 
-        let stereo_to_mono_node_id = cx.add_node(StereoToMonoNode);
+        let stereo_to_mono_node_id = cx.add_node(StereoToMonoNode, None);
 
         let volume_params = VolumeParams::default();
-        let volume_node_id =
-            cx.add_node(volume_params.constructor(NonZeroChannelCount::MONO, Default::default()));
+        let volume_node_id = cx.add_node(
+            volume_params,
+            Some(VolumeNodeConfig {
+                channels: NonZeroChannelCount::MONO,
+                ..Default::default()
+            }),
+        );
 
         // Connect the sampler node to the stereo_to_mono node.
         cx.connect(

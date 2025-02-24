@@ -53,6 +53,15 @@ pub trait AudioNodeConstructor {
     ) -> impl AudioNodeProcessor;
 }
 
+/// An empty constructor configuration.
+///
+/// This should be preferred over `()` because it implements
+/// [`Component`][bevy_ecs::prelude::Component], making the
+/// [`AudioNodeConstructor`] implementor trivially Bevy-compatible.
+#[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct EmptyConfig;
+
 /// A type-erased [`AudioNodeConstructor`].
 pub trait AudioNode {
     fn info(&self) -> AudioNodeInfo;
@@ -250,8 +259,10 @@ pub struct DummyConfig {
     pub channel_config: ChannelConfig,
 }
 
-impl AudioNode for DummyConfig {
-    fn info(&self) -> AudioNodeInfo {
+impl AudioNodeConstructor for DummyConfig {
+    type Configuration = ();
+
+    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "dummy",
             channel_config: self.channel_config,
@@ -259,8 +270,12 @@ impl AudioNode for DummyConfig {
         }
     }
 
-    fn processor(&self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(DummyProcessor)
+    fn processor(
+        &self,
+        _: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        DummyProcessor
     }
 }
 

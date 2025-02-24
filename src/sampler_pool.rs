@@ -7,7 +7,7 @@ use firewheel_core::{
     node::NodeID,
 };
 use firewheel_cpal::FirewheelContext;
-use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerHandle, SamplerParams};
+use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerParams};
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
@@ -33,7 +33,6 @@ pub trait FxChain: Default {
 
 struct Worker<FX: FxChain> {
     sampler_params: SamplerParams,
-    sampler_handle: SamplerHandle,
     sampler_id: NodeID,
 
     fx_state: FxChainState<FX>,
@@ -91,11 +90,8 @@ impl<FX: FxChain> SamplerPool<FX> {
             workers: (0..num_workers)
                 .map(|_| {
                     let sampler_params = SamplerParams::default();
-                    let sampler_handle = SamplerHandle::new();
 
-                    let sampler_id = cx.add_node(
-                        sampler_handle.constructor(sampler_params.clone(), config.clone()),
-                    );
+                    let sampler_id = cx.add_node(sampler_params.clone(), Some(config));
 
                     let mut fx_chain = FX::default();
 
@@ -109,7 +105,6 @@ impl<FX: FxChain> SamplerPool<FX> {
 
                     Worker {
                         sampler_params,
-                        sampler_handle,
                         sampler_id,
 
                         fx_state: FxChainState {
@@ -144,7 +139,7 @@ impl<FX: FxChain> SamplerPool<FX> {
                 break;
             }
 
-            let score = worker.sampler_handle.worker_score(&worker.sampler_params);
+            let score = worker.sampler_params.worker_score();
 
             if score == u64::MAX {
                 idx = i;
@@ -165,7 +160,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         let was_playing_sequence = if let Some(old_worker_id) = old_worker_id {
             self.worker_ids.remove(old_worker_id.0);
 
-            worker.sampler_handle.playback_state().is_playing()
+            worker.sampler_params.playback_state().is_playing()
         } else {
             false
         };
@@ -176,23 +171,17 @@ impl<FX: FxChain> SamplerPool<FX> {
         if let Some(delay) = delay {
             cx.queue_event_for(
                 worker.sampler_id,
-                worker
-                    .sampler_handle
-                    .sync_params_event(worker.sampler_params.clone(), false),
+                worker.sampler_params.sync_params_event(false),
             );
 
             cx.queue_event_for(
                 worker.sampler_id,
-                worker
-                    .sampler_handle
-                    .start_or_restart_event(&worker.sampler_params, Some(delay)),
+                worker.sampler_params.start_or_restart_event(Some(delay)),
             );
         } else {
             cx.queue_event_for(
                 worker.sampler_id,
-                worker
-                    .sampler_handle
-                    .sync_params_event(worker.sampler_params.clone(), true),
+                worker.sampler_params.sync_params_event(true),
             );
         }
 
@@ -215,7 +204,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
     pub fn playback_state(&self, worker_id: WorkerID) -> PlaybackState {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            self.workers[idx].sampler_handle.playback_state()
+            self.workers[idx].sampler_params.playback_state()
         } else {
             PlaybackState::Stopped
         }
@@ -244,7 +233,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             let worker = &mut self.workers[idx];
 
-            cx.queue_event_for(worker.sampler_id, worker.sampler_handle.pause_event());
+            cx.queue_event_for(worker.sampler_id, worker.sampler_params.pause_event());
 
             true
         } else {
@@ -259,10 +248,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             let worker = &mut self.workers[idx];
 
-            cx.queue_event_for(
-                worker.sampler_id,
-                worker.sampler_handle.resume_event(&worker.sampler_params),
-            );
+            cx.queue_event_for(worker.sampler_id, worker.sampler_params.resume_event());
 
             true
         } else {
@@ -283,7 +269,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
             worker.assigned_worker_id = None;
 
-            cx.queue_event_for(worker.sampler_id, worker.sampler_handle.stop_event());
+            cx.queue_event_for(worker.sampler_id, worker.sampler_params.stop_event());
 
             true
         } else {
@@ -295,7 +281,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     pub fn pause_all(&mut self, cx: &mut FirewheelContext) {
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                cx.queue_event_for(worker.sampler_id, worker.sampler_handle.pause_event());
+                cx.queue_event_for(worker.sampler_id, worker.sampler_params.pause_event());
             }
         }
     }
@@ -304,10 +290,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     pub fn resume_all(&mut self, cx: &mut FirewheelContext) {
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                cx.queue_event_for(
-                    worker.sampler_id,
-                    worker.sampler_handle.resume_event(&worker.sampler_params),
-                );
+                cx.queue_event_for(worker.sampler_id, worker.sampler_params.resume_event());
             }
         }
     }
@@ -316,7 +299,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     pub fn stop_all(&mut self, cx: &mut FirewheelContext) {
         for worker in self.workers.iter_mut() {
             if let Some(_) = worker.assigned_worker_id.take() {
-                cx.queue_event_for(worker.sampler_id, worker.sampler_handle.stop_event());
+                cx.queue_event_for(worker.sampler_id, worker.sampler_params.stop_event());
             }
         }
 
@@ -337,7 +320,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
             cx.queue_event_for(
                 worker.sampler_id,
-                worker.sampler_handle.set_playhead_event(playhead_seconds),
+                worker.sampler_params.set_playhead_event(playhead_seconds),
             );
 
             true
@@ -361,7 +344,7 @@ impl<FX: FxChain> SamplerPool<FX> {
             cx.queue_event_for(
                 worker.sampler_id,
                 worker
-                    .sampler_handle
+                    .sampler_params
                     .set_playhead_samples_event(playhead_samples),
             );
 
@@ -382,9 +365,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             let worker = &self.workers[idx];
 
-            worker
-                .sampler_handle
-                .playhead_seconds(&worker.sampler_params, sample_rate)
+            worker.sampler_params.playhead_seconds(sample_rate)
         } else {
             None
         }
@@ -398,9 +379,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             let worker = &self.workers[idx];
 
-            worker
-                .sampler_handle
-                .playhead_samples(&worker.sampler_params)
+            worker.sampler_params.playhead_samples()
         } else {
             None
         }
@@ -416,7 +395,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                if worker.sampler_handle.playback_state() == PlaybackState::Stopped {
+                if worker.sampler_params.playback_state() == PlaybackState::Stopped {
                     finished_workers.push(worker.assigned_worker_id.take().unwrap());
                 } else {
                     num_active_workers += 1;
@@ -490,7 +469,7 @@ impl FxChain for VolumePanChain {
     ) -> Vec<NodeID> {
         let volume_pan_params = firewheel_nodes::volume_pan::VolumePanParams::default();
 
-        let volume_pan_node_id = cx.add_node(volume_pan_params.constructor(self.config));
+        let volume_pan_node_id = cx.add_node(volume_pan_params, Some(self.config));
 
         cx.connect(
             sampler_node_id,
@@ -560,7 +539,7 @@ impl FxChain for SpatialBasicChain {
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicParams::default();
 
-        let spatial_basic_node_id = cx.add_node(spatial_basic_params.constructor(self.config));
+        let spatial_basic_node_id = cx.add_node(spatial_basic_params, Some(self.config));
 
         cx.connect(
             sampler_node_id,

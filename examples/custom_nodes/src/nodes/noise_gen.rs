@@ -32,31 +32,29 @@ impl Default for NoiseGenParams {
     }
 }
 
-impl NoiseGenParams {
-    // Add a method to create a new node constructor using these parameters.
-    //
-    // You may also pass any additional configuration for the node here. Here
-    // we pass a "seed" argument for the random number generator.
-    pub fn constructor(&self, seed: Option<u32>) -> Constructor {
-        Constructor {
-            params: *self,
-            seed: seed.unwrap_or(17),
-        }
-    }
-}
-
-// This struct holds information to construct the node in the audio graph.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Constructor {
-    pub params: NoiseGenParams,
+// The configuration allows users to provide
+// one-time initialization settings for your
+// processors.
+//
+// Here we provide a "seed" for the random number generator
+#[derive(Debug, Clone, Copy)]
+pub struct NoiseGenConfig {
     pub seed: u32,
 }
 
-// Derive the AudioNodeConstructor type for your constructor.
-impl AudioNodeConstructor for Constructor {
+impl Default for NoiseGenConfig {
+    fn default() -> Self {
+        Self { seed: 17 }
+    }
+}
+
+// Implement the AudioNodeConstructor type for your node.
+impl AudioNodeConstructor for NoiseGenParams {
+    type Configuration = NoiseGenConfig;
+
     // Return information about your node. This method is only ever called
     // once.
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             // A static name used for debugging purposes.
             debug_name: "example_nosie_gen",
@@ -77,15 +75,19 @@ impl AudioNodeConstructor for Constructor {
     //
     // This method is called before the node processor is sent to the realtime
     // thread, so it is safe to do non-realtime things here like allocating.
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &self,
+        config: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
         // Seed cannot be zero.
-        let seed = if self.seed == 0 { 17 } else { self.seed };
+        let seed = if config.seed == 0 { 17 } else { config.seed };
 
-        Box::new(Processor {
+        Processor {
             fpd: seed,
-            gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
-            params: self.params,
-        })
+            gain: normalized_volume_to_raw_gain(self.normalized_volume),
+            params: *self,
+        }
     }
 }
 

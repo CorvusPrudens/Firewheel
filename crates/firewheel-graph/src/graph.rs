@@ -65,7 +65,7 @@ impl AudioGraph {
                 channel_config: graph_in_config.channel_config,
                 uses_events: false,
             },
-            Box::new(graph_in_config),
+            Box::new(Constructor::new(graph_in_config, None)),
         )));
         nodes[graph_in_id.0].id = graph_in_id;
 
@@ -75,7 +75,7 @@ impl AudioGraph {
                 channel_config: graph_out_config.channel_config,
                 uses_events: false,
             },
-            Box::new(graph_out_config),
+            Box::new(Constructor::new(graph_out_config, None)),
         )));
         nodes[graph_out_id.0].id = graph_out_id;
 

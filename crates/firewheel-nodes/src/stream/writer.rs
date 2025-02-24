@@ -12,8 +12,8 @@ use firewheel_core::{
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
@@ -318,7 +318,9 @@ pub struct Constructor {
 }
 
 impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    type Configuration = EmptyConfig;
+
+    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stream_input",
             channel_config: ChannelConfig {
@@ -329,14 +331,18 @@ impl AudioNodeConstructor for Constructor {
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(Processor {
+    fn processor(
+        &self,
+        _: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        Processor {
             cons: None,
             shared_state: Arc::clone(&self.shared_state),
             discard_jitter_threshold_seconds: self.config.discard_jitter_threshold_seconds,
             check_for_silence: self.config.check_for_silence,
             pause_declicker: Declicker::SettledAt0,
-        })
+        }
     }
 }
 

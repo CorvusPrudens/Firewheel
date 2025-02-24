@@ -7,8 +7,8 @@ use firewheel_core::{
     dsp::decibel::{gain_to_db_clamped_neg_100_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     StreamInfo,
 };
@@ -200,7 +200,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHANNELS> {
-    type Configuration = ();
+    type Configuration = EmptyConfig;
 
     fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {

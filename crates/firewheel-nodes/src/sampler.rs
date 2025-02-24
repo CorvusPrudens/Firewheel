@@ -99,6 +99,7 @@ impl Default for SharedState {
 pub struct SamplerParams {
     /// The current sequence loaded into the sampler.
     pub sequence: Option<SequenceType>,
+    shared_state: ArcGc<SharedState>,
 }
 
 impl SamplerParams {
@@ -126,35 +127,15 @@ impl SamplerParams {
 
 impl Default for SamplerParams {
     fn default() -> Self {
-        Self { sequence: None }
-    }
-}
-
-/// The state of a sampler node.
-#[derive(Clone)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct SamplerHandle {
-    shared_state: ArcGc<SharedState>,
-}
-
-impl Default for SamplerHandle {
-    fn default() -> Self {
         Self::new()
     }
 }
 
-impl SamplerHandle {
+impl SamplerParams {
     pub fn new() -> Self {
         Self {
+            sequence: None,
             shared_state: ArcGc::new(SharedState::default()),
-        }
-    }
-
-    pub fn constructor(&self, params: SamplerParams, config: SamplerConfig) -> Constructor {
-        Constructor {
-            params,
-            config,
-            shared_state: ArcGc::clone(&self.shared_state),
         }
     }
 
@@ -163,8 +144,8 @@ impl SamplerHandle {
     /// Only returns `Some` when the sequence is [`SequenceType::SingleSample`].
     ///
     /// * `sample_rate` - The sample rate of the current audio stream.
-    pub fn playhead_seconds(&self, params: &SamplerParams, sample_rate: NonZeroU32) -> Option<f64> {
-        if let Some(SequenceType::SingleSample { .. }) = &params.sequence {
+    pub fn playhead_seconds(&self, sample_rate: NonZeroU32) -> Option<f64> {
+        if let Some(SequenceType::SingleSample { .. }) = &self.sequence {
             let frames = self.shared_state.playhead_frames.load(Ordering::Relaxed);
 
             Some(frames as f64 / sample_rate.get() as f64)
@@ -177,8 +158,8 @@ impl SamplerHandle {
     /// a single channel of audio).
     ///
     /// Only returns `Some` when the sequence is [`SequenceType::SingleSample`].
-    pub fn playhead_samples(&self, params: &SamplerParams) -> Option<u64> {
-        if let Some(SequenceType::SingleSample { .. }) = &params.sequence {
+    pub fn playhead_samples(&self) -> Option<u64> {
+        if let Some(SequenceType::SingleSample { .. }) = &self.sequence {
             Some(self.shared_state.playhead_frames.load(Ordering::Relaxed))
         } else {
             None
@@ -192,15 +173,15 @@ impl SamplerHandle {
 
     /// A score of how suitible this node is to start new work (Play a new sample). The
     /// higher the score, the better the candidate.
-    pub fn worker_score(&self, params: &SamplerParams) -> u64 {
-        if params.sequence.is_some() {
+    pub fn worker_score(&self) -> u64 {
+        if self.sequence.is_some() {
             match self.playback_state() {
                 PlaybackState::Stopped => u64::MAX - 1,
                 PlaybackState::Paused => u64::MAX - 2,
                 PlaybackState::Playing => {
                     // The older the sample is, the better it is as a candidate to steal
                     // work from.
-                    self.playhead_samples(params).unwrap_or(0)
+                    self.playhead_samples().unwrap_or(0)
                 }
             }
         } else {
@@ -212,13 +193,9 @@ impl SamplerHandle {
     ///
     /// * `start_immediately` - If `true`, then the new sequence will be started
     /// immediately when the processor receives the event.
-    pub fn sync_params_event(
-        &self,
-        params: SamplerParams,
-        start_immediately: bool,
-    ) -> NodeEventType {
+    pub fn sync_params_event(&self, start_immediately: bool) -> NodeEventType {
         if start_immediately {
-            self._flag_playback_state(if params.sequence.is_some() {
+            self._flag_playback_state(if self.sequence.is_some() {
                 PlaybackState::Playing
             } else {
                 PlaybackState::Stopped
@@ -226,7 +203,7 @@ impl SamplerHandle {
         }
 
         SamplerEvent::SetParams {
-            params,
+            params: self.clone(),
             start_immediately,
         }
         .into()
@@ -236,12 +213,8 @@ impl SamplerHandle {
     ///
     /// * `delay` - The exact moment when the sequence should start. Set to
     /// `None` to have the sequence start as soon as the event is recieved.
-    pub fn start_or_restart_event(
-        &self,
-        params: &SamplerParams,
-        delay: Option<EventDelay>,
-    ) -> NodeEventType {
-        self._flag_playback_state(if params.sequence.is_some() {
+    pub fn start_or_restart_event(&self, delay: Option<EventDelay>) -> NodeEventType {
+        self._flag_playback_state(if self.sequence.is_some() {
             PlaybackState::Playing
         } else {
             PlaybackState::Stopped
@@ -258,8 +231,8 @@ impl SamplerHandle {
     }
 
     /// Return an event type to resume the current sequence.
-    pub fn resume_event(&self, params: &SamplerParams) -> NodeEventType {
-        self._flag_playback_state(if params.sequence.is_some() {
+    pub fn resume_event(&self) -> NodeEventType {
+        self._flag_playback_state(if self.sequence.is_some() {
             PlaybackState::Playing
         } else {
             PlaybackState::Stopped
@@ -292,7 +265,7 @@ impl SamplerHandle {
 
     /// Manually mark the playback state of this node. This can be used to account
     /// for the delay between when creating a [`SamplerEvent`] and when the processor
-    /// receives the event when using [`SamplerHandle::worker_score`].
+    /// receives the event when using [`SamplerParams::worker_score`].
     ///
     /// Note, if you use the methods on this struct to construct the events, then
     /// this is automatically done for you.
@@ -387,13 +360,7 @@ pub enum SequenceEventType {
     SetPlayheadSamples(u64),
 }
 
-pub struct Constructor {
-    pub params: SamplerParams,
-    pub config: SamplerConfig,
-    shared_state: ArcGc<SharedState>,
-}
-
-impl AudioNodeConstructor for Constructor {
+impl AudioNodeConstructor for SamplerParams {
     type Configuration = SamplerConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
@@ -424,8 +391,7 @@ impl AudioNodeConstructor for Constructor {
 
         let mut sampler = SamplerProcessor {
             config: config.clone(),
-            params: SamplerParams { sequence: None },
-            shared_state: ArcGc::clone(&self.shared_state),
+            params: self.clone(),
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             playback_state: PlaybackState::Stopped,
@@ -441,7 +407,7 @@ impl AudioNodeConstructor for Constructor {
         };
 
         sampler.set_sequence(
-            &mut self.params.sequence.clone(),
+            &mut self.sequence.clone(),
             config.channels.get().get() as usize,
         );
 
@@ -452,7 +418,6 @@ impl AudioNodeConstructor for Constructor {
 pub struct SamplerProcessor {
     config: SamplerConfig,
     params: SamplerParams,
-    shared_state: ArcGc<SharedState>,
 
     loaded_sample_state: Option<LoadedSampleState>,
 
@@ -691,7 +656,8 @@ impl SamplerProcessor {
             state.playhead = playhead_frames;
             self.playback_state = playback_state;
 
-            self.shared_state
+            self.params
+                .shared_state
                 .playhead_frames
                 .store(playhead_frames, Ordering::Relaxed);
 
@@ -715,7 +681,8 @@ impl SamplerProcessor {
         match &self.params.sequence {
             None => {
                 self.playback_state = PlaybackState::Stopped;
-                self.shared_state
+                self.params
+                    .shared_state
                     .playback_state
                     .store(PlaybackState::Stopped);
             }
@@ -781,7 +748,8 @@ impl AudioNodeProcessor for SamplerProcessor {
         events.for_each(|event| match event {
             NodeEventType::SequenceCommand(command) => {
                 if self.params.sequence.is_none() {
-                    self.shared_state
+                    self.params
+                        .shared_state
                         .playback_state
                         .store(PlaybackState::Stopped);
 
@@ -852,7 +820,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                     }
                 }
 
-                self.shared_state.playback_state.store(self.playback_state);
+                self.params
+                    .shared_state
+                    .playback_state
+                    .store(self.playback_state);
             }
             NodeEventType::Custom(event) => {
                 let Some(event) = event.downcast_mut::<SamplerEvent>() else {
@@ -874,7 +845,8 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         if *start_immediately {
                             self.playback_state = PlaybackState::Playing;
-                            self.shared_state
+                            self.params
+                                .shared_state
                                 .playback_state
                                 .store(PlaybackState::Playing);
 
@@ -889,7 +861,8 @@ impl AudioNodeProcessor for SamplerProcessor {
                             self.playback_start_time_seconds = proc_info.clock_seconds.start;
                             self.playback_start_time_frames = proc_info.clock_samples;
                         } else {
-                            self.shared_state
+                            self.params
+                                .shared_state
                                 .playback_state
                                 .store(PlaybackState::Stopped);
                         }
@@ -958,14 +931,15 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                     num_filled_channels = n_channels;
 
-                    self.shared_state.playhead_frames.store(
+                    self.params.shared_state.playhead_frames.store(
                         self.loaded_sample_state.as_ref().unwrap().playhead,
                         Ordering::Relaxed,
                     );
 
                     if finished {
                         self.playback_state = PlaybackState::Stopped;
-                        self.shared_state
+                        self.params
+                            .shared_state
                             .playback_state
                             .store(PlaybackState::Stopped);
                     }
@@ -1050,7 +1024,8 @@ impl AudioNodeProcessor for SamplerProcessor {
             // the incorrect sample rate and the user must reload them.
             self.params.sequence = None;
             self.loaded_sample_state = None;
-            self.shared_state
+            self.params
+                .shared_state
                 .playback_state
                 .store(PlaybackState::Stopped);
         }

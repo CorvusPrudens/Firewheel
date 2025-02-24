@@ -3,7 +3,7 @@ use firewheel::{
     error::UpdateError,
     node::NodeID,
     nodes::{
-        sampler::{RepeatMode, SamplerHandle, SamplerParams},
+        sampler::{RepeatMode, SamplerParams},
         spatial_basic::SpatialBasicParams,
     },
     FirewheelContext,
@@ -14,7 +14,6 @@ pub struct AudioSystem {
     pub cx: FirewheelContext,
 
     pub _sampler_params: SamplerParams,
-    pub _sampler_handle: SamplerHandle,
     pub _sampler_node: NodeID,
 
     pub spatial_basic_params: Memo<SpatialBasicParams>,
@@ -43,27 +42,21 @@ impl AudioSystem {
         let mut sampler_params = SamplerParams::default();
         sampler_params.set_sample(sample, 1.0, RepeatMode::RepeatEndlessly);
 
-        let sampler_handle = SamplerHandle::new();
-        let sampler_node =
-            cx.add_node(sampler_handle.constructor(sampler_params.clone(), Default::default()));
+        let sampler_node = cx.add_node(sampler_params.clone(), None);
 
         let spatial_basic_params = SpatialBasicParams::default();
-        let spatial_basic_node = cx.add_node(spatial_basic_params.constructor(Default::default()));
+        let spatial_basic_node = cx.add_node(spatial_basic_params, None);
 
         cx.connect(sampler_node, spatial_basic_node, &[(0, 0), (1, 1)], false)
             .unwrap();
         cx.connect(spatial_basic_node, graph_out, &[(0, 0), (1, 1)], false)
             .unwrap();
 
-        cx.queue_event_for(
-            sampler_node,
-            sampler_handle.start_or_restart_event(&sampler_params, None),
-        );
+        cx.queue_event_for(sampler_node, sampler_params.start_or_restart_event(None));
 
         Self {
             cx,
             _sampler_params: sampler_params,
-            _sampler_handle: sampler_handle,
             _sampler_node: sampler_node,
             spatial_basic_params: Memo::new(spatial_basic_params),
             spatial_basic_node,

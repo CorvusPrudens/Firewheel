@@ -11,8 +11,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     sync_wrapper::SyncWrapper,
     StreamInfo,
@@ -20,15 +20,20 @@ use firewheel_core::{
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamReaderConfig {
     /// The configuration of the input to output channel.
     pub channel_config: ResamplingChannelConfig,
+
+    /// The number of channels.
+    pub channels: NonZeroChannelCount,
 }
 
 impl Default for StreamReaderConfig {
     fn default() -> Self {
         Self {
             channel_config: ResamplingChannelConfig::default(),
+            channels: NonZeroChannelCount::STEREO,
         }
     }
 }
@@ -342,7 +347,9 @@ pub struct Constructor {
 }
 
 impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    type Configuration = EmptyConfig;
+
+    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stream_output",
             channel_config: ChannelConfig {
@@ -353,11 +360,15 @@ impl AudioNodeConstructor for Constructor {
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(Processor {
+    fn processor(
+        &self,
+        _: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        Processor {
             prod: None,
             shared_state: Arc::clone(&self.shared_state),
-        })
+        }
     }
 }
 
