@@ -21,7 +21,7 @@ use firewheel_core::{
     event::{NodeEventList, NodeEventType, SequenceCommand},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        ScratchBuffers,
     },
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
@@ -743,7 +743,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
         proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         events.for_each(|event| match event {
             NodeEventType::SequenceCommand(command) => {

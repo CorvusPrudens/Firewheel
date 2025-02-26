@@ -12,7 +12,7 @@ use firewheel_core::{
     event::{NodeEventList, NodeEventType},
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, NUM_SCRATCH_BUFFERS,
+        ProcessStatus, ScratchBuffers,
     },
     sync_wrapper::SyncWrapper,
     StreamInfo,
@@ -417,7 +417,7 @@ impl AudioNodeProcessor for Processor {
         _outputs: &mut [&mut [f32]],
         mut events: NodeEventList,
         proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {

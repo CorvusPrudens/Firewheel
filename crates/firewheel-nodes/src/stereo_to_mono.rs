@@ -3,7 +3,7 @@ use firewheel_core::{
     event::NodeEventList,
     node::{
         AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, NUM_SCRATCH_BUFFERS,
+        ProcessStatus, ScratchBuffers,
     },
 };
 
@@ -43,7 +43,7 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         outputs: &mut [&mut [f32]],
         _events: NodeEventList,
         proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)
             || inputs.len() < 2

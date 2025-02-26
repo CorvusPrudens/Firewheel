@@ -127,7 +127,7 @@ pub trait AudioNodeProcessor: 'static + Send {
         outputs: &mut [&mut [f32]],
         events: NodeEventList,
         proc_info: &ProcInfo,
-        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
@@ -144,6 +144,13 @@ pub trait AudioNodeProcessor: 'static + Send {
 }
 
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
+
+/// A list of extra scratch buffers that can be
+/// used for processing. This removes the need for nodes to allocate
+/// their own scratch buffers. Each buffer has a length of
+/// [`StreamInfo::max_block_frames`]. These buffers are shared across
+/// all nodes, so assume that they contain junk data.
+pub type ScratchBuffers<'a, 'b> = &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS];
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a> {
@@ -293,7 +300,7 @@ impl AudioNodeProcessor for DummyProcessor {
         _outputs: &mut [&mut [f32]],
         _events: NodeEventList,
         _proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }
