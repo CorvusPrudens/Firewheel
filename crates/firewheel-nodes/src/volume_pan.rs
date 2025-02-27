@@ -87,7 +87,7 @@ impl Default for VolumePanParams {
 impl AudioNodeConstructor for VolumePanParams {
     type Configuration = VolumeNodeConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "volume_pan",
             channel_config: ChannelConfig {

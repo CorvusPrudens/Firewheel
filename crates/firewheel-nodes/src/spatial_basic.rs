@@ -190,7 +190,7 @@ pub struct ComputedValues {
 impl AudioNodeConstructor for SpatialBasicParams {
     type Configuration = SpatialBasicConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "spatial_basic",
             channel_config: ChannelConfig {

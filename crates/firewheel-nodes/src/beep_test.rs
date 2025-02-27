@@ -42,7 +42,7 @@ impl Default for BeepTestParams {
 impl AudioNodeConstructor for BeepTestParams {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "beep_test",
             channel_config: ChannelConfig {
@@ -55,7 +55,7 @@ impl AudioNodeConstructor for BeepTestParams {
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
     ) -> impl AudioNodeProcessor {
         Processor {

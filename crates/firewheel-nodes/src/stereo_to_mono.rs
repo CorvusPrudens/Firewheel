@@ -14,7 +14,7 @@ pub struct StereoToMonoNode;
 impl AudioNodeConstructor for StereoToMonoNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stereo_to_mono",
             channel_config: ChannelConfig {
@@ -27,7 +27,7 @@ impl AudioNodeConstructor for StereoToMonoNode {
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         _stream_info: &firewheel_core::StreamInfo,
     ) -> impl AudioNodeProcessor {
         StereoToMonoProcessor

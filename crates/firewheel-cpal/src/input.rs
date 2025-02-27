@@ -2,7 +2,7 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -30,7 +30,6 @@ use crate::{BUILD_STREAM_TIMEOUT, DEFAULT_MAX_BLOCK_FRAMES};
 use super::StreamStartError;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct CpalInputNodeConfig {
     /// The configuration of the input to output channel.
     pub channel_config: ResamplingChannelConfig,
@@ -112,6 +111,7 @@ impl Default for CpalInputConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct CpalInputNodeHandle {
     config: CpalInputNodeConfig,
     channels: NonZeroChannelCount,
@@ -126,14 +126,6 @@ impl CpalInputNodeHandle {
             channels,
             active_state: None,
             shared_state: Arc::new(SharedState::new()),
-        }
-    }
-
-    pub fn constructor(&self) -> Constructor {
-        Constructor {
-            shared_state: Arc::clone(&self.shared_state),
-            config: self.config,
-            channels: self.channels,
         }
     }
 
@@ -385,8 +377,8 @@ impl CpalInputNodeHandle {
         stream_handle.play()?;
 
         self.active_state = Some(ActiveHandleState {
-            _stream_handle: stream_handle,
-            from_err_rx,
+            _stream_handle: Arc::new(stream_handle),
+            from_err_rx: Arc::new(Mutex::new(from_err_rx)),
         });
         self.shared_state
             .stream_active
@@ -421,12 +413,13 @@ impl CpalInputNodeHandle {
     // Poll the status of the active input stream. If an error is returned, then
     // it means that the input stream has been stopped.
     pub fn poll_status(&mut self) -> Result<(), cpal::StreamError> {
-        if let Some(state) = &mut self.active_state {
-            if let Some(e) = state.from_err_rx.try_pop() {
-                self.active_state = None;
-
-                return Err(e);
-            }
+        if let Some(error) = self
+            .active_state
+            .as_ref()
+            .and_then(|state| state.from_err_rx.lock().unwrap().try_pop())
+        {
+            self.active_state = None;
+            return Err(error);
         }
 
         Ok(())
@@ -439,14 +432,7 @@ impl Drop for CpalInputNodeHandle {
     }
 }
 
-#[derive(Clone)]
-pub struct Constructor {
-    shared_state: Arc<SharedState>,
-    config: CpalInputNodeConfig,
-    channels: NonZeroChannelCount,
-}
-
-impl AudioNodeConstructor for Constructor {
+impl AudioNodeConstructor for CpalInputNodeHandle {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
@@ -474,9 +460,10 @@ impl AudioNodeConstructor for Constructor {
     }
 }
 
+#[derive(Clone)]
 struct ActiveHandleState {
-    _stream_handle: cpal::Stream,
-    from_err_rx: ringbuf::HeapCons<cpal::StreamError>,
+    _stream_handle: Arc<cpal::Stream>,
+    from_err_rx: Arc<Mutex<ringbuf::HeapCons<cpal::StreamError>>>,
 }
 
 struct Processor {

@@ -3,7 +3,7 @@ use std::{
     ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -57,6 +57,8 @@ impl Default for StreamWriterConfig {
     }
 }
 
+#[derive(Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamWriterHandle {
     /// The configuration of the stream.
     ///
@@ -75,14 +77,6 @@ impl StreamWriterHandle {
             channels,
             active_state: None,
             shared_state: Arc::new(SharedState::new()),
-        }
-    }
-
-    pub fn constructor(&self) -> Constructor {
-        Constructor {
-            shared_state: Arc::clone(&self.shared_state),
-            config: self.config.clone(),
-            channels: self.channels,
         }
     }
 
@@ -129,7 +123,7 @@ impl StreamWriterHandle {
         if self.is_ready() {
             self.active_state
                 .as_ref()
-                .map(|s| s.prod.available_frames())
+                .map(|s| s.prod.lock().unwrap().available_frames())
                 .unwrap_or(0)
         } else {
             0
@@ -141,7 +135,7 @@ impl StreamWriterHandle {
         if self.is_ready() {
             self.active_state
                 .as_ref()
-                .map(|s| s.prod.available_seconds())
+                .map(|s| s.prod.lock().unwrap().available_seconds())
                 .unwrap_or(0.0)
         } else {
             0.0
@@ -156,7 +150,7 @@ impl StreamWriterHandle {
     pub fn occupied_seconds(&self) -> Option<f64> {
         self.active_state
             .as_ref()
-            .map(|s| s.prod.occupied_seconds())
+            .map(|s| s.prod.lock().unwrap().occupied_seconds())
     }
 
     /// Returns the number of frames (samples in a single channel) that are currently
@@ -164,7 +158,9 @@ impl StreamWriterHandle {
     ///
     /// If there is no active stream, then this will return `None`.
     pub fn occupied_frames(&self) -> Option<usize> {
-        self.active_state.as_ref().map(|s| s.prod.occupied_frames())
+        self.active_state
+            .as_ref()
+            .map(|s| s.prod.lock().unwrap().occupied_frames())
     }
 
     /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
@@ -179,14 +175,16 @@ impl StreamWriterHandle {
     pub fn capacity_seconds(&self) -> Option<f64> {
         self.active_state
             .as_ref()
-            .map(|s| s.prod.capacity_seconds())
+            .map(|s| s.prod.lock().unwrap().capacity_seconds())
     }
 
     /// The capacity of the channel in frames (samples in a single channel).
     ///
     /// If there is no active stream, then this will return `None`.
     pub fn capacity_frames(&self) -> Option<usize> {
-        self.active_state.as_ref().map(|s| s.prod.capacity_frames())
+        self.active_state
+            .as_ref()
+            .map(|s| s.prod.lock().unwrap().capacity_frames())
     }
 
     /// The number of channels in this node.
@@ -228,7 +226,10 @@ impl StreamWriterHandle {
             self.config.channel_config,
         );
 
-        self.active_state = Some(ActiveState { prod, sample_rate });
+        self.active_state = Some(ActiveState {
+            prod: Arc::new(Mutex::new(prod)),
+            sample_rate,
+        });
         self.shared_state
             .stream_active
             .store(true, Ordering::Relaxed);
@@ -254,6 +255,8 @@ impl StreamWriterHandle {
             .as_mut()
             .unwrap()
             .prod
+            .lock()
+            .unwrap()
             .push_interleaved(data)
     }
 
@@ -265,7 +268,7 @@ impl StreamWriterHandle {
     /// Returns the number of frames (not samples) that were successfully pushed.
     /// If this number is less than the number of frames in `data`, then it means
     /// an overflow has occured.
-    ///
+    ///b
     /// If there is no active stream, the stream is paused, or the processor end
     /// is not ready to receive samples, then no data will be sent and this will
     /// return `0`.
@@ -274,7 +277,13 @@ impl StreamWriterHandle {
             return 0;
         }
 
-        self.active_state.as_mut().unwrap().prod.push(data, range)
+        self.active_state
+            .as_mut()
+            .unwrap()
+            .prod
+            .lock()
+            .unwrap()
+            .push(data, range)
     }
 
     /// Returns `true` if the processor end of the stream is ready to start receiving
@@ -310,17 +319,10 @@ impl Drop for StreamWriterHandle {
     }
 }
 
-#[derive(Clone)]
-pub struct Constructor {
-    shared_state: Arc<SharedState>,
-    config: StreamWriterConfig,
-    channels: NonZeroChannelCount,
-}
-
-impl AudioNodeConstructor for Constructor {
+impl AudioNodeConstructor for StreamWriterHandle {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stream_input",
             channel_config: ChannelConfig {
@@ -333,7 +335,7 @@ impl AudioNodeConstructor for Constructor {
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         _stream_info: &StreamInfo,
     ) -> impl AudioNodeProcessor {
         Processor {
@@ -346,8 +348,9 @@ impl AudioNodeConstructor for Constructor {
     }
 }
 
+#[derive(Clone)]
 struct ActiveState {
-    prod: fixed_resample::ResamplingProd<f32>,
+    prod: Arc<Mutex<fixed_resample::ResamplingProd<f32>>>,
     sample_rate: NonZeroU32,
 }
 

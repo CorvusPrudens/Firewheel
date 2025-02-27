@@ -274,7 +274,7 @@ pub struct DummyConfig {
 impl AudioNodeConstructor for DummyConfig {
     type Configuration = ();
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "dummy",
             channel_config: self.channel_config,
@@ -284,7 +284,7 @@ impl AudioNodeConstructor for DummyConfig {
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         _stream_info: &StreamInfo,
     ) -> impl AudioNodeProcessor {
         DummyProcessor

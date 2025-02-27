@@ -202,7 +202,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
 impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHANNELS> {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "peak_meter",
             channel_config: ChannelConfig {
@@ -215,7 +215,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHA
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         _stream_info: &StreamInfo,
     ) -> impl AudioNodeProcessor {
         Processor {

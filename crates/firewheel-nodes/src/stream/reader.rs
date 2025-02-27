@@ -3,7 +3,7 @@ use std::{
     ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -20,7 +20,6 @@ use firewheel_core::{
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamReaderConfig {
     /// The configuration of the input to output channel.
     pub channel_config: ResamplingChannelConfig,
@@ -38,6 +37,8 @@ impl Default for StreamReaderConfig {
     }
 }
 
+#[derive(Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamReaderHandle {
     /// The configuration of the stream.
     ///
@@ -59,13 +60,6 @@ impl StreamReaderHandle {
         }
     }
 
-    pub fn constructor(&self) -> Constructor {
-        Constructor {
-            shared_state: Arc::clone(&self.shared_state),
-            channels: self.channels,
-        }
-    }
-
     /// Returns `true` if there is there is currently an active stream on this node.
     pub fn is_active(&self) -> bool {
         self.active_state.is_some() && self.shared_state.stream_active.load(Ordering::Relaxed)
@@ -78,7 +72,7 @@ impl StreamReaderHandle {
     /// increasing [`StreamReaderConfig::channel_config.latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
-    /// underflow occurred.)
+    /// underflow occurred.)out
     pub fn underflow_occurred(&self) -> bool {
         self.shared_state
             .underflow_occurred
@@ -128,7 +122,10 @@ impl StreamReaderHandle {
             self.config.channel_config,
         );
 
-        self.active_state = Some(ActiveState { cons, sample_rate });
+        self.active_state = Some(ActiveState {
+            cons: Arc::new(Mutex::new(cons)),
+            sample_rate,
+        });
         self.shared_state
             .stream_active
             .store(true, Ordering::Relaxed);
@@ -145,7 +142,7 @@ impl StreamReaderHandle {
         if self.is_ready() {
             self.active_state
                 .as_ref()
-                .map(|s| s.cons.available_frames())
+                .map(|s| s.cons.lock().unwrap().available_frames())
                 .unwrap_or(0)
         } else {
             0
@@ -160,7 +157,7 @@ impl StreamReaderHandle {
         if self.is_ready() {
             self.active_state
                 .as_ref()
-                .map(|s| s.cons.available_seconds())
+                .map(|s| s.cons.lock().unwrap().available_seconds())
                 .unwrap_or(0.0)
         } else {
             0.0
@@ -178,7 +175,7 @@ impl StreamReaderHandle {
     pub fn occupied_seconds(&self) -> Option<f64> {
         self.active_state
             .as_ref()
-            .map(|s| s.cons.occupied_seconds())
+            .map(|s| s.cons.lock().unwrap().occupied_seconds())
     }
 
     /// Returns the number of input frames (samples in a single channel) from the producer
@@ -188,7 +185,7 @@ impl StreamReaderHandle {
     pub fn occupied_input_frames(&self) -> Option<usize> {
         self.active_state
             .as_ref()
-            .map(|s| s.cons.occupied_input_frames())
+            .map(|s| s.cons.lock().unwrap().occupied_input_frames())
     }
 
     /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
@@ -203,7 +200,7 @@ impl StreamReaderHandle {
     pub fn capacity_seconds(&self) -> Option<f64> {
         self.active_state
             .as_ref()
-            .map(|s| s.cons.capacity_seconds())
+            .map(|s| s.cons.lock().unwrap().capacity_seconds())
     }
 
     /// The capacity of the channel in input frames (samples in a single channel) from
@@ -213,7 +210,7 @@ impl StreamReaderHandle {
     pub fn capacity_input_frames(&self) -> Option<usize> {
         self.active_state
             .as_ref()
-            .map(|s| s.cons.capacity_input_frames())
+            .map(|s| s.cons.lock().unwrap().capacity_input_frames())
     }
 
     /// The number of channels in this node.
@@ -245,6 +242,8 @@ impl StreamReaderHandle {
                 .as_mut()
                 .unwrap()
                 .cons
+                .lock()
+                .unwrap()
                 .read_interleaved(output),
         )
     }
@@ -270,7 +269,15 @@ impl StreamReaderHandle {
             return None;
         }
 
-        Some(self.active_state.as_mut().unwrap().cons.read(output, range))
+        Some(
+            self.active_state
+                .as_mut()
+                .unwrap()
+                .cons
+                .lock()
+                .unwrap()
+                .read(output, range),
+        )
     }
 
     /// Discard all data currently in the channel.
@@ -283,7 +290,7 @@ impl StreamReaderHandle {
     /// Returns the number of input frames that were discarded.
     pub fn discard_all(&mut self) -> usize {
         if let Some(state) = &mut self.active_state {
-            state.cons.discard_input_frames(usize::MAX)
+            state.cons.lock().unwrap().discard_input_frames(usize::MAX)
         } else {
             0
         }
@@ -301,7 +308,7 @@ impl StreamReaderHandle {
     /// then this will do nothing.
     pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
         if let Some(state) = &mut self.active_state {
-            state.cons.discard_jitter(threshold_seconds)
+            state.cons.lock().unwrap().discard_jitter(threshold_seconds)
         } else {
             0
         }
@@ -340,16 +347,10 @@ impl Drop for StreamReaderHandle {
     }
 }
 
-#[derive(Clone)]
-pub struct Constructor {
-    shared_state: Arc<SharedState>,
-    channels: NonZeroChannelCount,
-}
-
-impl AudioNodeConstructor for Constructor {
+impl AudioNodeConstructor for StreamReaderHandle {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "stream_output",
             channel_config: ChannelConfig {
@@ -362,7 +363,7 @@ impl AudioNodeConstructor for Constructor {
 
     fn processor(
         &self,
-        _: &Self::Configuration,
+        _config: &Self::Configuration,
         _stream_info: &StreamInfo,
     ) -> impl AudioNodeProcessor {
         Processor {
@@ -372,8 +373,9 @@ impl AudioNodeConstructor for Constructor {
     }
 }
 
+#[derive(Clone)]
 struct ActiveState {
-    cons: fixed_resample::ResamplingCons<f32>,
+    cons: Arc<Mutex<fixed_resample::ResamplingCons<f32>>>,
     sample_rate: NonZeroU32,
 }
 
