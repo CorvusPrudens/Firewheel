@@ -5,6 +5,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+# NOTE: For 3rd-party node libraries, only import the `firewheel-core`
+# crate instead of the full firewheel crate, as it is more stable.
 firewheel = { path = "../../" }
 log.workspace = true
 atomic_float.workspace = true
