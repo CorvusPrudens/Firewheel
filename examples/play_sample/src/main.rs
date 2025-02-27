@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    nodes::sampler::{PlaybackState, RepeatMode, SamplerHandle, SamplerParams},
+    nodes::sampler::{PlaybackState, RepeatMode, SamplerParams},
     FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
@@ -30,11 +30,9 @@ fn main() {
 
     // --- Create a sampler state, and add it as a node in the audio graph. --------------
 
-    let sampler_handle = SamplerHandle::default();
     let mut sampler_params = SamplerParams::default();
 
-    let sampler_id =
-        cx.add_node(sampler_handle.constructor(sampler_params.clone(), Default::default()));
+    let sampler_id = cx.add_node(sampler_params.clone(), None);
     let graph_out_id = cx.graph_out_node();
 
     cx.connect(sampler_id, graph_out_id, &[(0, 0), (1, 1)], false)
@@ -51,8 +49,7 @@ fn main() {
     sampler_params.set_sample(sample, 1.0, RepeatMode::PlayOnce);
     cx.queue_event_for(
         sampler_id,
-        sampler_handle.sync_params_event(
-            sampler_params.clone(),
+        sampler_params.sync_params_event(
             true, // start immediately
         ),
     );
@@ -68,7 +65,7 @@ fn main() {
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if sampler_handle.playback_state() == PlaybackState::Stopped {
+        if sampler_params.playback_state() == PlaybackState::Stopped {
             // Sample has finished playing.
             break;
         }

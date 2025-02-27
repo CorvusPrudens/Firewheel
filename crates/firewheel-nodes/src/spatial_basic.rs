@@ -22,6 +22,7 @@ const DAMPING_CUTOFF_HZ_MAX: f32 = 21_500.0;
 const CALC_FILTER_COEFF_INTERVAL: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SpatialBasicConfig {
     /// The time in seconds of the internal smoothing filter.
     ///
@@ -142,14 +143,6 @@ impl Default for SpatialBasicParams {
 }
 
 impl SpatialBasicParams {
-    /// Create a volume pan node constructor using these parameters.
-    pub fn constructor(&self, config: SpatialBasicConfig) -> Constructor {
-        Constructor {
-            params: *self,
-            config,
-        }
-    }
-
     pub fn compute_values(&self) -> ComputedValues {
         let x2_z2 = (self.offset[0] * self.offset[0]) + (self.offset[2] * self.offset[2]);
         let xyz_distance = (x2_z2 + (self.offset[1] * self.offset[1])).sqrt();
@@ -194,14 +187,10 @@ pub struct ComputedValues {
     pub damping_cutoff_hz: Option<f32>,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Constructor {
-    pub params: SpatialBasicParams,
-    pub config: SpatialBasicConfig,
-}
+impl AudioNodeConstructor for SpatialBasicParams {
+    type Configuration = SpatialBasicConfig;
 
-impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "spatial_basic",
             channel_config: ChannelConfig {
@@ -213,18 +202,19 @@ impl AudioNodeConstructor for Constructor {
     }
 
     fn processor(
-        &mut self,
+        &self,
+        config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
-    ) -> Box<dyn AudioNodeProcessor> {
-        let computed_values = self.params.compute_values();
+    ) -> impl AudioNodeProcessor {
+        let computed_values = self.compute_values();
 
         dbg!(stream_info.sample_rate);
 
-        Box::new(Processor {
+        Processor {
             gain_l: SmoothedParam::new(
                 computed_values.gain_l,
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
@@ -232,7 +222,7 @@ impl AudioNodeConstructor for Constructor {
             gain_r: SmoothedParam::new(
                 computed_values.gain_r,
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
@@ -242,7 +232,7 @@ impl AudioNodeConstructor for Constructor {
                     .damping_cutoff_hz
                     .unwrap_or(DAMPING_CUTOFF_HZ_MAX),
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
@@ -250,10 +240,10 @@ impl AudioNodeConstructor for Constructor {
             damping_disabled: computed_values.damping_cutoff_hz.is_none(),
             filter_l: OnePoleLPBiquad::default(),
             filter_r: OnePoleLPBiquad::default(),
-            params: self.params,
+            params: *self,
             prev_block_was_silent: true,
             sample_rate_recip: stream_info.sample_rate_recip as f32,
-        })
+        }
     }
 }
 

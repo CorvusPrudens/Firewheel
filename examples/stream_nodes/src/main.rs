@@ -67,8 +67,8 @@ fn main() {
         NUM_CHANNELS,
     );
 
-    let stream_writer_id = cx.add_node(stream_writer_handle.constructor());
-    let stream_reader_id = cx.add_node(stream_reader_handle.constructor());
+    let stream_writer_id = cx.add_node(stream_writer_handle.clone(), None);
+    let stream_reader_id = cx.add_node(stream_reader_handle.clone(), None);
 
     cx.connect(stream_writer_id, graph_out_node, &[(0, 0), (1, 1)], false)
         .unwrap();

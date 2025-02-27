@@ -4,8 +4,8 @@ use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, ScratchBuffers,
     },
 };
 
@@ -29,13 +29,6 @@ pub struct BeepTestParams {
     pub enabled: bool,
 }
 
-impl BeepTestParams {
-    /// Create a beep test node constructor using these parameters.
-    pub fn constructor(&self) -> Constructor {
-        Constructor { params: *self }
-    }
-}
-
 impl Default for BeepTestParams {
     fn default() -> Self {
         Self {
@@ -46,12 +39,10 @@ impl Default for BeepTestParams {
     }
 }
 
-pub struct Constructor {
-    pub params: BeepTestParams,
-}
+impl AudioNodeConstructor for BeepTestParams {
+    type Configuration = EmptyConfig;
 
-impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "beep_test",
             channel_config: ChannelConfig {
@@ -63,17 +54,17 @@ impl AudioNodeConstructor for Constructor {
     }
 
     fn processor(
-        &mut self,
+        &self,
+        _config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
-    ) -> Box<dyn AudioNodeProcessor> {
-        Box::new(Processor {
+    ) -> impl AudioNodeProcessor {
+        Processor {
             phasor: 0.0,
-            phasor_inc: self.params.freq_hz.clamp(20.0, 20_000.0)
-                * stream_info.sample_rate_recip as f32,
-            gain: normalized_volume_to_raw_gain(self.params.normalized_volume),
+            phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,
+            gain: normalized_volume_to_raw_gain(self.normalized_volume),
             sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
-            params: self.params,
-        })
+            params: *self,
+        }
     }
 }
 

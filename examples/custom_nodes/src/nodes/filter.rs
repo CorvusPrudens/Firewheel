@@ -15,8 +15,8 @@ use firewheel::{
     },
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, ScratchBuffers,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     SilenceMask, StreamInfo,
@@ -43,29 +43,15 @@ impl Default for FilterParams {
     }
 }
 
-impl FilterParams {
-    // Add a method to create a new node constructor using these parameters.
-    //
-    // You may also pass any additional configuration for the node here.
-    pub fn constructor(&self) -> Constructor {
-        Constructor { params: *self }
-    }
-}
+// Implement the AudioNodeConstructor type for your node.
+impl AudioNodeConstructor for FilterParams {
+    // Since this node doesnt't need any configuration, we'll just
+    // default to `EmptyConfig`.
+    type Configuration = EmptyConfig;
 
-// This struct holds information to construct the node in the audio graph.
-//
-// Here we only store the current parameters, but you may add any
-// additional information as needed.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Constructor {
-    pub params: FilterParams,
-}
-
-// Derive the AudioNodeConstructor type for your constructor.
-impl AudioNodeConstructor for Constructor {
     // Return information about your node. This method is only ever called
     // once.
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             // A static name used for debugging purposes.
             debug_name: "example_filter",
@@ -86,22 +72,26 @@ impl AudioNodeConstructor for Constructor {
     //
     // This method is called before the node processor is sent to the realtime
     // thread, so it is safe to do non-realtime things here like allocating.
-    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+    fn processor(
+        &self,
+        _config: &Self::Configuration,
+        stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
         // The reciprocal of the sample rate.
         let sample_rate_recip = stream_info.sample_rate_recip as f32;
 
-        let cutoff_hz = self.params.cutoff_hz.clamp(20.0, 20_000.0);
-        let gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+        let cutoff_hz = self.cutoff_hz.clamp(20.0, 20_000.0);
+        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
-        Box::new(Processor {
+        Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             filter_r: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             cutoff_hz: SmoothedParam::new(cutoff_hz, Default::default(), stream_info.sample_rate),
             gain: SmoothedParamBuffer::new(gain, Default::default(), stream_info),
-            enable_declicker: Declicker::from_enabled(self.params.enabled),
-            params: self.params,
+            enable_declicker: Declicker::from_enabled(self.enabled),
+            params: *self,
             sample_rate_recip,
-        })
+        }
     }
 }
 
@@ -138,6 +128,9 @@ impl AudioNodeProcessor for Processor {
         _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         // Process the events.
+        //
+        // If a parameter was actually updated,
+        // `patch_list` will return true.
         let enabled = self.params.enabled;
         if self.params.patch_list(events) {
             self.cutoff_hz

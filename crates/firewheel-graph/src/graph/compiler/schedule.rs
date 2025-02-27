@@ -820,9 +820,12 @@ mod tests {
     }
 
     fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
-        graph.add_node(DummyConfig {
-            channel_config: channel_config.into(),
-        })
+        graph.add_node(
+            DummyConfig {
+                channel_config: channel_config.into(),
+            },
+            None,
+        )
     }
 
     fn verify_node(

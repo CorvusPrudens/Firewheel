@@ -7,8 +7,8 @@ use firewheel_core::{
     dsp::decibel::{gain_to_db_clamped_neg_100_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     StreamInfo,
 };
@@ -175,12 +175,6 @@ impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
         }
     }
 
-    pub fn constructor(&self) -> Constructor<NUM_CHANNELS> {
-        Constructor {
-            shared_state: ArcGc::clone(&self.shared_state),
-        }
-    }
-
     /// Get the latest peak values for each channel in decibels.
     ///
     /// If the node is currently disabled, then this will return a value
@@ -205,13 +199,10 @@ impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
     }
 }
 
-#[derive(Clone)]
-pub struct Constructor<const NUM_CHANNELS: usize> {
-    shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
-}
+impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHANNELS> {
+    type Configuration = EmptyConfig;
 
-impl<const NUM_CHANNELS: usize> AudioNodeConstructor for Constructor<NUM_CHANNELS> {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "peak_meter",
             channel_config: ChannelConfig {
@@ -222,11 +213,15 @@ impl<const NUM_CHANNELS: usize> AudioNodeConstructor for Constructor<NUM_CHANNEL
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(Processor {
+    fn processor(
+        &self,
+        _config: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        Processor {
             shared_state: ArcGc::clone(&self.shared_state),
             enabled: self.shared_state.enabled.load(Ordering::Relaxed),
-        })
+        }
     }
 }
 

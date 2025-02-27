@@ -21,7 +21,7 @@ fn main() {
         enabled: true,
     };
 
-    let beep_test_id = cx.add_node(beep_test_params.constructor());
+    let beep_test_id = cx.add_node(beep_test_params, None);
     let graph_out_id = cx.graph_out_node();
 
     cx.connect(beep_test_id, graph_out_id, &[(0, 0), (0, 1)], false)

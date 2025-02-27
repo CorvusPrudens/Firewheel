@@ -38,13 +38,66 @@ pub struct AudioNodeInfo {
 }
 
 pub trait AudioNodeConstructor {
+    /// A type representing this constructor's configuration.
+    ///
+    /// This is intended as a one-time configuration to be used
+    /// when constructing an audio processor. When no configuration
+    /// is required, [`EmptyConfig`] should be used.
+    type Configuration: Default;
+
     /// Get information about this node.
     ///
-    /// This method is only called once after node is added to the audio graph.
-    fn info(&self) -> AudioNodeInfo;
+    /// This method is only called once after the node is added to the audio graph.
+    fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo;
 
     /// Construct a processor for this node.
-    fn processor(&mut self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn processor(
+        &self,
+        configuration: &Self::Configuration,
+        stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor;
+}
+
+/// An empty constructor configuration.
+///
+/// This should be preferred over `()` because it implements
+/// [`Component`][bevy_ecs::prelude::Component], making the
+/// [`AudioNodeConstructor`] implementor trivially Bevy-compatible.
+#[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct EmptyConfig;
+
+/// A dyn-compatible [`AudioNodeConstructor`].
+pub trait AudioNode {
+    fn info(&self) -> AudioNodeInfo;
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+}
+
+/// Pairs constructors with their configurations.
+///
+/// This is useful for type-erasing an [`AudioNodeConstructor`].
+pub struct Constructor<T, C> {
+    constructor: T,
+    configuration: C,
+}
+
+impl<T: AudioNodeConstructor> Constructor<T, T::Configuration> {
+    pub fn new(constructor: T, configuration: Option<T::Configuration>) -> Self {
+        Self {
+            constructor,
+            configuration: configuration.unwrap_or_default(),
+        }
+    }
+}
+
+impl<T: AudioNodeConstructor> AudioNode for Constructor<T, T::Configuration> {
+    fn info(&self) -> AudioNodeInfo {
+        self.constructor.info(&self.configuration)
+    }
+
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
+        Box::new(self.constructor.processor(&self.configuration, stream_info))
+    }
 }
 
 /// The trait describing the realtime processor counterpart to an
@@ -219,7 +272,9 @@ pub struct DummyConfig {
 }
 
 impl AudioNodeConstructor for DummyConfig {
-    fn info(&self) -> AudioNodeInfo {
+    type Configuration = ();
+
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "dummy",
             channel_config: self.channel_config,
@@ -227,8 +282,12 @@ impl AudioNodeConstructor for DummyConfig {
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(DummyProcessor)
+    fn processor(
+        &self,
+        _config: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        DummyProcessor
     }
 }
 

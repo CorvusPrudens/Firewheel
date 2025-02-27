@@ -8,7 +8,7 @@ use syn::spanned::Spanned;
 
 mod firewheel_manifest;
 
-#[proc_macro_derive(Diff)]
+#[proc_macro_derive(Diff, attributes(diff))]
 pub fn derive_diff(input: TokenStream) -> TokenStream {
     derive_diff_inner(input)
         .unwrap_or_else(syn::Error::into_compile_error)
@@ -52,7 +52,7 @@ fn derive_diff_inner(input: TokenStream) -> syn::Result<TokenStream2> {
     })
 }
 
-#[proc_macro_derive(Patch)]
+#[proc_macro_derive(Patch, attributes(diff))]
 pub fn derive_patch(input: TokenStream) -> TokenStream {
     derive_patch_inner(input)
         .unwrap_or_else(syn::Error::into_compile_error)
@@ -107,11 +107,29 @@ fn get_paths() -> (syn::Path, TokenStream2) {
     (firewheel_path, diff_path)
 }
 
+fn should_skip(attrs: &[syn::Attribute]) -> bool {
+    let mut skip = false;
+    for attr in attrs {
+        if attr.path().is_ident("diff") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("skip") {
+                    skip = true;
+                }
+
+                Ok(())
+            })
+            .expect("infallible operation");
+        }
+    }
+
+    skip
+}
+
 fn get_fields(input: &syn::DeriveInput) -> syn::Result<Vec<(TokenStream2, &syn::Type)>> {
     let syn::Data::Struct(data) = &input.data else {
         return Err(syn::Error::new(
             input.span(),
-            "`Diff` can only be derived on structs",
+            "`Diff` and `Patch` can only be derived on structs",
         ));
     };
 
@@ -122,11 +140,13 @@ fn get_fields(input: &syn::DeriveInput) -> syn::Result<Vec<(TokenStream2, &syn::
         syn::Fields::Named(fields) => fields
             .named
             .iter()
+            .filter(|f| !should_skip(&f.attrs))
             .map(|f| (f.ident.as_ref().unwrap().to_token_stream(), &f.ty))
             .collect(),
         syn::Fields::Unnamed(fields) => fields
             .unnamed
             .iter()
+            .filter(|f| !should_skip(&f.attrs))
             .enumerate()
             .map(|(i, f)| {
                 let accessor: syn::Index = i.into();

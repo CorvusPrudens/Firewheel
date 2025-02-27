@@ -2,7 +2,7 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -11,8 +11,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
+        ProcessStatus, ScratchBuffers,
     },
     sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
@@ -111,6 +111,7 @@ impl Default for CpalInputConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct CpalInputNodeHandle {
     config: CpalInputNodeConfig,
     channels: NonZeroChannelCount,
@@ -125,14 +126,6 @@ impl CpalInputNodeHandle {
             channels,
             active_state: None,
             shared_state: Arc::new(SharedState::new()),
-        }
-    }
-
-    pub fn constructor(&self) -> Constructor {
-        Constructor {
-            shared_state: Arc::clone(&self.shared_state),
-            config: self.config,
-            channels: self.channels,
         }
     }
 
@@ -384,8 +377,8 @@ impl CpalInputNodeHandle {
         stream_handle.play()?;
 
         self.active_state = Some(ActiveHandleState {
-            _stream_handle: stream_handle,
-            from_err_rx,
+            _stream_handle: Arc::new(stream_handle),
+            from_err_rx: Arc::new(Mutex::new(from_err_rx)),
         });
         self.shared_state
             .stream_active
@@ -420,12 +413,13 @@ impl CpalInputNodeHandle {
     // Poll the status of the active input stream. If an error is returned, then
     // it means that the input stream has been stopped.
     pub fn poll_status(&mut self) -> Result<(), cpal::StreamError> {
-        if let Some(state) = &mut self.active_state {
-            if let Some(e) = state.from_err_rx.try_pop() {
-                self.active_state = None;
-
-                return Err(e);
-            }
+        if let Some(error) = self
+            .active_state
+            .as_ref()
+            .and_then(|state| state.from_err_rx.lock().unwrap().try_pop())
+        {
+            self.active_state = None;
+            return Err(error);
         }
 
         Ok(())
@@ -438,15 +432,10 @@ impl Drop for CpalInputNodeHandle {
     }
 }
 
-#[derive(Clone)]
-pub struct Constructor {
-    shared_state: Arc<SharedState>,
-    config: CpalInputNodeConfig,
-    channels: NonZeroChannelCount,
-}
+impl AudioNodeConstructor for CpalInputNodeHandle {
+    type Configuration = EmptyConfig;
 
-impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "cpal_input",
             channel_config: ChannelConfig {
@@ -457,19 +446,24 @@ impl AudioNodeConstructor for Constructor {
         }
     }
 
-    fn processor(&mut self, _stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(Processor {
+    fn processor(
+        &self,
+        _config: &Self::Configuration,
+        _stream_info: &StreamInfo,
+    ) -> impl AudioNodeProcessor {
+        Processor {
             channel_rx: None,
             shared_state: Arc::clone(&self.shared_state),
             discard_jitter_threshold_seconds: self.config.discard_jitter_threshold_seconds,
             check_for_silence: self.config.check_for_silence,
-        })
+        }
     }
 }
 
+#[derive(Clone)]
 struct ActiveHandleState {
-    _stream_handle: cpal::Stream,
-    from_err_rx: ringbuf::HeapCons<cpal::StreamError>,
+    _stream_handle: Arc<cpal::Stream>,
+    from_err_rx: Arc<Mutex<ringbuf::HeapCons<cpal::StreamError>>>,
 }
 
 struct Processor {

@@ -1,21 +1,17 @@
 use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
 
-use crate::nodes::{
-    filter::FilterParams,
-    noise_gen::NoiseGenParams,
-    rms::{RmsHandle, RmsParams},
-};
+use crate::nodes::{filter::FilterParams, noise_gen::NoiseGenParams, rms::RmsParams};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
     pub noise_gen_params: Memo<NoiseGenParams>,
     pub filter_params: Memo<FilterParams>,
-    pub rms_params: RmsParams,
-    pub rms_handle: RmsHandle,
+    pub rms_params: Memo<RmsParams>,
 
     pub noise_gen_node: NodeID,
     pub filter_node: NodeID,
+    pub rms_node: NodeID,
 }
 
 impl AudioSystem {
@@ -26,11 +22,10 @@ impl AudioSystem {
         let noise_gen_params = NoiseGenParams::default();
         let filter_params = FilterParams::default();
         let rms_params = RmsParams::default();
-        let rms_handle = RmsHandle::new(rms_params);
 
-        let noise_gen_node = cx.add_node(noise_gen_params.constructor(None));
-        let filter_node = cx.add_node(filter_params.constructor());
-        let rms_node = cx.add_node(rms_handle.constructor(Default::default()));
+        let noise_gen_node = cx.add_node(noise_gen_params, None);
+        let filter_node = cx.add_node(filter_params, None);
+        let rms_node = cx.add_node(rms_params.clone(), None);
 
         let graph_out = cx.graph_out_node();
 
@@ -44,10 +39,10 @@ impl AudioSystem {
             cx,
             noise_gen_params: Memo::new(noise_gen_params),
             filter_params: Memo::new(filter_params),
-            rms_params,
-            rms_handle,
+            rms_params: Memo::new(rms_params),
             noise_gen_node,
             filter_node,
+            rms_node,
         }
     }
 

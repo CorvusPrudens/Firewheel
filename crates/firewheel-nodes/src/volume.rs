@@ -12,17 +12,22 @@ use firewheel_core::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumeNodeConfig {
     /// The time in seconds of the internal smoothing filter.
     ///
     /// By default this is set to `0.01` (10ms).
     pub smooth_secs: f32,
+
+    /// The number of input and output channels.
+    pub channels: NonZeroChannelCount,
 }
 
 impl Default for VolumeNodeConfig {
     fn default() -> Self {
         Self {
             smooth_secs: 10.0 / 1_000.0,
+            channels: NonZeroChannelCount::STEREO,
         }
     }
 }
@@ -52,21 +57,6 @@ impl Patch for VolumeParams {
     }
 }
 
-impl VolumeParams {
-    /// Create a volume pan node constructor using these parameters.
-    pub fn constructor(
-        &self,
-        channels: NonZeroChannelCount,
-        config: VolumeNodeConfig,
-    ) -> Constructor {
-        Constructor {
-            params: *self,
-            channels,
-            config,
-        }
-    }
-}
-
 impl Default for VolumeParams {
     fn default() -> Self {
         Self {
@@ -75,43 +65,39 @@ impl Default for VolumeParams {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Constructor {
-    pub params: VolumeParams,
-    pub channels: NonZeroChannelCount,
-    pub config: VolumeNodeConfig,
-}
+impl AudioNodeConstructor for VolumeParams {
+    type Configuration = VolumeNodeConfig;
 
-impl AudioNodeConstructor for Constructor {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo {
             debug_name: "volume",
             channel_config: ChannelConfig {
-                num_inputs: self.channels.get(),
-                num_outputs: self.channels.get(),
+                num_inputs: config.channels.get(),
+                num_outputs: config.channels.get(),
             },
             uses_events: true,
         }
     }
 
     fn processor(
-        &mut self,
+        &self,
+        config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
-    ) -> Box<dyn AudioNodeProcessor> {
-        let gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+    ) -> impl AudioNodeProcessor {
+        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
-        Box::new(VolumeProcessor {
-            params: self.params,
+        VolumeProcessor {
+            params: *self,
             gain: SmoothedParam::new(
                 gain,
                 SmootherConfig {
-                    smooth_secs: self.config.smooth_secs,
+                    smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
                 stream_info.sample_rate,
             ),
             prev_block_was_silent: true,
-        })
+        }
     }
 }
 

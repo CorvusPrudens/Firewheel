@@ -90,11 +90,11 @@ impl App for DemoApp {
                 .changed()
             {
                 self.audio_system
-                    .rms_handle
-                    .sync_params(self.audio_system.rms_params);
+                    .rms_params
+                    .update_memo(&mut self.audio_system.cx.event_queue(self.audio_system.rms_node));
             }
 
-            let rms_value = self.audio_system.rms_handle.rms_value();
+            let rms_value = self.audio_system.rms_params.rms_value();
 
             // The rms value is quite low, so scale it up to register on the meter better.
             ui.add(ProgressBar::new(rms_value * 2.0).fill(Color32::DARK_GREEN));
