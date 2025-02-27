@@ -15,14 +15,13 @@ impl AudioNodeConstructor for StereoToMonoNode {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "stereo_to_mono",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("stereo_to_mono")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::MONO,
-            },
-            uses_events: false,
-        }
+            })
+            .uses_events(false)
     }
 
     fn processor(

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash, ops::Range};
 
 use crate::{
-    channel_config::ChannelConfig,
+    channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     dsp::declick::DeclickValues,
     event::NodeEventList,
@@ -22,8 +22,68 @@ impl Default for NodeID {
     }
 }
 
+/// Information about an [`AudioNode`].
+///
+/// This struct enforces the use of the builder pattern for future-proofness, as
+/// it is likely that more fields will be added in the future.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AudioNodeInfo {
+    /// A unique name for this type of node, used for debugging purposes.
+    debug_name: &'static str,
+
+    /// The channel configuration of this node.
+    channel_config: ChannelConfig,
+
+    /// Set to `true` if this node type uses events, `false` otherwise.
+    ///
+    /// Setting to `false` will help the system save some memory by not
+    /// allocating an event buffer for this node.
+    uses_events: bool,
+}
+
+impl AudioNodeInfo {
+    /// Construct a new [`AudioNodeInfo`] builder struct.
+    pub const fn new() -> Self {
+        Self {
+            debug_name: "unnamed",
+            channel_config: ChannelConfig {
+                num_inputs: ChannelCount::ZERO,
+                num_outputs: ChannelCount::ZERO,
+            },
+            uses_events: false,
+        }
+    }
+
+    /// A unique name for this type of node, used for debugging purposes.
+    pub const fn debug_name(mut self, debug_name: &'static str) -> Self {
+        self.debug_name = debug_name;
+        self
+    }
+
+    /// The channel configuration of this node.
+    ///
+    /// By default this has a channel configuration with zero input and output
+    /// channels.
+    pub const fn channel_config(mut self, channel_config: ChannelConfig) -> Self {
+        self.channel_config = channel_config;
+        self
+    }
+
+    /// Set to `true` if this node type uses events, `false` otherwise.
+    ///
+    /// Setting to `false` will help the system save some memory by not
+    /// allocating an event buffer for this node.
+    ///
+    /// By default this is set to `false`.
+    pub const fn uses_events(mut self, uses_events: bool) -> Self {
+        self.uses_events = uses_events;
+        self
+    }
+}
+
+/// Information about an [`AudioNode`]. Used internally by the Firewheel context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioNodeInfoInner {
     /// A unique name for this type of node, used for debugging purposes.
     pub debug_name: &'static str,
 
@@ -35,6 +95,16 @@ pub struct AudioNodeInfo {
     /// Setting to `false` will help the system save some memory by not
     /// allocating an event buffer for this node.
     pub uses_events: bool,
+}
+
+impl Into<AudioNodeInfoInner> for AudioNodeInfo {
+    fn into(self) -> AudioNodeInfoInner {
+        AudioNodeInfoInner {
+            debug_name: self.debug_name,
+            channel_config: self.channel_config,
+            uses_events: self.uses_events,
+        }
+    }
 }
 
 pub trait AudioNodeConstructor {

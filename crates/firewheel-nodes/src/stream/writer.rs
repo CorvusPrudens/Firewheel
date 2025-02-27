@@ -323,14 +323,13 @@ impl AudioNodeConstructor for StreamWriterHandle {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "stream_input",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("stream_writer")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: self.channels.get(),
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(

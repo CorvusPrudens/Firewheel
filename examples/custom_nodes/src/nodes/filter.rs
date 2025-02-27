@@ -52,19 +52,20 @@ impl AudioNodeConstructor for FilterParams {
     // Return information about your node. This method is only ever called
     // once.
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
+        // The builder pattern is used for future-proofness as it is likely that
+        // more fields will be added in the future.
+        AudioNodeInfo::new()
             // A static name used for debugging purposes.
-            debug_name: "example_filter",
+            .debug_name("example_filter")
             // The configuration of the input/output ports.
-            channel_config: ChannelConfig {
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            },
+            })
             // Wether or not our node uses events. If it does not, then setting
             // this to `false` will save a bit of memory by not allocating an
             // event buffer for this node.
-            uses_events: true,
-        }
+            .uses_events(true)
     }
 
     // Construct the realtime processor counterpart using the given information

@@ -78,19 +78,20 @@ impl AudioNodeConstructor for RmsParams {
     // Return information about your node. This method is only ever called
     // once.
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
+        // The builder pattern is used for future-proofness as it is likely that
+        // more fields will be added in the future.
+        AudioNodeInfo::new()
             // A static name used for debugging purposes.
-            debug_name: "example_rms",
+            .debug_name("example_rms")
             // The configuration of the input/output ports.
-            channel_config: ChannelConfig {
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::MONO,
                 num_outputs: ChannelCount::ZERO,
-            },
+            })
             // Wether or not our node uses events. If it does not, then setting
             // this to `false` will save a bit of memory by not allocating an
             // event buffer for this node.
-            uses_events: true,
-        }
+            .uses_events(true)
     }
 
     // Construct the realtime processor counterpart using the given information

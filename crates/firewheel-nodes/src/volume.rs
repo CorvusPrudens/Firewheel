@@ -69,14 +69,13 @@ impl AudioNodeConstructor for VolumeParams {
     type Configuration = VolumeNodeConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "volume",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("volume")
+            .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(

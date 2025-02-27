@@ -203,14 +203,13 @@ impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHA
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "peak_meter",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("peak_meter")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
-            },
-            uses_events: false,
-        }
+            })
+            .uses_events(false)
     }
 
     fn processor(

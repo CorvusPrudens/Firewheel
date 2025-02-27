@@ -88,14 +88,13 @@ impl AudioNodeConstructor for VolumePanParams {
     type Configuration = VolumeNodeConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "volume_pan",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("volume_pan")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(

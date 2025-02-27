@@ -12,7 +12,7 @@ use thunderdome::Arena;
 use crate::error::{AddEdgeError, CompileGraphError};
 use crate::FirewheelConfig;
 use firewheel_core::node::{
-    AudioNode, AudioNodeConstructor, AudioNodeInfo, Constructor, DummyConfig, NodeID,
+    AudioNode, AudioNodeConstructor, AudioNodeInfoInner, Constructor, DummyConfig, NodeID,
 };
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
@@ -60,7 +60,7 @@ impl AudioGraph {
         };
 
         let graph_in_id = NodeID(nodes.insert(NodeEntry::new(
-            AudioNodeInfo {
+            AudioNodeInfoInner {
                 debug_name: "graph_in",
                 channel_config: graph_in_config.channel_config,
                 uses_events: false,
@@ -70,7 +70,7 @@ impl AudioGraph {
         nodes[graph_in_id.0].id = graph_in_id;
 
         let graph_out_id = NodeID(nodes.insert(NodeEntry::new(
-            AudioNodeInfo {
+            AudioNodeInfoInner {
                 debug_name: "graph_out",
                 channel_config: graph_out_config.channel_config,
                 uses_events: false,
@@ -110,7 +110,7 @@ impl AudioGraph {
         T: AudioNodeConstructor + 'static,
     {
         let constructor = Constructor::new(node, config);
-        let info = constructor.info();
+        let info: AudioNodeInfoInner = constructor.info().into();
 
         let new_id = NodeID(
             self.nodes

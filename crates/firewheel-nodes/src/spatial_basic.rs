@@ -191,14 +191,13 @@ impl AudioNodeConstructor for SpatialBasicParams {
     type Configuration = SpatialBasicConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "spatial_basic",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("spatial_basic")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(

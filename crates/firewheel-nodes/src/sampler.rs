@@ -364,14 +364,13 @@ impl AudioNodeConstructor for SamplerParams {
     type Configuration = SamplerConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "sampler",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("sampler")
+            .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.channels.get(),
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(

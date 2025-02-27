@@ -351,14 +351,13 @@ impl AudioNodeConstructor for StreamReaderHandle {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "stream_output",
-            channel_config: ChannelConfig {
+        AudioNodeInfo::new()
+            .debug_name("stream_reader")
+            .channel_config(ChannelConfig {
                 num_inputs: self.channels.get(),
                 num_outputs: ChannelCount::ZERO,
-            },
-            uses_events: true,
-        }
+            })
+            .uses_events(true)
     }
 
     fn processor(
