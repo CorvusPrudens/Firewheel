@@ -282,10 +282,10 @@ impl StreamReaderNode {
 
     /// Discard all data currently in the channel.
     ///
-    /// Note, you should typically wait for [`StreamReaderHandle::occupied_seconds`]
-    /// to be `>=` [`StreamReaderHandle::latency_seconds`] (or for
-    /// [`StreamReaderHandle::available_frames`] to be `>=` to the equivalant of
-    /// [`StreamReaderHandle::latency_seconds`]) before reading from the channel again.
+    /// Note, you should typically wait for [`StreamReaderNode::occupied_seconds`]
+    /// to be `>=` [`StreamReaderNode::latency_seconds`] (or for
+    /// [`StreamReaderNode::available_frames`] to be `>=` to the equivalant of
+    /// [`StreamReaderNode::latency_seconds`]) before reading from the channel again.
     ///
     /// Returns the number of input frames that were discarded.
     pub fn discard_all(&mut self) -> usize {
@@ -296,15 +296,15 @@ impl StreamReaderNode {
         }
     }
 
-    /// If the value of [`StreamReaderHandle::occupied_seconds()`] is greater than the
+    /// If the value of [`StreamReaderNode::occupied_seconds()`] is greater than the
     /// given threshold in seconds, then discard the number of input frames needed to
-    /// bring the value back down to [`StreamReaderHandle::latency_seconds()`] to avoid
+    /// bring the value back down to [`StreamReaderNode::latency_seconds()`] to avoid
     /// excessive overflows and reduce perceived audible glitchiness.
     ///
     /// Returns the number of input frames from the producer (not output frames from
     /// this consumer) that were discarded.
     ///
-    /// If `threshold_seconds` is less than [`StreamReaderHandle::latency_seconds()`],
+    /// If `threshold_seconds` is less than [`StreamReaderNode::latency_seconds()`],
     /// then this will do nothing.
     pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
         if let Some(state) = &mut self.active_state {
