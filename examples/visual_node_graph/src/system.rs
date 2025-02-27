@@ -4,9 +4,9 @@ use firewheel::{
     event::{NodeEvent, NodeEventType},
     node::NodeID,
     nodes::{
-        beep_test::BeepTestParams,
-        volume::{VolumeNodeConfig, VolumeParams},
-        volume_pan::VolumePanParams,
+        beep_test::BeepTestNode,
+        volume::{VolumeNode, VolumeNodeConfig},
+        volume_pan::VolumePanNode,
         StereoToMonoNode,
     },
     ContextQueue, CpalBackend, FirewheelContext,
@@ -43,23 +43,23 @@ impl AudioSystem {
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let id = match node_type {
-            NodeType::BeepTest => self.cx.add_node(BeepTestParams::default(), None),
+            NodeType::BeepTest => self.cx.add_node(BeepTestNode::default(), None),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode, None),
             NodeType::VolumeMono => self.cx.add_node(
-                VolumeParams::default(),
+                VolumeNode::default(),
                 Some(VolumeNodeConfig {
                     channels: NonZeroChannelCount::MONO,
                     ..Default::default()
                 }),
             ),
             NodeType::VolumeStereo => self.cx.add_node(
-                VolumeParams::default(),
+                VolumeNode::default(),
                 Some(VolumeNodeConfig {
                     channels: NonZeroChannelCount::STEREO,
                     ..Default::default()
                 }),
             ),
-            NodeType::VolumePan => self.cx.add_node(VolumePanParams::default(), None),
+            NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
         };
 
         match node_type {
@@ -101,12 +101,12 @@ impl AudioSystem {
             .disconnect(src_node, dst_node, &[(src_port, dst_port)]);
     }
 
-    pub fn graph_in_node(&self) -> NodeID {
-        self.cx.graph_in_node()
+    pub fn graph_in_node_id(&self) -> NodeID {
+        self.cx.graph_in_node_id()
     }
 
-    pub fn graph_out_node(&self) -> NodeID {
-        self.cx.graph_out_node()
+    pub fn graph_out_node_id(&self) -> NodeID {
+        self.cx.graph_out_node_id()
     }
 
     pub fn is_activated(&self) -> bool {

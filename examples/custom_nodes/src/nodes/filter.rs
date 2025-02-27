@@ -15,8 +15,8 @@ use firewheel::{
     },
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        ScratchBuffers,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     SilenceMask, StreamInfo,
@@ -24,7 +24,7 @@ use firewheel::{
 
 // The parameter struct holds all of the parameters of the node as plain values.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-pub struct FilterParams {
+pub struct FilterNode {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
     pub cutoff_hz: f32,
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
@@ -33,7 +33,7 @@ pub struct FilterParams {
     pub enabled: bool,
 }
 
-impl Default for FilterParams {
+impl Default for FilterNode {
     fn default() -> Self {
         Self {
             cutoff_hz: 1_000.0,
@@ -43,8 +43,8 @@ impl Default for FilterParams {
     }
 }
 
-// Implement the AudioNodeConstructor type for your node.
-impl AudioNodeConstructor for FilterParams {
+// Implement the AudioNode type for your node.
+impl AudioNode for FilterNode {
     // Since this node doesnt't need any configuration, we'll just
     // default to `EmptyConfig`.
     type Configuration = EmptyConfig;
@@ -100,7 +100,7 @@ impl AudioNodeConstructor for FilterParams {
 struct Processor {
     filter_l: OnePoleLPBiquad,
     filter_r: OnePoleLPBiquad,
-    params: FilterParams,
+    params: FilterNode,
     // A helper struct to smooth a parameter.
     cutoff_hz: SmoothedParam,
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer

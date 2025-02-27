@@ -4,8 +4,8 @@ use firewheel_core::{
     dsp::decibel::normalized_volume_to_raw_gain,
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        ScratchBuffers,
     },
 };
 
@@ -15,7 +15,7 @@ use firewheel_core::{
 /// bother with parameter smoothing.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct BeepTestParams {
+pub struct BeepTestNode {
     /// The frequency of the sine wave in the range `[20.0, 20_000.0]`. A good
     /// value for testing is `440` (middle C).
     pub freq_hz: f32,
@@ -29,7 +29,7 @@ pub struct BeepTestParams {
     pub enabled: bool,
 }
 
-impl Default for BeepTestParams {
+impl Default for BeepTestNode {
     fn default() -> Self {
         Self {
             freq_hz: 440.0,
@@ -39,7 +39,7 @@ impl Default for BeepTestParams {
     }
 }
 
-impl AudioNodeConstructor for BeepTestParams {
+impl AudioNode for BeepTestNode {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
@@ -72,7 +72,7 @@ struct Processor {
     phasor_inc: f32,
     gain: f32,
     sample_rate_recip: f32,
-    params: BeepTestParams,
+    params: BeepTestNode,
 }
 
 impl AudioNodeProcessor for Processor {

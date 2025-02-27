@@ -8,8 +8,8 @@ use firewheel::{
     channel_config::NonZeroChannelCount,
     error::UpdateError,
     nodes::stream::{
-        reader::{StreamReaderConfig, StreamReaderHandle},
-        writer::{StreamWriterConfig, StreamWriterHandle},
+        reader::{StreamReaderConfig, StreamReaderNode},
+        writer::{StreamWriterConfig, StreamWriterNode},
         ReadStatus, ResamplingChannelConfig,
     },
     FirewheelContext,
@@ -31,9 +31,9 @@ fn main() {
 
     dbg!(output_stream_sample_rate);
 
-    let graph_out_node = cx.graph_out_node();
+    let graph_out_node_id = cx.graph_out_node_id();
 
-    let mut stream_writer_handle = StreamWriterHandle::new(
+    let mut stream_writer_node = StreamWriterNode::new(
         StreamWriterConfig {
             channel_config: ResamplingChannelConfig {
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
@@ -47,7 +47,7 @@ fn main() {
         NUM_CHANNELS,
     );
 
-    let mut stream_reader_handle = StreamReaderHandle::new(
+    let mut stream_reader_node = StreamReaderNode::new(
         StreamReaderConfig {
             channel_config: ResamplingChannelConfig {
                 // For stream readers, the `latency_seconds` value should also be at least
@@ -67,29 +67,34 @@ fn main() {
         NUM_CHANNELS,
     );
 
-    let stream_writer_id = cx.add_node(stream_writer_handle.clone(), None);
-    let stream_reader_id = cx.add_node(stream_reader_handle.clone(), None);
+    let stream_writer_id = cx.add_node(stream_writer_node.clone(), None);
+    let stream_reader_id = cx.add_node(stream_reader_node.clone(), None);
 
-    cx.connect(stream_writer_id, graph_out_node, &[(0, 0), (1, 1)], false)
-        .unwrap();
+    cx.connect(
+        stream_writer_id,
+        graph_out_node_id,
+        &[(0, 0), (1, 1)],
+        false,
+    )
+    .unwrap();
     cx.connect(stream_writer_id, stream_reader_id, &[(0, 0), (1, 1)], false)
         .unwrap();
 
-    let event = stream_writer_handle
+    let event = stream_writer_node
         .start_stream(IN_SAMPLE_RATE, output_stream_sample_rate)
         .unwrap();
     // This event must be sent to the node's processor for the stream to take effect.
     cx.queue_event_for(stream_writer_id, event.into());
 
-    let event = stream_reader_handle
+    let event = stream_reader_node
         .start_stream(OUT_SAMPLE_RATE, output_stream_sample_rate)
         .unwrap();
     // This event must be sent to the node's processor for the stream to take effect.
     cx.queue_event_for(stream_reader_id, event.into());
 
     // Wrap the handles in an `Arc<Mutex<T>>>` so that we can send them to other threads.
-    let stream_writer_handle = Arc::new(Mutex::new(stream_writer_handle));
-    let stream_reader_handle = Arc::new(Mutex::new(stream_reader_handle));
+    let stream_writer_handle = Arc::new(Mutex::new(stream_writer_node));
+    let stream_reader_handle = Arc::new(Mutex::new(stream_reader_node));
 
     let stream_writer_handle_2 = Arc::clone(&stream_writer_handle);
     std::thread::spawn(move || {

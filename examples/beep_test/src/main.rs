@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use firewheel::{error::UpdateError, nodes::beep_test::BeepTestParams, FirewheelContext};
+use firewheel::{error::UpdateError, nodes::beep_test::BeepTestNode, FirewheelContext};
 
 const BEEP_FREQUENCY_HZ: f32 = 440.0;
 const BEEP_NORMALIZED_VOLUME: f32 = 0.45;
@@ -15,14 +15,14 @@ fn main() {
     let mut cx = FirewheelContext::new(Default::default());
     cx.start_stream(Default::default()).unwrap();
 
-    let beep_test_params = BeepTestParams {
+    let beep_test_node = BeepTestNode {
         freq_hz: BEEP_FREQUENCY_HZ,
         normalized_volume: BEEP_NORMALIZED_VOLUME,
         enabled: true,
     };
 
-    let beep_test_id = cx.add_node(beep_test_params, None);
-    let graph_out_id = cx.graph_out_node();
+    let beep_test_id = cx.add_node(beep_test_node, None);
+    let graph_out_id = cx.graph_out_node_id();
 
     cx.connect(beep_test_id, graph_out_id, &[(0, 0), (0, 1)], false)
         .unwrap();

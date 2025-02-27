@@ -43,7 +43,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.normalized_volume,
+                        &mut self.audio_system.spatial_basic_node.normalized_volume,
                         0.0..=2.0,
                     )
                     .step_by(0.0)
@@ -54,7 +54,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset.x,
+                        &mut self.audio_system.spatial_basic_node.offset.x,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
@@ -65,7 +65,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset.y,
+                        &mut self.audio_system.spatial_basic_node.offset.y,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
@@ -76,7 +76,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.offset.z,
+                        &mut self.audio_system.spatial_basic_node.offset.z,
                         RANGE.clone(),
                     )
                     .step_by(0.0)
@@ -87,7 +87,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.damping_factor,
+                        &mut self.audio_system.spatial_basic_node.damping_factor,
                         0.5..=50.0,
                     )
                     .step_by(0.0)
@@ -99,7 +99,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_params.panning_threshold,
+                        &mut self.audio_system.spatial_basic_node.panning_threshold,
                         0.0..=1.0,
                     )
                     .step_by(0.0)
@@ -107,7 +107,7 @@ impl App for DemoApp {
                 )
                 .changed();
 
-            let offset = &mut self.audio_system.spatial_basic_params.offset;
+            let offset = &mut self.audio_system.spatial_basic_node.offset;
             let x = &mut offset.x;
             let z = &mut offset.z;
 
@@ -119,11 +119,9 @@ impl App for DemoApp {
                 let mut queue = self
                     .audio_system
                     .cx
-                    .event_queue(self.audio_system.spatial_basic_node);
+                    .event_queue(self.audio_system.spatial_basic_node_id);
 
-                self.audio_system
-                    .spatial_basic_params
-                    .update_memo(&mut queue);
+                self.audio_system.spatial_basic_node.update_memo(&mut queue);
             }
         });
 

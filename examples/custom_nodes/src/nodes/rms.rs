@@ -10,10 +10,7 @@ use firewheel::{
     collector::ArcGc,
     diff::{Diff, Patch},
     event::NodeEventList,
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     StreamInfo,
 };
 
@@ -37,7 +34,7 @@ impl Default for RmsConfig {
 
 // The parameter struct holds all of the parameters of the node.
 #[derive(Debug, Diff, Patch, Clone)]
-pub struct RmsParams {
+pub struct RmsNode {
     /// Whether or not this node is enabled.
     pub enabled: bool,
     // `ArcGc` is a simple wrapper around `Arc` that automatically collects
@@ -50,13 +47,13 @@ pub struct RmsParams {
     shared_state: ArcGc<SharedState>,
 }
 
-impl Default for RmsParams {
+impl Default for RmsNode {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RmsParams {
+impl RmsNode {
     pub fn new() -> Self {
         Self {
             enabled: true,
@@ -71,8 +68,8 @@ impl RmsParams {
     }
 }
 
-// Implement the AudioNodeConstructor type for your node.
-impl AudioNodeConstructor for RmsParams {
+// Implement the AudioNode type for your node.
+impl AudioNode for RmsNode {
     type Configuration = RmsConfig;
 
     // Return information about your node. This method is only ever called
@@ -119,7 +116,7 @@ impl AudioNodeConstructor for RmsParams {
 
 // The realtime processor counterpart to your node.
 struct Processor {
-    params: RmsParams,
+    params: RmsNode,
     squares: f32,
     num_squared_values: usize,
     window_frames: usize,

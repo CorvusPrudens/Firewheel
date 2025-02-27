@@ -12,7 +12,8 @@ use thunderdome::Arena;
 use crate::error::{AddEdgeError, CompileGraphError};
 use crate::FirewheelConfig;
 use firewheel_core::node::{
-    AudioNode, AudioNodeConstructor, AudioNodeInfoInner, Constructor, DummyConfig, NodeID,
+    dummy::{DummyNode, DummyNodeConfig},
+    AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
@@ -46,37 +47,41 @@ impl AudioGraph {
     pub fn new(config: &FirewheelConfig) -> Self {
         let mut nodes = Arena::with_capacity(config.initial_node_capacity as usize);
 
-        let graph_in_config = DummyConfig {
+        let graph_in_config = DummyNodeConfig {
             channel_config: ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.num_graph_inputs,
             },
         };
-        let graph_out_config = DummyConfig {
+        let graph_out_config = DummyNodeConfig {
             channel_config: ChannelConfig {
                 num_inputs: config.num_graph_outputs,
                 num_outputs: ChannelCount::ZERO,
             },
         };
 
-        let graph_in_id = NodeID(nodes.insert(NodeEntry::new(
-            AudioNodeInfoInner {
-                debug_name: "graph_in",
-                channel_config: graph_in_config.channel_config,
-                uses_events: false,
-            },
-            Box::new(Constructor::new(graph_in_config, None)),
-        )));
+        let graph_in_id = NodeID(
+            nodes.insert(NodeEntry::new(
+                AudioNodeInfo::new()
+                    .debug_name("graph_in")
+                    .channel_config(graph_in_config.channel_config)
+                    .uses_events(false)
+                    .into(),
+                Box::new(Constructor::new(DummyNode, Some(graph_in_config))),
+            )),
+        );
         nodes[graph_in_id.0].id = graph_in_id;
 
-        let graph_out_id = NodeID(nodes.insert(NodeEntry::new(
-            AudioNodeInfoInner {
-                debug_name: "graph_out",
-                channel_config: graph_out_config.channel_config,
-                uses_events: false,
-            },
-            Box::new(Constructor::new(graph_out_config, None)),
-        )));
+        let graph_out_id = NodeID(
+            nodes.insert(NodeEntry::new(
+                AudioNodeInfo::new()
+                    .debug_name("graph_out")
+                    .channel_config(graph_out_config.channel_config)
+                    .uses_events(false)
+                    .into(),
+                Box::new(Constructor::new(DummyNode, Some(graph_out_config))),
+            )),
+        );
         nodes[graph_out_id.0].id = graph_out_id;
 
         Self {
@@ -105,10 +110,7 @@ impl AudioGraph {
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node<T>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID
-    where
-        T: AudioNodeConstructor + 'static,
-    {
+    pub fn add_node<T: AudioNode>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID {
         let constructor = Constructor::new(node, config);
         let info: AudioNodeInfoInner = constructor.info().into();
 
@@ -116,6 +118,18 @@ impl AudioGraph {
             self.nodes
                 .insert(NodeEntry::new(info, Box::new(constructor))),
         );
+        self.nodes[new_id.0].id = new_id;
+
+        self.needs_compile = true;
+
+        new_id
+    }
+
+    /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
+    pub fn add_dyn_node<T: DynAudioNode>(&mut self, node: T) -> NodeID {
+        let info: AudioNodeInfoInner = node.info().into();
+
+        let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
         self.nodes[new_id.0].id = new_id;
 
         self.needs_compile = true;

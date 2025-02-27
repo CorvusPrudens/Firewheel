@@ -3,8 +3,8 @@ use firewheel::{
     diff::Memo,
     error::UpdateError,
     nodes::{
-        sampler::{RepeatMode, SamplerParams},
-        volume::{VolumeNodeConfig, VolumeParams},
+        sampler::{RepeatMode, SamplerNode},
+        volume::{VolumeNode, VolumeNodeConfig},
         StereoToMonoNode,
     },
     sampler_pool::{FxChain, SamplerPool, VolumePanChain},
@@ -25,7 +25,7 @@ pub struct AudioSystem {
 
     pub sampler_pool_1: SamplerPool<VolumePanChain>,
     pub sampler_pool_2: SamplerPool<MyCustomChain>,
-    pub sampler_params: SamplerParams,
+    pub sampler_node: SamplerNode,
 }
 
 impl AudioSystem {
@@ -33,7 +33,7 @@ impl AudioSystem {
         let mut cx = FirewheelContext::new(Default::default());
         cx.start_stream(Default::default()).unwrap();
 
-        let graph_out = cx.graph_out_node();
+        let graph_out = cx.graph_out_node_id();
 
         let sampler_pool_1 = SamplerPool::new(
             NUM_WORKERS,                 // The number of workers to create in this pool.
@@ -63,14 +63,14 @@ impl AudioSystem {
         .unwrap()
         .into_dyn_resource();
 
-        let mut sampler_params = SamplerParams::default();
-        sampler_params.set_sample(sample, 1.0, RepeatMode::PlayOnce);
+        let mut sampler_node = SamplerNode::default();
+        sampler_node.set_sample(sample, 1.0, RepeatMode::PlayOnce);
 
         Self {
             cx,
             sampler_pool_1,
             sampler_pool_2,
-            sampler_params,
+            sampler_node,
         }
     }
 
@@ -97,7 +97,7 @@ impl AudioSystem {
 #[derive(Default)]
 pub struct MyCustomChain {
     pub _stereo_to_mono: StereoToMonoNode,
-    pub volume: Memo<VolumeParams>,
+    pub volume: Memo<VolumeNode>,
 }
 
 impl FxChain for MyCustomChain {
@@ -122,7 +122,7 @@ impl FxChain for MyCustomChain {
 
         let stereo_to_mono_node_id = cx.add_node(StereoToMonoNode, None);
 
-        let volume_params = VolumeParams::default();
+        let volume_params = VolumeNode::default();
         let volume_node_id = cx.add_node(
             volume_params,
             Some(VolumeNodeConfig {

@@ -5,16 +5,13 @@ use firewheel::{
     diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
     event::NodeEventList,
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     SilenceMask, StreamInfo,
 };
 
 // The parameter struct holds all of the parameters of the node as plain values.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-pub struct NoiseGenParams {
+pub struct NoiseGenNode {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     ///
     /// White noise is really loud, so use something like `0.4`.
@@ -23,7 +20,7 @@ pub struct NoiseGenParams {
     pub enabled: bool,
 }
 
-impl Default for NoiseGenParams {
+impl Default for NoiseGenNode {
     fn default() -> Self {
         Self {
             normalized_volume: 0.4,
@@ -48,8 +45,8 @@ impl Default for NoiseGenConfig {
     }
 }
 
-// Implement the AudioNodeConstructor type for your node.
-impl AudioNodeConstructor for NoiseGenParams {
+// Implement the AudioNode type for your node.
+impl AudioNode for NoiseGenNode {
     type Configuration = NoiseGenConfig;
 
     // Return information about your node. This method is only ever called
@@ -95,7 +92,7 @@ impl AudioNodeConstructor for NoiseGenParams {
 // The realtime processor counterpart to your node.
 struct Processor {
     fpd: u32,
-    params: NoiseGenParams,
+    params: NoiseGenNode,
     gain: f32,
 }
 

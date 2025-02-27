@@ -4,7 +4,7 @@ use firewheel_core::{
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
-    node::{AudioNodeConstructor, NodeID},
+    node::{AudioNode, DynAudioNode, NodeID},
     StreamInfo,
 };
 use ringbuf::traits::{Consumer, Producer, Split};
@@ -459,21 +459,23 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// The ID of the graph input node
-    pub fn graph_in_node(&self) -> NodeID {
+    pub fn graph_in_node_id(&self) -> NodeID {
         self.graph.graph_in_node()
     }
 
     /// The ID of the graph output node
-    pub fn graph_out_node(&self) -> NodeID {
+    pub fn graph_out_node_id(&self) -> NodeID {
         self.graph.graph_out_node()
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node<T>(&mut self, constructor: T, config: Option<T::Configuration>) -> NodeID
-    where
-        T: AudioNodeConstructor + 'static,
-    {
-        self.graph.add_node(constructor, config)
+    pub fn add_node<T: AudioNode>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID {
+        self.graph.add_node(node, config)
+    }
+
+    /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
+    pub fn add_dyn_node<T: DynAudioNode>(&mut self, node: T) -> NodeID {
+        self.graph.add_dyn_node(node)
     }
 
     /// Remove the given node from the audio graph.

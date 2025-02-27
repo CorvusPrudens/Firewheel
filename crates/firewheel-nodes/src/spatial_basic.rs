@@ -9,10 +9,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
     event::{NodeEventList, Vec3},
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -43,7 +40,7 @@ impl Default for SpatialBasicConfig {
 /// panning and filtering.
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct SpatialBasicParams {
+pub struct SpatialBasicNode {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain. This is
     /// applied before the spatialization algorithm.
     ///
@@ -94,7 +91,7 @@ pub struct SpatialBasicParams {
     pub panning_threshold: f32,
 }
 
-impl Patch for SpatialBasicParams {
+impl Patch for SpatialBasicNode {
     fn patch(
         &mut self,
         data: &firewheel_core::event::ParamData,
@@ -131,7 +128,7 @@ impl Patch for SpatialBasicParams {
     }
 }
 
-impl Default for SpatialBasicParams {
+impl Default for SpatialBasicNode {
     fn default() -> Self {
         Self {
             normalized_volume: 1.0,
@@ -142,7 +139,7 @@ impl Default for SpatialBasicParams {
     }
 }
 
-impl SpatialBasicParams {
+impl SpatialBasicNode {
     pub fn compute_values(&self) -> ComputedValues {
         let x2_z2 = (self.offset[0] * self.offset[0]) + (self.offset[2] * self.offset[2]);
         let xyz_distance = (x2_z2 + (self.offset[1] * self.offset[1])).sqrt();
@@ -187,7 +184,7 @@ pub struct ComputedValues {
     pub damping_cutoff_hz: Option<f32>,
 }
 
-impl AudioNodeConstructor for SpatialBasicParams {
+impl AudioNode for SpatialBasicNode {
     type Configuration = SpatialBasicConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
@@ -255,7 +252,7 @@ struct Processor {
     filter_l: OnePoleLPBiquad,
     filter_r: OnePoleLPBiquad,
 
-    params: SpatialBasicParams,
+    params: SpatialBasicNode,
 
     prev_block_was_silent: bool,
     sample_rate_recip: f32,

@@ -3,21 +3,18 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
     event::NodeEventList,
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
 
 pub use super::volume::VolumeNodeConfig;
 
-// TODO: Option for true stereo panning.
+// TODO: Option for true stereo panning?
 
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct VolumePanParams {
+pub struct VolumePanNode {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
@@ -28,7 +25,7 @@ pub struct VolumePanParams {
     pub pan_law: PanLaw,
 }
 
-impl Patch for VolumePanParams {
+impl Patch for VolumePanNode {
     fn patch(
         &mut self,
         data: &firewheel_core::event::ParamData,
@@ -64,7 +61,7 @@ pub struct VolumePanNodeConfig {
     pub smooth_secs: f32,
 }
 
-impl VolumePanParams {
+impl VolumePanNode {
     pub fn compute_gains(&self) -> (f32, f32) {
         let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
 
@@ -74,7 +71,7 @@ impl VolumePanParams {
     }
 }
 
-impl Default for VolumePanParams {
+impl Default for VolumePanNode {
     fn default() -> Self {
         Self {
             normalized_volume: 1.0,
@@ -84,7 +81,7 @@ impl Default for VolumePanParams {
     }
 }
 
-impl AudioNodeConstructor for VolumePanParams {
+impl AudioNode for VolumePanNode {
     type Configuration = VolumeNodeConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
@@ -131,7 +128,7 @@ struct Processor {
     gain_l: SmoothedParam,
     gain_r: SmoothedParam,
 
-    params: VolumePanParams,
+    params: VolumePanNode,
 
     prev_block_was_silent: bool,
 }

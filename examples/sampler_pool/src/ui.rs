@@ -1,5 +1,5 @@
 use eframe::App;
-use firewheel::nodes::volume_pan::VolumePanParams;
+use firewheel::nodes::volume_pan::VolumePanNode;
 
 use crate::system::AudioSystem;
 
@@ -39,7 +39,7 @@ impl App for DemoApp {
             if ui.button("Play").clicked() {
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_1.play(
-                    self.audio_system.sampler_params.clone(),
+                    self.audio_system.sampler_node.clone(),
                     None, // No delay
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {
@@ -47,7 +47,7 @@ impl App for DemoApp {
                         // you would want to reset the parameters to the desired state when playing
                         // a new sample.
                         fx_chain_state.fx_chain.set_params(
-                            VolumePanParams::default(),
+                            VolumePanNode::default(),
                             &fx_chain_state.node_ids,
                             cx,
                         );
@@ -66,7 +66,7 @@ impl App for DemoApp {
             if ui.button("Play").clicked() {
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_2.play(
-                    self.audio_system.sampler_params.clone(),
+                    self.audio_system.sampler_node.clone(),
                     None, // No delay
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {

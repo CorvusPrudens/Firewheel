@@ -38,19 +38,19 @@ impl App for DemoApp {
 
             ui.add(
                 egui::Slider::new(
-                    &mut self.audio_system.noise_gen_params.normalized_volume,
+                    &mut self.audio_system.noise_gen_node.normalized_volume,
                     0.0..=1.0,
                 )
                 .text("volume"),
             );
 
-            ui.checkbox(&mut self.audio_system.noise_gen_params.enabled, "enabled");
+            ui.checkbox(&mut self.audio_system.noise_gen_node.enabled, "enabled");
 
-            self.audio_system.noise_gen_params.update_memo(
+            self.audio_system.noise_gen_node.update_memo(
                 &mut self
                     .audio_system
                     .cx
-                    .event_queue(self.audio_system.noise_gen_node),
+                    .event_queue(self.audio_system.noise_gen_node_id),
             );
 
             ui.separator();
@@ -58,7 +58,7 @@ impl App for DemoApp {
 
             ui.add(
                 egui::Slider::new(
-                    &mut self.audio_system.filter_params.normalized_volume,
+                    &mut self.audio_system.filter_node.normalized_volume,
                     0.0..=1.0,
                 )
                 .text("volume"),
@@ -66,35 +66,38 @@ impl App for DemoApp {
 
             ui.add(
                 egui::Slider::new(
-                    &mut self.audio_system.filter_params.cutoff_hz,
+                    &mut self.audio_system.filter_node.cutoff_hz,
                     20.0..=20_000.0,
                 )
                 .text("cutoff")
                 .logarithmic(true),
             );
 
-            ui.checkbox(&mut self.audio_system.filter_params.enabled, "enabled");
+            ui.checkbox(&mut self.audio_system.filter_node.enabled, "enabled");
 
-            self.audio_system.filter_params.update_memo(
+            self.audio_system.filter_node.update_memo(
                 &mut self
                     .audio_system
                     .cx
-                    .event_queue(self.audio_system.filter_node),
+                    .event_queue(self.audio_system.filter_node_id),
             );
 
             ui.separator();
             ui.label("RMS meter");
 
             if ui
-                .checkbox(&mut self.audio_system.rms_params.enabled, "enabled")
+                .checkbox(&mut self.audio_system.rms_node.enabled, "enabled")
                 .changed()
             {
-                self.audio_system
-                    .rms_params
-                    .update_memo(&mut self.audio_system.cx.event_queue(self.audio_system.rms_node));
+                self.audio_system.rms_node.update_memo(
+                    &mut self
+                        .audio_system
+                        .cx
+                        .event_queue(self.audio_system.rms_node_id),
+                );
             }
 
-            let rms_value = self.audio_system.rms_params.rms_value();
+            let rms_value = self.audio_system.rms_node.rms_value();
 
             // The rms value is quite low, so scale it up to register on the meter better.
             ui.add(ProgressBar::new(rms_value * 2.0).fill(Color32::DARK_GREEN));

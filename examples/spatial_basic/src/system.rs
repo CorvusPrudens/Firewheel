@@ -3,8 +3,8 @@ use firewheel::{
     error::UpdateError,
     node::NodeID,
     nodes::{
-        sampler::{RepeatMode, SamplerParams},
-        spatial_basic::SpatialBasicParams,
+        sampler::{RepeatMode, SamplerNode},
+        spatial_basic::SpatialBasicNode,
     },
     FirewheelContext,
 };
@@ -13,11 +13,11 @@ use symphonium::SymphoniumLoader;
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
-    pub _sampler_params: SamplerParams,
-    pub _sampler_node: NodeID,
+    pub _sampler_node: SamplerNode,
+    pub _sampler_node_id: NodeID,
 
-    pub spatial_basic_params: Memo<SpatialBasicParams>,
-    pub spatial_basic_node: NodeID,
+    pub spatial_basic_node: Memo<SpatialBasicNode>,
+    pub spatial_basic_node_id: NodeID,
 }
 
 impl AudioSystem {
@@ -37,29 +37,39 @@ impl AudioSystem {
         .unwrap()
         .into_dyn_resource();
 
-        let graph_out = cx.graph_out_node();
+        let graph_out_node_id = cx.graph_out_node_id();
 
-        let mut sampler_params = SamplerParams::default();
-        sampler_params.set_sample(sample, 1.0, RepeatMode::RepeatEndlessly);
+        let mut sampler_node = SamplerNode::default();
+        sampler_node.set_sample(sample, 1.0, RepeatMode::RepeatEndlessly);
 
-        let sampler_node = cx.add_node(sampler_params.clone(), None);
+        let sampler_node_id = cx.add_node(sampler_node.clone(), None);
 
-        let spatial_basic_params = SpatialBasicParams::default();
-        let spatial_basic_node = cx.add_node(spatial_basic_params, None);
+        let spatial_basic_node = SpatialBasicNode::default();
+        let spatial_basic_node_id = cx.add_node(spatial_basic_node, None);
 
-        cx.connect(sampler_node, spatial_basic_node, &[(0, 0), (1, 1)], false)
-            .unwrap();
-        cx.connect(spatial_basic_node, graph_out, &[(0, 0), (1, 1)], false)
-            .unwrap();
+        cx.connect(
+            sampler_node_id,
+            spatial_basic_node_id,
+            &[(0, 0), (1, 1)],
+            false,
+        )
+        .unwrap();
+        cx.connect(
+            spatial_basic_node_id,
+            graph_out_node_id,
+            &[(0, 0), (1, 1)],
+            false,
+        )
+        .unwrap();
 
-        cx.queue_event_for(sampler_node, sampler_params.start_or_restart_event(None));
+        cx.queue_event_for(sampler_node_id, sampler_node.start_or_restart_event(None));
 
         Self {
             cx,
-            _sampler_params: sampler_params,
             _sampler_node: sampler_node,
-            spatial_basic_params: Memo::new(spatial_basic_params),
-            spatial_basic_node,
+            _sampler_node_id: sampler_node_id,
+            spatial_basic_node: Memo::new(spatial_basic_node),
+            spatial_basic_node_id,
         }
     }
 

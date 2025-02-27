@@ -11,8 +11,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        ScratchBuffers,
     },
     sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
@@ -112,14 +112,14 @@ impl Default for CpalInputConfig {
 }
 
 #[derive(Clone)]
-pub struct CpalInputNodeHandle {
+pub struct CpalInputNode {
     config: CpalInputNodeConfig,
     channels: NonZeroChannelCount,
     active_state: Option<ActiveHandleState>,
     shared_state: Arc<SharedState>,
 }
 
-impl CpalInputNodeHandle {
+impl CpalInputNode {
     pub fn new(config: CpalInputNodeConfig, channels: NonZeroChannelCount) -> Self {
         Self {
             config,
@@ -426,13 +426,13 @@ impl CpalInputNodeHandle {
     }
 }
 
-impl Drop for CpalInputNodeHandle {
+impl Drop for CpalInputNode {
     fn drop(&mut self) {
         self.stop_stream();
     }
 }
 
-impl AudioNodeConstructor for CpalInputNodeHandle {
+impl AudioNode for CpalInputNode {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {

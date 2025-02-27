@@ -3,8 +3,8 @@ use firewheel::{
     error::UpdateError,
     node::NodeID,
     nodes::{
-        peak_meter::{PeakMeterHandle, PeakMeterSmoother},
-        sampler::{PlaybackState, RepeatMode, SamplerParams, SequenceType},
+        peak_meter::{PeakMeterNode, PeakMeterSmoother},
+        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
     },
     FirewheelContext,
 };
@@ -18,7 +18,7 @@ pub const SAMPLE_PATHS: [&'static str; 4] = [
 ];
 
 struct Sampler {
-    pub params: SamplerParams,
+    pub params: SamplerNode,
     pub node_id: NodeID,
 }
 
@@ -27,7 +27,7 @@ pub struct AudioSystem {
 
     samplers: Vec<Sampler>,
 
-    peak_meter: PeakMeterHandle<2>,
+    peak_meter_node: PeakMeterNode<2>,
     peak_meter_smoother: PeakMeterSmoother<2>,
     peak_meter_normalizer: DbMeterNormalizer,
 }
@@ -41,12 +41,12 @@ impl AudioSystem {
 
         let mut loader = SymphoniumLoader::new();
 
-        let graph_out = cx.graph_out_node();
+        let graph_out = cx.graph_out_node_id();
 
-        let peak_meter = PeakMeterHandle::<2>::new(true);
+        let peak_meter_node = PeakMeterNode::<2>::new(true);
         let peak_meter_smoother = PeakMeterSmoother::<2>::new(Default::default());
 
-        let peak_meter_id = cx.add_node(peak_meter.clone(), None);
+        let peak_meter_id = cx.add_node(peak_meter_node.clone(), None);
         cx.connect(peak_meter_id, graph_out, &[(0, 0), (1, 1)], false)
             .unwrap();
 
@@ -58,7 +58,7 @@ impl AudioSystem {
                         .unwrap()
                         .into_dyn_resource();
 
-                let mut params = SamplerParams::default();
+                let mut params = SamplerNode::default();
                 params.set_sample(sample, 1.0, RepeatMode::PlayOnce);
 
                 let node_id = cx.add_node(params.clone(), None);
@@ -76,7 +76,7 @@ impl AudioSystem {
         Self {
             cx,
             samplers,
-            peak_meter,
+            peak_meter_node,
             peak_meter_smoother,
             peak_meter_normalizer: DbMeterNormalizer::default(),
         }
@@ -160,7 +160,7 @@ impl AudioSystem {
 
     pub fn update_meters(&mut self, delta_seconds: f32) {
         self.peak_meter_smoother
-            .update(self.peak_meter.peak_gain_db(), delta_seconds);
+            .update(self.peak_meter_node.peak_gain_db(), delta_seconds);
     }
 
     pub fn peak_meter_values(&self) -> [f32; 2] {

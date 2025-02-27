@@ -1,17 +1,17 @@
 use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
 
-use crate::nodes::{filter::FilterParams, noise_gen::NoiseGenParams, rms::RmsParams};
+use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::RmsNode};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
-    pub noise_gen_params: Memo<NoiseGenParams>,
-    pub filter_params: Memo<FilterParams>,
-    pub rms_params: Memo<RmsParams>,
+    pub noise_gen_node: Memo<NoiseGenNode>,
+    pub filter_node: Memo<FilterNode>,
+    pub rms_node: Memo<RmsNode>,
 
-    pub noise_gen_node: NodeID,
-    pub filter_node: NodeID,
-    pub rms_node: NodeID,
+    pub noise_gen_node_id: NodeID,
+    pub filter_node_id: NodeID,
+    pub rms_node_id: NodeID,
 }
 
 impl AudioSystem {
@@ -19,30 +19,31 @@ impl AudioSystem {
         let mut cx = FirewheelContext::new(Default::default());
         cx.start_stream(Default::default()).unwrap();
 
-        let noise_gen_params = NoiseGenParams::default();
-        let filter_params = FilterParams::default();
-        let rms_params = RmsParams::default();
+        let noise_gen_node = NoiseGenNode::default();
+        let filter_node = FilterNode::default();
+        let rms_node = RmsNode::default();
 
-        let noise_gen_node = cx.add_node(noise_gen_params, None);
-        let filter_node = cx.add_node(filter_params, None);
-        let rms_node = cx.add_node(rms_params.clone(), None);
+        let noise_gen_node_id = cx.add_node(noise_gen_node, None);
+        let filter_node_id = cx.add_node(filter_node, None);
+        let rms_node_id = cx.add_node(rms_node.clone(), None);
 
-        let graph_out = cx.graph_out_node();
+        let graph_out_node_id = cx.graph_out_node_id();
 
-        cx.connect(noise_gen_node, filter_node, &[(0, 0)], false)
+        cx.connect(noise_gen_node_id, filter_node_id, &[(0, 0)], false)
             .unwrap();
-        cx.connect(filter_node, rms_node, &[(0, 0)], false).unwrap();
-        cx.connect(filter_node, graph_out, &[(0, 0), (0, 1)], false)
+        cx.connect(filter_node_id, rms_node_id, &[(0, 0)], false)
+            .unwrap();
+        cx.connect(filter_node_id, graph_out_node_id, &[(0, 0), (0, 1)], false)
             .unwrap();
 
         Self {
             cx,
-            noise_gen_params: Memo::new(noise_gen_params),
-            filter_params: Memo::new(filter_params),
-            rms_params: Memo::new(rms_params),
-            noise_gen_node,
-            filter_node,
-            rms_node,
+            noise_gen_node: Memo::new(noise_gen_node),
+            filter_node: Memo::new(filter_node),
+            rms_node: Memo::new(rms_node),
+            noise_gen_node_id,
+            filter_node_id,
+            rms_node_id,
         }
     }
 

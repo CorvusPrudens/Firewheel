@@ -12,8 +12,8 @@ use firewheel_core::{
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        ScratchBuffers,
     },
     sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
@@ -59,7 +59,7 @@ impl Default for StreamWriterConfig {
 
 #[derive(Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct StreamWriterHandle {
+pub struct StreamWriterNode {
     /// The configuration of the stream.
     ///
     /// Changing this will have no effect until a new stream is started.
@@ -70,7 +70,7 @@ pub struct StreamWriterHandle {
     shared_state: Arc<SharedState>,
 }
 
-impl StreamWriterHandle {
+impl StreamWriterNode {
     pub fn new(config: StreamWriterConfig, channels: NonZeroChannelCount) -> Self {
         Self {
             config,
@@ -313,13 +313,13 @@ impl StreamWriterHandle {
     }
 }
 
-impl Drop for StreamWriterHandle {
+impl Drop for StreamWriterNode {
     fn drop(&mut self) {
         self.stop_stream();
     }
 }
 
-impl AudioNodeConstructor for StreamWriterHandle {
+impl AudioNode for StreamWriterNode {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {

@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use firewheel::{
-    channel_config::NonZeroChannelCount, error::UpdateError, input::CpalInputNodeHandle,
-    FirewheelContext,
+    channel_config::NonZeroChannelCount, error::UpdateError, input::CpalInputNode, FirewheelContext,
 };
 
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
@@ -16,16 +15,15 @@ fn main() {
 
     dbg!(output_stream_sample_rate);
 
-    let graph_out_node = cx.graph_out_node();
+    let graph_out_node_id = cx.graph_out_node_id();
 
-    let mut input_node_handle =
-        CpalInputNodeHandle::new(Default::default(), NonZeroChannelCount::MONO);
-    let input_node_id = cx.add_node(input_node_handle.clone(), None);
+    let mut input_node = CpalInputNode::new(Default::default(), NonZeroChannelCount::MONO);
+    let input_node_id = cx.add_node(input_node.clone(), None);
 
-    cx.connect(input_node_id, graph_out_node, &[(0, 0), (0, 1)], false)
+    cx.connect(input_node_id, graph_out_node_id, &[(0, 0), (0, 1)], false)
         .unwrap();
 
-    match input_node_handle.start_stream(Default::default(), output_stream_sample_rate) {
+    match input_node.start_stream(Default::default(), output_stream_sample_rate) {
         Ok((input_stream_info, event)) => {
             dbg!(input_stream_info);
 
@@ -39,14 +37,14 @@ fn main() {
     }
 
     loop {
-        if input_node_handle.underflow_occurred() {
+        if input_node.underflow_occurred() {
             println!("underflow occured!");
         }
-        if input_node_handle.overflow_occurred() {
+        if input_node.overflow_occurred() {
             println!("overflow occured!");
         }
 
-        if let Err(e) = input_node_handle.poll_status() {
+        if let Err(e) = input_node.poll_status() {
             // The input stream has been stopped unexpectedly (i.e. the user
             // unplugged their microphone).
             log::error!("Input stream stopped unexpectedly: {}", e);
@@ -62,7 +60,7 @@ fn main() {
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // Notify the input node that the output stream has stopped. This
                 // will automatically stop any running input audio streams.
-                input_node_handle.stop_stream();
+                input_node.stop_stream();
 
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)

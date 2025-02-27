@@ -7,8 +7,8 @@ use firewheel_core::{
     dsp::decibel::{gain_to_db_clamped_neg_100_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, NUM_SCRATCH_BUFFERS,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        NUM_SCRATCH_BUFFERS,
     },
     StreamInfo,
 };
@@ -41,7 +41,7 @@ impl Default for PeakMeterSmootherConfig {
     }
 }
 
-/// A helper struct to smooth out the output of [`PeakMeterHandle`]. This
+/// A helper struct to smooth out the output of [`PeakMeterNode`]. This
 /// can be used to drive the animation of a peak meter in a GUI.
 #[derive(Debug, Clone, Copy)]
 pub struct PeakMeterSmoother<const NUM_CHANNELS: usize> {
@@ -153,12 +153,12 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
 }
 
 #[derive(Clone)]
-pub struct PeakMeterHandle<const NUM_CHANNELS: usize> {
+pub struct PeakMeterNode<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }
 
-impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
-    /// Create a new [`PeakMeterHandle`].
+impl<const NUM_CHANNELS: usize> PeakMeterNode<NUM_CHANNELS> {
+    /// Create a new [`PeakMeterNode`].
     ///
     /// # Panics
     ///
@@ -199,7 +199,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterHandle<NUM_CHANNELS> {
     }
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeConstructor for PeakMeterHandle<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {

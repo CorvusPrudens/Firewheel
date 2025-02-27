@@ -11,8 +11,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo,
-        ProcessStatus, ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
+        ScratchBuffers,
     },
     sync_wrapper::SyncWrapper,
     StreamInfo,
@@ -39,7 +39,7 @@ impl Default for StreamReaderConfig {
 
 #[derive(Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct StreamReaderHandle {
+pub struct StreamReaderNode {
     /// The configuration of the stream.
     ///
     /// Changing this will have no effect until a new stream is started.
@@ -50,7 +50,7 @@ pub struct StreamReaderHandle {
     shared_state: Arc<SharedState>,
 }
 
-impl StreamReaderHandle {
+impl StreamReaderNode {
     pub fn new(config: StreamReaderConfig, channels: NonZeroChannelCount) -> Self {
         Self {
             config,
@@ -341,13 +341,13 @@ impl StreamReaderHandle {
     }
 }
 
-impl Drop for StreamReaderHandle {
+impl Drop for StreamReaderNode {
     fn drop(&mut self) {
         self.stop_stream();
     }
 }
 
-impl AudioNodeConstructor for StreamReaderHandle {
+impl AudioNode for StreamReaderNode {
     type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {

@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-cpal"
-version = "0.2.4-beta.0"
+version = "0.3.0"
 description = "cpal backend for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-cpal"
 edition.workspace = true
@@ -19,8 +19,8 @@ input = ["dep:fixed-resample"]
 resample_inputs = ["input", "fixed-resample?/fft-resampler"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.2.4-beta.0" }
-firewheel-graph = { path = "../firewheel-graph", version = "0.2.4-beta.0" }
+firewheel-core = { path = "../firewheel-core", version = "0.3.0" }
+firewheel-graph = { path = "../firewheel-graph", version = "0.3.0" }
 cpal = "0.15.3"
 log.workspace = true
 ringbuf.workspace = true

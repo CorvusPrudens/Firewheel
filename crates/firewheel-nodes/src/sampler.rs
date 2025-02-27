@@ -19,10 +19,7 @@ use firewheel_core::{
         declick::{DeclickValues, Declicker, FadeType},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
 };
@@ -96,13 +93,13 @@ impl Default for SharedState {
 
 #[derive(Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct SamplerParams {
+pub struct SamplerNode {
     /// The current sequence loaded into the sampler.
     pub sequence: Option<SequenceType>,
     shared_state: ArcGc<SharedState>,
 }
 
-impl SamplerParams {
+impl SamplerNode {
     /// Set the parameters to a play a single sample.
     ///
     /// * `sample` - The sample resource to use.
@@ -125,13 +122,13 @@ impl SamplerParams {
     }
 }
 
-impl Default for SamplerParams {
+impl Default for SamplerNode {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SamplerParams {
+impl SamplerNode {
     pub fn new() -> Self {
         Self {
             sequence: None,
@@ -278,7 +275,7 @@ impl SamplerParams {
 pub enum SamplerEvent {
     /// Set the sampler state. This will stop any currently playing sequence.
     SetParams {
-        params: SamplerParams,
+        params: SamplerNode,
         /// If `true`, then the new sequence will be started immediately.
         start_immediately: bool,
     },
@@ -360,7 +357,7 @@ pub enum SequenceEventType {
     SetPlayheadSamples(u64),
 }
 
-impl AudioNodeConstructor for SamplerParams {
+impl AudioNode for SamplerNode {
     type Configuration = SamplerConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
@@ -416,7 +413,7 @@ impl AudioNodeConstructor for SamplerParams {
 
 pub struct SamplerProcessor {
     config: SamplerConfig,
-    params: SamplerParams,
+    params: SamplerNode,
 
     loaded_sample_state: Option<LoadedSampleState>,
 

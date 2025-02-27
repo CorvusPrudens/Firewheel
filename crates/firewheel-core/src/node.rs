@@ -8,6 +8,8 @@ use crate::{
     SilenceMask, StreamInfo,
 };
 
+pub mod dummy;
+
 /// A globally unique identifier for a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeID(pub thunderdome::Index);
@@ -107,7 +109,7 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
     }
 }
 
-pub trait AudioNodeConstructor {
+pub trait AudioNode: 'static {
     /// A type representing this constructor's configuration.
     ///
     /// This is intended as a one-time configuration to be used
@@ -132,26 +134,26 @@ pub trait AudioNodeConstructor {
 ///
 /// This should be preferred over `()` because it implements
 /// [`Component`][bevy_ecs::prelude::Component], making the
-/// [`AudioNodeConstructor`] implementor trivially Bevy-compatible.
+/// [`AudioNode`] implementor trivially Bevy-compatible.
 #[derive(Debug, Default, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct EmptyConfig;
 
-/// A dyn-compatible [`AudioNodeConstructor`].
-pub trait AudioNode {
+/// A dyn-compatible [`AudioNode`].
+pub trait DynAudioNode: 'static {
     fn info(&self) -> AudioNodeInfo;
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
 }
 
 /// Pairs constructors with their configurations.
 ///
-/// This is useful for type-erasing an [`AudioNodeConstructor`].
+/// This is useful for type-erasing an [`AudioNode`].
 pub struct Constructor<T, C> {
     constructor: T,
     configuration: C,
 }
 
-impl<T: AudioNodeConstructor> Constructor<T, T::Configuration> {
+impl<T: AudioNode> Constructor<T, T::Configuration> {
     pub fn new(constructor: T, configuration: Option<T::Configuration>) -> Self {
         Self {
             constructor,
@@ -160,7 +162,7 @@ impl<T: AudioNodeConstructor> Constructor<T, T::Configuration> {
     }
 }
 
-impl<T: AudioNodeConstructor> AudioNode for Constructor<T, T::Configuration> {
+impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
     fn info(&self) -> AudioNodeInfo {
         self.constructor.info(&self.configuration)
     }
@@ -332,46 +334,5 @@ impl ProcessStatus {
     /// All output buffers were filled with data.
     pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
         Self::OutputsModified { out_silence_mask }
-    }
-}
-
-/// The configuration for a "dummy" node, a node which does nothing.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DummyConfig {
-    pub channel_config: ChannelConfig,
-}
-
-impl AudioNodeConstructor for DummyConfig {
-    type Configuration = ();
-
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo {
-            debug_name: "dummy",
-            channel_config: self.channel_config,
-            uses_events: false,
-        }
-    }
-
-    fn processor(
-        &self,
-        _config: &Self::Configuration,
-        _stream_info: &StreamInfo,
-    ) -> impl AudioNodeProcessor {
-        DummyProcessor
-    }
-}
-
-pub struct DummyProcessor;
-
-impl AudioNodeProcessor for DummyProcessor {
-    fn process(
-        &mut self,
-        _inputs: &[&[f32]],
-        _outputs: &mut [&mut [f32]],
-        _events: NodeEventList,
-        _proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
-    ) -> ProcessStatus {
-        ProcessStatus::Bypass
     }
 }

@@ -3,10 +3,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::decibel::normalized_volume_to_raw_gain,
     event::NodeEventList,
-    node::{
-        AudioNodeConstructor, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -34,12 +31,12 @@ impl Default for VolumeNodeConfig {
 
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct VolumeParams {
+pub struct VolumeNode {
     /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
     pub normalized_volume: f32,
 }
 
-impl Patch for VolumeParams {
+impl Patch for VolumeNode {
     fn patch(
         &mut self,
         data: &firewheel_core::event::ParamData,
@@ -57,7 +54,7 @@ impl Patch for VolumeParams {
     }
 }
 
-impl Default for VolumeParams {
+impl Default for VolumeNode {
     fn default() -> Self {
         Self {
             normalized_volume: 1.0,
@@ -65,7 +62,7 @@ impl Default for VolumeParams {
     }
 }
 
-impl AudioNodeConstructor for VolumeParams {
+impl AudioNode for VolumeNode {
     type Configuration = VolumeNodeConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
@@ -102,7 +99,7 @@ impl AudioNodeConstructor for VolumeParams {
 
 struct VolumeProcessor {
     gain: SmoothedParam,
-    params: VolumeParams,
+    params: VolumeNode,
 
     prev_block_was_silent: bool,
 }

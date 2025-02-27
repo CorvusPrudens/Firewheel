@@ -6,7 +6,7 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
-    nodes::{beep_test::BeepTestParams, volume::VolumeParams, volume_pan::VolumePanParams},
+    nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
 };
 
 use crate::system::{AudioSystem, NodeType};
@@ -19,30 +19,30 @@ pub enum GuiAudioNode {
     SystemOut,
     BeepTest {
         id: firewheel::node::NodeID,
-        params: Memo<BeepTestParams>,
+        params: Memo<BeepTestNode>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
     },
     VolumeMono {
         id: firewheel::node::NodeID,
-        params: Memo<VolumeParams>,
+        params: Memo<VolumeNode>,
     },
     VolumeStereo {
         id: firewheel::node::NodeID,
-        params: Memo<VolumeParams>,
+        params: Memo<VolumeNode>,
     },
     VolumePan {
         id: firewheel::node::NodeID,
-        params: Memo<VolumePanParams>,
+        params: Memo<VolumePanNode>,
     },
 }
 
 impl GuiAudioNode {
     fn node_id(&self, audio_system: &AudioSystem) -> firewheel::node::NodeID {
         match self {
-            &Self::SystemIn => audio_system.graph_in_node(),
-            &Self::SystemOut => audio_system.graph_out_node(),
+            &Self::SystemIn => audio_system.graph_in_node_id(),
+            &Self::SystemOut => audio_system.graph_out_node_id(),
             &Self::BeepTest { id, .. } => id,
             &Self::StereoToMono { id } => id,
             &Self::VolumeMono { id, .. } => id,

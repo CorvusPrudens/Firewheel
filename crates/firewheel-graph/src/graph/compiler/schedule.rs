@@ -595,7 +595,7 @@ mod tests {
     use ahash::AHashSet;
     use firewheel_core::{
         channel_config::{ChannelConfig, ChannelCount},
-        node::DummyConfig,
+        node::dummy::{DummyNode, DummyNodeConfig},
     };
 
     use crate::{
@@ -821,10 +821,10 @@ mod tests {
 
     fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
         graph.add_node(
-            DummyConfig {
+            DummyNode,
+            Some(DummyNodeConfig {
                 channel_config: channel_config.into(),
-            },
-            None,
+            }),
         )
     }
 
