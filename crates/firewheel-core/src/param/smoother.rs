@@ -1,6 +1,9 @@
 use std::num::NonZeroU32;
 
-use crate::{dsp::smoothing_filter, StreamInfo};
+use crate::{
+    dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},
+    StreamInfo,
+};
 
 /// The configuration for a [`SmoothedParam`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,8 +31,8 @@ impl Default for SmootherConfig {
 pub struct SmoothedParam {
     target_value: f32,
     target_times_a: f32,
-    filter_state: f32,
-    coeff: smoothing_filter::Coeff,
+    filter: SmoothingFilter,
+    coeff: SmoothingFilterCoeff,
     smooth_secs: f32,
     settle_epsilon: f32,
 }
@@ -40,12 +43,12 @@ impl SmoothedParam {
         assert!(config.smooth_secs > 0.0);
         assert!(config.settle_epsilon > 0.0);
 
-        let coeff = smoothing_filter::Coeff::new(sample_rate, config.smooth_secs);
+        let coeff = SmoothingFilterCoeff::new(sample_rate, config.smooth_secs);
 
         Self {
             target_value: value,
-            target_times_a: value * coeff.a,
-            filter_state: value,
+            target_times_a: value * coeff.a0,
+            filter: SmoothingFilter::new(value),
             coeff,
             smooth_secs: config.smooth_secs,
             settle_epsilon: config.settle_epsilon,
@@ -60,44 +63,47 @@ impl SmoothedParam {
     /// Set the target value of the parameter.
     pub fn set_value(&mut self, value: f32) {
         self.target_value = value;
-        self.target_times_a = value * self.coeff.a;
+        self.target_times_a = value * self.coeff.a0;
     }
 
-    /// Returns `true` if this parameter is currently smoothing this process cycle,
-    /// `false` if not.
+    /// Settle the filter if its state is close enough to the target value.
+    ///
+    /// Returns `true` if this filter is settled, `false` if not.
+    pub fn settle(&mut self) -> bool {
+        self.filter.settle(self.target_value, self.settle_epsilon)
+    }
+
     pub fn is_smoothing(&self) -> bool {
-        !smoothing_filter::has_settled(self.filter_state, self.target_value, self.settle_epsilon)
+        !self.filter.has_settled(self.target_value)
     }
 
     /// Reset the smoother.
     pub fn reset(&mut self) {
-        self.filter_state = self.target_value;
+        self.filter = SmoothingFilter::new(self.target_value);
     }
 
     /// Return the next smoothed value.
     #[inline(always)]
     pub fn next_smoothed(&mut self) -> f32 {
-        self.filter_state = smoothing_filter::process_sample_a(
-            self.filter_state,
-            self.target_times_a,
-            self.coeff.b,
-        );
-        self.filter_state
+        self.filter
+            .process_sample_a(self.target_times_a, self.coeff.b1)
     }
 
     /// Fill the given buffer with the smoothed values.
     pub fn process_into_buffer(&mut self, buffer: &mut [f32]) {
-        self.filter_state = smoothing_filter::process_into_buffer(
-            buffer,
-            self.filter_state,
-            self.target_value,
-            self.coeff,
-        );
+        if self.is_smoothing() {
+            self.filter
+                .process_into_buffer(buffer, self.target_value, self.coeff);
+
+            self.filter.settle(self.target_value, self.settle_epsilon);
+        } else {
+            buffer.fill(self.target_value);
+        }
     }
 
     /// Update the sample rate.
     pub fn update_sample_rate(&mut self, sample_rate: NonZeroU32) {
-        self.coeff = smoothing_filter::Coeff::new(sample_rate, self.smooth_secs);
+        self.coeff = SmoothingFilterCoeff::new(sample_rate, self.smooth_secs);
     }
 }
 
@@ -142,18 +148,19 @@ impl SmoothedParamBuffer {
         self.smoother.reset();
     }
 
-    pub fn get_buffer(&mut self, frames: usize) -> &[f32] {
-        if self.smoother.is_smoothing() {
-            self.smoother
-                .process_into_buffer(&mut self.buffer[..frames]);
+    /// Get the buffer of smoothed samples.
+    ///
+    /// The second value is `true` if all the values in the buffer are the same.
+    pub fn get_buffer(&mut self, frames: usize) -> (&[f32], bool) {
+        self.buffer_is_constant = !self.smoother.is_smoothing();
 
-            self.buffer_is_constant = false;
-        } else if !self.buffer_is_constant {
-            self.buffer_is_constant = true;
-            self.buffer.fill(self.smoother.target_value());
-        }
+        self.smoother
+            .process_into_buffer(&mut self.buffer[..frames]);
 
-        &self.buffer[..frames]
+        (
+            &self.buffer[..frames],
+            self.buffer_is_constant || frames < 2,
+        )
     }
 
     /// Returns `true` if this parameter is currently smoothing this process cycle,

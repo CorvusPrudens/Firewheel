@@ -5,7 +5,7 @@ use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke};
 
 use crate::system::AudioSystem;
 
-const RANGE: RangeInclusive<f32> = -25.0..=25.0;
+const RANGE: RangeInclusive<f32> = -40.0..=40.0;
 
 pub struct DemoApp {
     audio_system: AudioSystem,
@@ -84,14 +84,29 @@ impl App for DemoApp {
                 )
                 .changed();
 
+            ui.horizontal(|ui| {
+                updated |= ui
+                    .add(
+                        egui::Slider::new(
+                            &mut self.audio_system.spatial_basic_node.damping_distance,
+                            -1.0..=300.0,
+                        )
+                        .step_by(0.0)
+                        .text("damping distance"),
+                    )
+                    .changed();
+
+                ui.label("(negative value = no damping)");
+            });
+
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.damping_factor,
-                        0.5..=50.0,
+                        &mut self.audio_system.spatial_basic_node.muffle_cutoff_hz,
+                        20.0..=20_480.0,
                     )
                     .step_by(0.0)
-                    .text("damping factor")
+                    .text("muffle cutoff Hz")
                     .logarithmic(true),
                 )
                 .changed();

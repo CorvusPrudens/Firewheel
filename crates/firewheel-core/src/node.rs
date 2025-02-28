@@ -109,7 +109,7 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
     }
 }
 
-pub trait AudioNode: 'static {
+pub trait AudioNode {
     /// A type representing this constructor's configuration.
     ///
     /// This is intended as a one-time configuration to be used
@@ -140,7 +140,7 @@ pub trait AudioNode: 'static {
 pub struct EmptyConfig;
 
 /// A dyn-compatible [`AudioNode`].
-pub trait DynAudioNode: 'static {
+pub trait DynAudioNode {
     fn info(&self) -> AudioNodeInfo;
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
 }

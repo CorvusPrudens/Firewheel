@@ -469,12 +469,16 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node<T: AudioNode>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID {
+    pub fn add_node<T: AudioNode + 'static>(
+        &mut self,
+        node: T,
+        config: Option<T::Configuration>,
+    ) -> NodeID {
         self.graph.add_node(node, config)
     }
 
     /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
-    pub fn add_dyn_node<T: DynAudioNode>(&mut self, node: T) -> NodeID {
+    pub fn add_dyn_node<T: DynAudioNode + 'static>(&mut self, node: T) -> NodeID {
         self.graph.add_dyn_node(node)
     }
 

@@ -110,7 +110,11 @@ impl AudioGraph {
     }
 
     /// Add a node to the audio graph.
-    pub fn add_node<T: AudioNode>(&mut self, node: T, config: Option<T::Configuration>) -> NodeID {
+    pub fn add_node<T: AudioNode + 'static>(
+        &mut self,
+        node: T,
+        config: Option<T::Configuration>,
+    ) -> NodeID {
         let constructor = Constructor::new(node, config);
         let info: AudioNodeInfoInner = constructor.info().into();
 
@@ -126,7 +130,7 @@ impl AudioGraph {
     }
 
     /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
-    pub fn add_dyn_node<T: DynAudioNode>(&mut self, node: T) -> NodeID {
+    pub fn add_dyn_node<T: DynAudioNode + 'static>(&mut self, node: T) -> NodeID {
         let info: AudioNodeInfoInner = node.info().into();
 
         let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));

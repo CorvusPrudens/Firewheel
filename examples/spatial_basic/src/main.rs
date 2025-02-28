@@ -11,8 +11,8 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([575.0, 360.0])
-            .with_min_inner_size([575.0, 220.0]),
+            .with_inner_size([575.0, 380.0])
+            .with_min_inner_size([575.0, 380.0]),
         vsync: true,
         ..Default::default()
     };

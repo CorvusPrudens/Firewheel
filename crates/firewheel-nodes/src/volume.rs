@@ -202,6 +202,8 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
+        self.gain.settle();
+
         ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
     }
 

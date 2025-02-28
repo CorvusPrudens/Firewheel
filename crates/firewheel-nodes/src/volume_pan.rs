@@ -194,6 +194,9 @@ impl AudioNodeProcessor for Processor {
                 out2[i] = in2[i] * gain_r;
             }
 
+            self.gain_l.settle();
+            self.gain_r.settle();
+
             ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
         }
     }

@@ -183,7 +183,7 @@ impl AudioNodeProcessor for Processor {
         //
         // The redundant slicing is not strictly necessary, but it may help make sure
         // the compiler properly optimizes the below processing loops.
-        let gain = &self.gain.get_buffer(proc_info.frames)[..proc_info.frames];
+        let gain = &self.gain.get_buffer(proc_info.frames).0[..proc_info.frames];
 
         if self.cutoff_hz.is_smoothing() {
             for i in 0..proc_info.frames {
@@ -191,7 +191,7 @@ impl AudioNodeProcessor for Processor {
 
                 // Because recalculating filter coefficients is expensive, a trick like
                 // this can be use to only recalculate them every 16 frames.
-                if i & 15 == 0 {
+                if i & (16 - 1) == 0 {
                     self.filter_l.set_cutoff(cutoff_hz, self.sample_rate_recip);
                     self.filter_r.copy_cutoff_from(&self.filter_l);
                 }
@@ -202,6 +202,10 @@ impl AudioNodeProcessor for Processor {
                 out1[i] = fl * gain[i];
                 out2[i] = fr * gain[i];
             }
+
+            // Settle the filter if its state is close enough to the target value.
+            // Otherwise `self.cutoff_hz.is_smoothing()` will always return `true`.
+            self.cutoff_hz.settle();
         } else {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
