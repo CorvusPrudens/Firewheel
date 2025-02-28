@@ -5,6 +5,8 @@ use std::hash::Hash;
 
 use ahash::AHashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
+use firewheel_core::event::NodeEvent;
+use firewheel_core::node::UpdateContext;
 use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -40,6 +42,7 @@ pub(crate) struct AudioGraph {
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
     active_nodes_to_remove: AHashMap<NodeID, NodeEntry>,
+    nodes_to_call_update_method: Vec<NodeID>,
     event_queue_capacity: usize,
 }
 
@@ -95,6 +98,7 @@ impl AudioGraph {
                 config.initial_node_capacity as usize,
             ),
             active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity as usize),
+            nodes_to_call_update_method: Vec::new(),
             event_queue_capacity: 0, // This will be overwritten later once activated.
         }
     }
@@ -124,6 +128,10 @@ impl AudioGraph {
         );
         self.nodes[new_id.0].id = new_id;
 
+        if info.call_update_method {
+            self.nodes_to_call_update_method.push(new_id);
+        }
+
         self.needs_compile = true;
 
         new_id
@@ -135,6 +143,10 @@ impl AudioGraph {
 
         let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
         self.nodes[new_id.0].id = new_id;
+
+        if info.call_update_method {
+            self.nodes_to_call_update_method.push(new_id);
+        }
 
         self.needs_compile = true;
 
@@ -519,7 +531,7 @@ impl AudioGraph {
 
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
-                    processor: entry.constructor.processor(&stream_info),
+                    processor: entry.dyn_node.processor(&stream_info),
                     event_buffer_indices,
                 });
             }
@@ -557,5 +569,30 @@ impl AudioGraph {
             self.graph_out_id,
             max_block_frames,
         )
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        stream_info: Option<&StreamInfo>,
+        event_queue: &mut Vec<NodeEvent>,
+    ) {
+        let mut cull_list = false;
+        for node_id in self.nodes_to_call_update_method.iter() {
+            if let Some(node_entry) = self.nodes.get_mut(node_id.0) {
+                node_entry.dyn_node.update(UpdateContext::new(
+                    *node_id,
+                    stream_info,
+                    &mut node_entry.custom_data,
+                    event_queue,
+                ));
+            } else {
+                cull_list = true;
+            }
+        }
+
+        if cull_list {
+            self.nodes_to_call_update_method
+                .retain(|node_id| self.nodes.contains(node_id.0));
+        }
     }
 }

@@ -1,10 +1,10 @@
-use std::{fmt::Debug, hash::Hash, ops::Range};
+use std::{any::Any, fmt::Debug, hash::Hash, ops::Range};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     dsp::declick::DeclickValues,
-    event::NodeEventList,
+    event::{NodeEvent, NodeEventList, NodeEventType},
     SilenceMask, StreamInfo,
 };
 
@@ -30,17 +30,10 @@ impl Default for NodeID {
 /// it is likely that more fields will be added in the future.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AudioNodeInfo {
-    /// A unique name for this type of node, used for debugging purposes.
     debug_name: &'static str,
-
-    /// The channel configuration of this node.
     channel_config: ChannelConfig,
-
-    /// Set to `true` if this node type uses events, `false` otherwise.
-    ///
-    /// Setting to `false` will help the system save some memory by not
-    /// allocating an event buffer for this node.
     uses_events: bool,
+    call_update_method: bool,
 }
 
 impl AudioNodeInfo {
@@ -53,6 +46,7 @@ impl AudioNodeInfo {
                 num_outputs: ChannelCount::ZERO,
             },
             uses_events: false,
+            call_update_method: false,
         }
     }
 
@@ -81,22 +75,24 @@ impl AudioNodeInfo {
         self.uses_events = uses_events;
         self
     }
+
+    /// Set to `true` if this node wishes to have the Firewheel context call
+    /// [`AudioNode::update`] on every update cycle.
+    ///
+    /// By default this is set to `false`.
+    pub const fn call_update_method(mut self, call_update_method: bool) -> Self {
+        self.call_update_method = call_update_method;
+        self
+    }
 }
 
 /// Information about an [`AudioNode`]. Used internally by the Firewheel context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AudioNodeInfoInner {
-    /// A unique name for this type of node, used for debugging purposes.
     pub debug_name: &'static str,
-
-    /// The channel configuration of this node.
     pub channel_config: ChannelConfig,
-
-    /// Set to `true` if this node type uses events, `false` otherwise.
-    ///
-    /// Setting to `false` will help the system save some memory by not
-    /// allocating an event buffer for this node.
     pub uses_events: bool,
+    pub call_update_method: bool,
 }
 
 impl Into<AudioNodeInfoInner> for AudioNodeInfo {
@@ -105,6 +101,7 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
             debug_name: self.debug_name,
             channel_config: self.channel_config,
             uses_events: self.uses_events,
+            call_update_method: self.call_update_method,
         }
     }
 }
@@ -128,6 +125,54 @@ pub trait AudioNode {
         configuration: &Self::Configuration,
         stream_info: &StreamInfo,
     ) -> impl AudioNodeProcessor;
+
+    /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
+    /// context will call this method on every update cycle.
+    ///
+    /// * `id` - The ID of this node.
+    /// * `configuration` - The custom configuration of this node.
+    /// * `cx` - A context for interacting with the Firewheel context.
+    fn update(&mut self, configuration: &Self::Configuration, cx: UpdateContext) {
+        let _ = configuration;
+        let _ = cx;
+    }
+}
+
+/// A context for [`AudioNode::update`].
+pub struct UpdateContext<'a> {
+    /// The ID of this audio node.
+    pub node_id: NodeID,
+    /// Information about the running audio stream. If no audio stream is running,
+    /// then this will be `None`.
+    pub stream_info: Option<&'a StreamInfo>,
+    /// Custom `!Send` data that can be stored in the Firewheel
+    /// context.
+    pub custom_data: &'a mut Option<Box<dyn Any>>,
+    event_queue: &'a mut Vec<NodeEvent>,
+}
+
+impl<'a> UpdateContext<'a> {
+    pub fn new(
+        node_id: NodeID,
+        stream_info: Option<&'a StreamInfo>,
+        custom_data: &'a mut Option<Box<dyn Any>>,
+        event_queue: &'a mut Vec<NodeEvent>,
+    ) -> Self {
+        Self {
+            node_id,
+            stream_info,
+            custom_data,
+            event_queue,
+        }
+    }
+
+    /// Queue an event to send to this node's processor counterpart.
+    pub fn queue_event(&mut self, event: NodeEventType) {
+        self.event_queue.push(NodeEvent {
+            node_id: self.node_id,
+            event,
+        });
+    }
 }
 
 /// An empty constructor configuration.
@@ -143,6 +188,9 @@ pub struct EmptyConfig;
 pub trait DynAudioNode {
     fn info(&self) -> AudioNodeInfo;
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn update(&mut self, cx: UpdateContext) {
+        let _ = cx;
+    }
 }
 
 /// Pairs constructors with their configurations.
@@ -169,6 +217,10 @@ impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
 
     fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
         Box::new(self.constructor.processor(&self.configuration, stream_info))
+    }
+
+    fn update(&mut self, cx: UpdateContext) {
+        self.constructor.update(&self.configuration, cx);
     }
 }
 

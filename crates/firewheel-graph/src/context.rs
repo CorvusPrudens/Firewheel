@@ -392,6 +392,11 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             }
         }
 
+        self.graph.update(
+            self.active_state.as_ref().map(|s| &s.stream_info),
+            &mut self.event_group,
+        );
+
         if let Some(active_state) = &mut self.active_state {
             if let Err(e) = active_state.backend_handle.poll_status() {
                 self.active_state = None;
