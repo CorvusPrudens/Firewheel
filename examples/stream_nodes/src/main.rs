@@ -125,9 +125,6 @@ fn main() {
 
             // Wait until the node's processor is ready to receive data.
             if handle.is_ready() {
-                // The "jitter value" can be used to get the difference in speed between the
-                // input and output channels.
-                //
                 // Here, if the value drops below the size of a packet `1.0`, then we know we
                 // should push a new packet of data.
                 //
@@ -187,7 +184,7 @@ fn main() {
                 println!("Overflow occured in stream reader node!");
             }
 
-            // Wait until the node's processor is ready to send data.
+            // Wait until the node's processor is ready to read data.
             if handle.is_ready() {
                 // Optionally, If the value of `StreamReaderHandle::occupied_seconds()`
                 // is greater than the given threshold in seconds, then discard the
@@ -209,15 +206,13 @@ fn main() {
                     ReadStatus::Ok => {
                         println!("Successfully read data");
                     }
-                    ReadStatus::Underflow => {
+                    ReadStatus::Underflow { num_frames_dropped } => {
                         // An input underflow occured. This may result in audible audio
                         // glitches.
-                        println!("Underflow occured in stream reader node!");
-                    }
-                    ReadStatus::WaitingForFrames => {
-                        // The channel is waiting for a certain number of frames to be
-                        // filled in the buffer before continuing after an underflow
-                        // or a reset. The output will contain silence.
+                        println!(
+                            "Underflow occured in stream reader node! Number of frames dropped: {}",
+                            num_frames_dropped
+                        );
                     }
                 }
 

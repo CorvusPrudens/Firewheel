@@ -1,5 +1,5 @@
 use std::{
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -18,6 +18,8 @@ use firewheel_core::{
     StreamInfo,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
+
+pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StreamReaderConfig {
@@ -52,6 +54,8 @@ pub struct StreamReaderNode {
 
 impl StreamReaderNode {
     pub fn new(config: StreamReaderConfig, channels: NonZeroChannelCount) -> Self {
+        assert!((channels.get().get() as usize) < MAX_CHANNELS);
+
         Self {
             config,
             channels,
@@ -115,10 +119,10 @@ impl StreamReaderNode {
 
         self.shared_state.reset();
 
-        let (prod, cons) = fixed_resample::resampling_channel::<f32>(
+        let (prod, cons) = fixed_resample::resampling_channel::<f32, MAX_CHANNELS>(
+            NonZeroUsize::new(self.channels.get().get() as usize).unwrap(),
             output_stream_sample_rate.get(),
             sample_rate.get(),
-            self.channels.get().get() as usize,
             self.config.channel_config,
         );
 
@@ -149,21 +153,6 @@ impl StreamReaderNode {
         }
     }
 
-    /// The amount of data in seconds that is currently available to read.
-    ///
-    /// If there is no active stream, the stream is paused, or the processor end
-    /// is not ready to receive samples, then this will return `0.0`.
-    pub fn available_seconds(&self) -> f64 {
-        if self.is_ready() {
-            self.active_state
-                .as_ref()
-                .map(|s| s.cons.lock().unwrap().available_seconds())
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        }
-    }
-
     /// The amount of data in seconds that is currently occupied in the channel.
     ///
     /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
@@ -178,39 +167,10 @@ impl StreamReaderNode {
             .map(|s| s.cons.lock().unwrap().occupied_seconds())
     }
 
-    /// Returns the number of input frames (samples in a single channel) from the producer
-    /// (not output frames from this consumer) that are currently occupied in the channel.
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn occupied_input_frames(&self) -> Option<usize> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.cons.lock().unwrap().occupied_input_frames())
-    }
-
     /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
     /// this channel was created.
     pub fn latency_seconds(&self) -> f64 {
         self.config.channel_config.latency_seconds
-    }
-
-    /// The capacity of the channel in seconds.
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn capacity_seconds(&self) -> Option<f64> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.cons.lock().unwrap().capacity_seconds())
-    }
-
-    /// The capacity of the channel in input frames (samples in a single channel) from
-    /// the producer (not output frames from this consumer).
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn capacity_input_frames(&self) -> Option<usize> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.cons.lock().unwrap().capacity_input_frames())
     }
 
     /// The number of channels in this node.
@@ -280,17 +240,16 @@ impl StreamReaderNode {
         )
     }
 
-    /// Discard all data currently in the channel.
+    /// Discard a certian number of output frames from the buffer. This can be used to
+    /// correct for jitter and avoid excessive overflows and reduce the percieved audible
+    /// glitchiness.
     ///
-    /// Note, you should typically wait for [`StreamReaderNode::occupied_seconds`]
-    /// to be `>=` [`StreamReaderNode::latency_seconds`] (or for
-    /// [`StreamReaderNode::available_frames`] to be `>=` to the equivalant of
-    /// [`StreamReaderNode::latency_seconds`]) before reading from the channel again.
+    /// This will discard `frames.min(self.available_frames())` frames.
     ///
-    /// Returns the number of input frames that were discarded.
-    pub fn discard_all(&mut self) -> usize {
+    /// Returns the number of output frames that were discarded.
+    pub fn discard_frames(&mut self) -> usize {
         if let Some(state) = &mut self.active_state {
-            state.cons.lock().unwrap().discard_input_frames(usize::MAX)
+            state.cons.lock().unwrap().discard_frames(usize::MAX)
         } else {
             0
         }
@@ -407,7 +366,7 @@ impl SharedState {
 }
 
 struct Processor {
-    prod: Option<fixed_resample::ResamplingProd<f32>>,
+    prod: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
     shared_state: Arc<SharedState>,
 }
 
@@ -469,7 +428,7 @@ impl AudioNodeProcessor for Processor {
 }
 
 pub struct NewOutputStreamEvent {
-    prod: Option<fixed_resample::ResamplingProd<f32>>,
+    prod: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
 }
 
 impl From<NewOutputStreamEvent> for NodeEventType {

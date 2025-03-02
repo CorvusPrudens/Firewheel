@@ -29,6 +29,8 @@ use crate::{BUILD_STREAM_TIMEOUT, DEFAULT_MAX_BLOCK_FRAMES};
 
 use super::StreamStartError;
 
+const MAX_CHANNELS: usize = 16;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CpalInputNodeConfig {
     /// The configuration of the input to output channel.
@@ -314,10 +316,10 @@ impl CpalInputNode {
             Vec::new()
         };
 
-        let (mut channel_tx, channel_rx) = fixed_resample::resampling_channel::<f32>(
+        let (mut channel_tx, channel_rx) = fixed_resample::resampling_channel::<f32, MAX_CHANNELS>(
+            NonZeroUsize::new(self.channels.get().get() as usize).unwrap(),
             desired_sample_rate,
             output_stream_sample_rate.get(),
-            self.channels.get().get() as usize,
             self.config.channel_config,
         );
 
@@ -518,13 +520,12 @@ impl AudioNodeProcessor for Processor {
 
         match channel_rx.read(outputs, 0..proc_info.frames) {
             ReadStatus::Ok => {}
-            ReadStatus::Underflow => {
+            ReadStatus::Underflow {
+                num_frames_dropped: _,
+            } => {
                 self.shared_state
                     .underflow_occurred
                     .store(true, Ordering::Relaxed);
-            }
-            ReadStatus::WaitingForFrames => {
-                return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
             }
         }
 

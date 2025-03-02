@@ -1,5 +1,5 @@
 use std::{
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -19,6 +19,8 @@ use firewheel_core::{
     SilenceMask, StreamInfo,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
+
+pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StreamWriterConfig {
@@ -130,18 +132,6 @@ impl StreamWriterNode {
         }
     }
 
-    /// The amount of data in seconds that is currently available to read.
-    pub fn available_seconds(&self) -> f64 {
-        if self.is_ready() {
-            self.active_state
-                .as_ref()
-                .map(|s| s.prod.lock().unwrap().available_seconds())
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        }
-    }
-
     /// The amount of data in seconds that is currently occupied in the channel.
     ///
     /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
@@ -153,38 +143,10 @@ impl StreamWriterNode {
             .map(|s| s.prod.lock().unwrap().occupied_seconds())
     }
 
-    /// Returns the number of frames (samples in a single channel) that are currently
-    /// occupied in the channel.
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn occupied_frames(&self) -> Option<usize> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.prod.lock().unwrap().occupied_frames())
-    }
-
     /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
     /// this channel was created.
     pub fn latency_seconds(&self) -> f64 {
         self.config.channel_config.latency_seconds
-    }
-
-    /// The capacity of the channel in seconds.
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn capacity_seconds(&self) -> Option<f64> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.prod.lock().unwrap().capacity_seconds())
-    }
-
-    /// The capacity of the channel in frames (samples in a single channel).
-    ///
-    /// If there is no active stream, then this will return `None`.
-    pub fn capacity_frames(&self) -> Option<usize> {
-        self.active_state
-            .as_ref()
-            .map(|s| s.prod.lock().unwrap().capacity_frames())
     }
 
     /// The number of channels in this node.
@@ -219,10 +181,10 @@ impl StreamWriterNode {
 
         self.shared_state.reset();
 
-        let (prod, cons) = fixed_resample::resampling_channel::<f32>(
+        let (prod, cons) = fixed_resample::resampling_channel::<f32, MAX_CHANNELS>(
+            NonZeroUsize::new(self.channels.get().get() as usize).unwrap(),
             sample_rate.get(),
             output_stream_sample_rate.get(),
-            self.channels.get().get() as usize,
             self.config.channel_config,
         );
 
@@ -349,7 +311,7 @@ impl AudioNode for StreamWriterNode {
 
 #[derive(Clone)]
 struct ActiveState {
-    prod: Arc<Mutex<fixed_resample::ResamplingProd<f32>>>,
+    prod: Arc<Mutex<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>>,
     sample_rate: NonZeroU32,
 }
 
@@ -443,14 +405,12 @@ impl AudioNodeProcessor for Processor {
 
         match cons.read(outputs, 0..proc_info.frames) {
             ReadStatus::Ok => {}
-            ReadStatus::Underflow => {
+            ReadStatus::Underflow {
+                num_frames_dropped: _,
+            } => {
                 self.shared_state
                     .underflow_occurred
                     .store(true, Ordering::Relaxed);
-            }
-            ReadStatus::WaitingForFrames => {
-                self.pause_declicker.reset_to_target();
-                return ProcessStatus::outputs_modified(SilenceMask::new_all_silent(outputs.len()));
             }
         }
 
