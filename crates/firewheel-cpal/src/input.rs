@@ -351,10 +351,10 @@ impl CpalInputNode {
                     while frames_processed < total_frames {
                         let frames = (total_frames - frames_processed).min(1024);
 
-                        fixed_resample::interleave::deinterleave(
+                        fast_interleave::deinterleave_variable(
                             input,
-                            &mut tmp_intl_buf,
                             NonZeroUsize::new(num_in_channels).unwrap(),
+                            &mut tmp_intl_buf,
                             0..frames,
                         );
 

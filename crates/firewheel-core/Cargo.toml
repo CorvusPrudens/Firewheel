@@ -24,8 +24,8 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.4.0", default-features = false, optional = true }
-fixed-resample = { version = "0.6.1", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
+symphonium = { version = "0.4.1", default-features = false, optional = true }
+fixed-resample = { version = "0.7.0", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
 smallvec.workspace = true
 glam = "0.29"
 bevy_ecs = { version = "0.15", optional = true }
