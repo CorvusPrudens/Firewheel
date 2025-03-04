@@ -5,6 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-firewheel = { path = "../../", features = ["cpal_input", "cpal_resample_inputs"] }
+firewheel = { path = "../../" }
 log.workspace = true
 simple-log = "2.1.0"

@@ -15,8 +15,7 @@ exclude.workspace = true
 all-features = true
 
 [features]
-input = ["dep:fixed-resample", "dep:fast-interleave"]
-resample_inputs = ["input", "fixed-resample?/fft-resampler"]
+resample_inputs = ["fixed-resample/fft-resampler"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.3.0" }
@@ -25,7 +24,7 @@ cpal = "0.15.3"
 log.workspace = true
 ringbuf.workspace = true
 thiserror.workspace = true
-fast-interleave = { workspace = true, optional = true }
-fixed-resample = { version = "0.7.0", default-features = false, features = [
+fast-interleave.workspace = true
+fixed-resample = { version = "0.7.1", default-features = false, features = [
   "channel",
-], optional = true }
+]}

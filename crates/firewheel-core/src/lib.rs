@@ -23,6 +23,8 @@ pub struct StreamInfo {
     pub max_block_frames: NonZeroU32,
     pub num_stream_in_channels: u32,
     pub num_stream_out_channels: u32,
+    /// The latency of the input to output stream in seconds.
+    pub input_to_output_latency_seconds: f64,
     pub declick_frames: NonZeroU32,
     /// The name of the input audio device.
     pub input_device_name: Option<String>,
@@ -38,6 +40,7 @@ impl Default for StreamInfo {
             max_block_frames: NonZeroU32::new(1024).unwrap(),
             num_stream_in_channels: 0,
             num_stream_out_channels: 2,
+            input_to_output_latency_seconds: 0.0,
             declick_frames: NonZeroU32::MIN,
             input_device_name: None,
             output_device_name: None,

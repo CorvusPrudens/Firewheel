@@ -424,7 +424,13 @@ impl<'a> GraphIR<'a> {
 
     /// Merge the GraphIR into a [CompiledSchedule].
     fn merge(self) -> CompiledSchedule {
-        CompiledSchedule::new(self.schedule, self.max_num_buffers, self.max_block_frames)
+        CompiledSchedule::new(
+            self.schedule,
+            self.max_num_buffers,
+            self.max_block_frames,
+            self.graph_in_id,
+            self.graph_out_id,
+        )
     }
 }
 

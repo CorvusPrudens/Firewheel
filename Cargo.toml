@@ -50,10 +50,8 @@ default = [
 ]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]
-# Enables audio input support for the cpal backend
-cpal_input = ["firewheel-cpal?/input"]
 # Enables resampling input streams in the cpal backend
-cpal_resample_inputs = ["cpal_input", "firewheel-cpal?/resample_inputs"]
+cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
 # Enables using Symphonium for loading audio files
 symphonium = ["firewheel-core/symphonium"]
 # Enables resampling audio files when loading them with Symphonium
