@@ -156,3 +156,43 @@ pub enum PatchError {
     /// The data supplied for the path did not match the expected type.
     InvalidData,
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    extern crate self as firewheel_core;
+
+    #[derive(Debug, Clone, Diff, Patch, PartialEq)]
+    enum DiffingExample {
+        Unit,
+        Tuple(f32, f32),
+        Struct { a: f32, b: f32 },
+    }
+
+    #[test]
+    fn test_enum_diff() {
+        let mut baseline = DiffingExample::Tuple(1.0, 0.0);
+        let value = DiffingExample::Tuple(1.0, 1.0);
+
+        let mut messages = Vec::new();
+        value.diff(&baseline, PathBuilder::default(), &mut messages);
+
+        assert_eq!(messages.len(), 1);
+        assert!(baseline.patch_event(&messages[0]));
+        assert_eq!(baseline, value);
+    }
+
+    #[test]
+    fn test_enum_switch_variant() {
+        let mut baseline = DiffingExample::Unit;
+        let value = DiffingExample::Struct { a: 1.0, b: 1.0 };
+
+        let mut messages = Vec::new();
+        value.diff(&baseline, PathBuilder::default(), &mut messages);
+
+        assert_eq!(messages.len(), 1);
+        assert!(baseline.patch_event(&messages[0]));
+        assert_eq!(baseline, value);
+    }
+}

@@ -13,9 +13,7 @@ pub fn derive_patch(input: TokenStream) -> syn::Result<TokenStream2> {
 
     let PatchOutput { body, bounds } = match &input.data {
         syn::Data::Struct(data) => PatchOutput::from_struct(data, &diff_path)?,
-        syn::Data::Enum(data) => {
-            PatchOutput::from_enum(identifier, data, &firewheel_path, &diff_path)?
-        }
+        syn::Data::Enum(data) => PatchOutput::from_enum(identifier, data, &diff_path)?,
         syn::Data::Union(_) => {
             return Err(syn::Error::new(
                 input.span(),
@@ -117,7 +115,6 @@ impl PatchOutput {
     pub fn from_enum(
         identifier: &syn::Ident,
         data: &syn::DataEnum,
-        firewheel_path: &syn::Path,
         diff_path: &TokenStream2,
     ) -> syn::Result<PatchOutput> {
         let mut arms = Vec::new();
