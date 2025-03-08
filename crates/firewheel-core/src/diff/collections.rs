@@ -62,6 +62,20 @@ macro_rules! tuple_diff {
                 )*
             }
         }
+
+        #[allow(non_snake_case, unused_variables)]
+        impl<$($gen: Patch),*> Patch for ($($gen,)*) {
+            fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
+                let ($($gen,)*) = self;
+
+                match path {
+                    $(
+                        [$index, tail @ ..] => $gen.patch(data, tail),
+                    )*
+                    _ => Err(PatchError::InvalidPath),
+                }
+            }
+        }
     };
 }
 

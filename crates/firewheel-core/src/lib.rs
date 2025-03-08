@@ -14,6 +14,8 @@ use std::num::NonZeroU32;
 
 pub use silence_mask::SilenceMask;
 
+extern crate self as firewheel_core;
+
 /// Information about a running audio stream.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamInfo {
