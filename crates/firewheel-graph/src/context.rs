@@ -661,15 +661,32 @@ pub(crate) struct ClockValues {
 }
 
 impl<B: AudioBackend> FirewheelCtx<B> {
-    /// Construct an event queue for diffing.
+    /// Construct an [`ContextQueue`] for diffing.
     pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_, B> {
         ContextQueue { context: self, id }
     }
 }
 
-/// An event queue acquired from [`FirewheelCtx`].
+/// An event queue acquired from [`FirewheelCtx::event_queue`].
 ///
-/// This avoids intermediate event queues.
+/// This can help reduce event queue allocations
+/// when you have direct access to the context.
+///
+/// ```
+/// # use firewheel_core::{diff::{Diff, PathBuilder}, node::NodeID};
+/// # use firewheel_graph::{backend::AudioBackend, FirewheelCtx, ContextQueue};
+/// # fn context_queue<B: AudioBackend, D: Diff>(
+/// #     context: &mut FirewheelCtx<B>,
+/// #     node_id: NodeID,
+/// #     params: &D,
+/// #     baseline: &D,
+/// # ) {
+/// // Get a queue that will send events directly to the provided node.
+/// let mut queue = context.event_queue(node_id);
+/// // Perform diffing using this queue.
+/// params.diff(baseline, PathBuilder::default(), &mut queue);
+/// # }
+/// ```
 pub struct ContextQueue<'a, B: AudioBackend> {
     context: &'a mut FirewheelCtx<B>,
     id: NodeID,

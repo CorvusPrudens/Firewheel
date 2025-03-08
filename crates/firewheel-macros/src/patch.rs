@@ -164,7 +164,9 @@ impl PatchOutput {
                     });
                     arms.push(quote! {
                         ([#variant_index], s) => {
-                            let (#(#unpacked,)*): &(#(#unpacked_types,)*) = data.downcast_ref().ok_or(PatchError::InvalidData)?;
+                            let (#(#unpacked,)*): &(#(#unpacked_types,)*) = data
+                                .downcast_ref()
+                                .ok_or(#diff_path::PatchError::InvalidData)?;
 
                             *s = #identifier::#variant_ident(#(#unpacked_cloned),*);
                             Ok(())
@@ -219,7 +221,9 @@ impl PatchOutput {
                     let unpacked_types = idents.iter().map(|i| i.ty);
                     arms.push(quote! {
                         ([#variant_index], s) => {
-                            let (#(#tuple,)*): &(#(#unpacked_types,)*) = data.downcast_ref().ok_or(PatchError::InvalidData)?;
+                            let (#(#tuple,)*): &(#(#unpacked_types,)*) = data
+                                .downcast_ref()
+                                .ok_or(#diff_path::PatchError::InvalidData)?;
 
                             *s = #identifier::#variant_ident{#(#unpacked_cloned),*};
                             Ok(())
