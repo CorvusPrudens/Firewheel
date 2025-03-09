@@ -1,4 +1,4 @@
-//! Garbage collected smart pointer.
+//! Garbage-collected smart pointer.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -159,7 +159,7 @@ pub trait Collector {
 
     /// Called in [`ArcGc`]'s `Drop` implementation.
     ///
-    /// This can be used to indicate that garbage colllected
+    /// This can be used to indicate that garbage-collected
     /// items should be checked for pruning.
     fn remove<T>(&self, data: &Arc<T>)
     where
