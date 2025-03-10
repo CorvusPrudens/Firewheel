@@ -65,7 +65,7 @@ impl StreamReaderState {
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamReaderConfig::channel_config.latency_seconds`].
+    /// increasing [`ResamplingChannelConfig::latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
     /// underflow occurred.)out
@@ -79,7 +79,7 @@ impl StreamReaderState {
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamReaderConfig::channel_config.capacity_seconds`]. For
+    /// increasing [`ResamplingChannelConfig::capacity_seconds`]. For
     /// example, if you are streaming data from a network, you may want to
     /// increase the capacity to several seconds.
     ///
@@ -149,7 +149,7 @@ impl StreamReaderState {
 
     /// The amount of data in seconds that is currently occupied in the channel.
     ///
-    /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
+    /// This value will be in the range `[0.0, ResamplingChannelConfig::capacity_seconds]`.
     ///
     /// This can also be used to detect when an extra packet of data should be read or
     /// discarded to correct for jitter.
@@ -243,15 +243,15 @@ impl StreamReaderState {
         }
     }
 
-    /// If the value of [`StreamReaderNode::occupied_seconds()`] is greater than the
+    /// If the value of [`StreamReaderState::occupied_seconds()`] is greater than the
     /// given threshold in seconds, then discard the number of input frames needed to
-    /// bring the value back down to [`StreamReaderNode::latency_seconds()`] to avoid
+    /// bring the value back down to [`ResamplingChannelConfig::latency_seconds()`] to avoid
     /// excessive overflows and reduce perceived audible glitchiness.
     ///
     /// Returns the number of input frames from the producer (not output frames from
     /// this consumer) that were discarded.
     ///
-    /// If `threshold_seconds` is less than [`StreamReaderNode::latency_seconds()`],
+    /// If `threshold_seconds` is less than [`ResamplingChannelConfig::latency_seconds()`],
     /// then this will do nothing.
     pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
         if let Some(state) = &mut self.active_state {

@@ -87,7 +87,7 @@ impl StreamWriterState {
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamWriterConfig::channel_config.latency_seconds`].
+    /// increasing [`ResamplingChannelConfig::latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
     /// underflow occurred.)
@@ -101,7 +101,7 @@ impl StreamWriterState {
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamWriterConfig::channel_config.capacity_seconds`]. For
+    /// increasing [`ResamplingChannelConfig::capacity_seconds`]. For
     /// example, if you are streaming data from a network, you may want to
     /// increase the capacity to several seconds.
     ///
@@ -130,7 +130,7 @@ impl StreamWriterState {
 
     /// The amount of data in seconds that is currently occupied in the channel.
     ///
-    /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
+    /// This value will be in the range `[0.0, ResamplingChannelConfig::capacity_seconds]`.
     ///
     /// If there is no active stream, then this will return `None`.
     pub fn occupied_seconds(&self) -> Option<f64> {
