@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// A value representing a volume (gain) applied to an audio signal.
-#[derive(Debug, Clone, Copy, PartialEq, Patch)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Volume {
     /// Volume in a linear scale, where `0.0` is silence and `1.0` is unity gain.
     Linear(f32),
@@ -129,6 +129,13 @@ impl Diff for Volume {
         if self != baseline {
             event_queue.push_param(ParamData::Volume(*self), path);
         }
+    }
+}
+
+impl Patch for Volume {
+    fn patch(&mut self, data: &ParamData, _path: &[u32]) -> Result<(), crate::diff::PatchError> {
+        *self = data.try_into()?;
+        Ok(())
     }
 }
 
