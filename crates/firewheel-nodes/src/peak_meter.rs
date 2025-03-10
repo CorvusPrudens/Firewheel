@@ -158,6 +158,7 @@ pub struct PeakMeterNode<const NUM_CHANNELS: usize> {
     pub enabled: bool,
 }
 
+#[derive(Clone)]
 pub struct PeakMeterState<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }

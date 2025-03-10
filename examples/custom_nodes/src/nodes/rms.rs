@@ -47,6 +47,7 @@ impl Default for RmsNode {
 
 // The state struct is stored in the Firewheel context, and can be gotten by
 // the user using the node's ID.
+#[derive(Clone)]
 pub struct RmsState {
     // `ArcGc` is a simple wrapper around `Arc` that automatically collects
     // dropped resources from the audio thread and drops them on another

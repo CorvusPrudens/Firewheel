@@ -132,6 +132,7 @@ impl Default for SamplerNode {
     }
 }
 
+#[derive(Clone)]
 pub struct SamplerState {
     shared_state: ArcGc<SharedState>,
 }
