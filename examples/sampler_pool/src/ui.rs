@@ -1,5 +1,5 @@
 use eframe::App;
-use firewheel::nodes::volume_pan::VolumePanNode;
+use firewheel::{nodes::volume_pan::VolumePanNode, Volume};
 
 use crate::system::AudioSystem;
 
@@ -73,7 +73,7 @@ impl App for DemoApp {
                         // While we don't change these parameters in this example, in a typical app
                         // you would want to reset the parameters to the desired state when playing
                         // a new sample.
-                        fx_chain_state.fx_chain.volume.normalized_volume = 1.0;
+                        fx_chain_state.fx_chain.volume.volume = Volume::UNITY_GAIN;
 
                         // The nodes IDs appear in the same order as what was returned in
                         // [`MyCustomChain::construct_and_connect`].

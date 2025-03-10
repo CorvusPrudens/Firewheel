@@ -1,7 +1,7 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::{decibel::normalized_volume_to_raw_gain, pan_law::PanLaw},
+    dsp::{pan_law::PanLaw, volume::Volume},
     event::NodeEventList,
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     param::smoother::{SmoothedParam, SmootherConfig},
@@ -15,8 +15,8 @@ pub use super::volume::VolumeNodeConfig;
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumePanNode {
-    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    pub normalized_volume: f32,
+    /// The overall volume.
+    pub volume: Volume,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
     /// fully right.
     pub pan: f32,
@@ -33,13 +33,7 @@ impl Patch for VolumePanNode {
     ) -> Result<(), firewheel_core::diff::PatchError> {
         match path.first() {
             Some(0) => {
-                let volume: f32 = data.try_into()?;
-                self.normalized_volume = volume.max(0.0);
-
-                if self.normalized_volume < 0.00001 {
-                    self.normalized_volume = 0.0;
-                }
-
+                self.volume = data.try_into()?;
                 Ok(())
             }
             Some(1) => {
@@ -62,19 +56,29 @@ pub struct VolumePanNodeConfig {
 }
 
 impl VolumePanNode {
-    pub fn compute_gains(&self) -> (f32, f32) {
-        let global_gain = normalized_volume_to_raw_gain(self.normalized_volume);
+    pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
+        let global_gain = self.volume.amp_clamped(amp_epsilon);
 
-        let (gain_l, gain_r) = self.pan_law.compute_gains(self.pan);
+        let (mut gain_l, mut gain_r) = self.pan_law.compute_gains(self.pan);
 
-        (gain_l * global_gain, gain_r * global_gain)
+        gain_l *= global_gain;
+        gain_r *= global_gain;
+
+        if gain_l > 0.99999 && gain_l < 1.00001 {
+            gain_l = 1.0;
+        }
+        if gain_r > 0.99999 && gain_r < 1.00001 {
+            gain_r = 1.0;
+        }
+
+        (gain_l, gain_r)
     }
 }
 
 impl Default for VolumePanNode {
     fn default() -> Self {
         Self {
-            normalized_volume: 1.0,
+            volume: Volume::default(),
             pan: 0.0,
             pan_law: PanLaw::default(),
         }
@@ -99,7 +103,7 @@ impl AudioNode for VolumePanNode {
         config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
     ) -> impl AudioNodeProcessor {
-        let (gain_l, gain_r) = self.compute_gains();
+        let (gain_l, gain_r) = self.compute_gains(config.amp_epsilon);
 
         Processor {
             gain_l: SmoothedParam::new(
@@ -120,6 +124,7 @@ impl AudioNode for VolumePanNode {
             ),
             params: *self,
             prev_block_was_silent: true,
+            amp_epsilon: config.amp_epsilon,
         }
     }
 }
@@ -131,6 +136,7 @@ struct Processor {
     params: VolumePanNode,
 
     prev_block_was_silent: bool,
+    amp_epsilon: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -143,7 +149,7 @@ impl AudioNodeProcessor for Processor {
         _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
-            let (gain_l, gain_r) = self.params.compute_gains();
+            let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);
 

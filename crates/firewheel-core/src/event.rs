@@ -2,7 +2,7 @@ use core::any::Any;
 
 pub use glam::{Vec2, Vec3};
 
-use crate::{clock::EventDelay, diff::ParamPath, node::NodeID};
+use crate::{clock::EventDelay, diff::ParamPath, dsp::volume::Volume, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEvent {
@@ -13,6 +13,7 @@ pub struct NodeEvent {
 }
 
 /// An event type associated with an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
+#[non_exhaustive]
 pub enum NodeEventType {
     Param {
         /// Data for a specific parameter.
@@ -34,7 +35,9 @@ pub enum NodeEventType {
 ///
 /// The [`ParamData::Any`] variant is double-boxed to keep
 /// its size small on the stack.
+#[non_exhaustive]
 pub enum ParamData {
+    Volume(Volume),
     F32(f32),
     F64(f64),
     I32(i32),
@@ -85,6 +88,7 @@ macro_rules! param_data_from {
     };
 }
 
+param_data_from!(Volume, Volume);
 param_data_from!(f32, F32);
 param_data_from!(f64, F64);
 param_data_from!(i32, I32);

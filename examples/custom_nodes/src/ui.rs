@@ -1,5 +1,6 @@
 use eframe::App;
 use egui::{Color32, ProgressBar};
+use firewheel::dsp::volume::Volume;
 
 use crate::system::AudioSystem;
 
@@ -36,13 +37,13 @@ impl App for DemoApp {
         egui::CentralPanel::default().show(cx, |ui| {
             ui.label("Noise gen");
 
-            ui.add(
-                egui::Slider::new(
-                    &mut self.audio_system.noise_gen_node.normalized_volume,
-                    0.0..=1.0,
-                )
-                .text("volume"),
-            );
+            let mut linear_volume = self.audio_system.noise_gen_node.volume.linear();
+            if ui
+                .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                .changed()
+            {
+                self.audio_system.noise_gen_node.volume = Volume::Linear(linear_volume);
+            };
 
             ui.checkbox(&mut self.audio_system.noise_gen_node.enabled, "enabled");
 
@@ -56,13 +57,13 @@ impl App for DemoApp {
             ui.separator();
             ui.label("Filter");
 
-            ui.add(
-                egui::Slider::new(
-                    &mut self.audio_system.filter_node.normalized_volume,
-                    0.0..=1.0,
-                )
-                .text("volume"),
-            );
+            let mut linear_volume = self.audio_system.filter_node.volume.linear();
+            if ui
+                .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                .changed()
+            {
+                self.audio_system.filter_node.volume = Volume::Linear(linear_volume);
+            };
 
             ui.add(
                 egui::Slider::new(

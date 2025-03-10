@@ -4,7 +4,7 @@ use atomic_float::AtomicF32;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
-    dsp::decibel::{gain_to_db_clamped_neg_100_db, DbMeterNormalizer},
+    dsp::volume::{amp_to_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
@@ -177,11 +177,19 @@ impl<const NUM_CHANNELS: usize> PeakMeterNode<NUM_CHANNELS> {
 
     /// Get the latest peak values for each channel in decibels.
     ///
+    /// * `db_epsilon` - If a peak value is less than or equal to this value, then it
+    /// will be clamped to `f32::NEG_INFINITY` (silence).
+    ///
     /// If the node is currently disabled, then this will return a value
-    /// of -100.0 dB (silence) for all channels.
-    pub fn peak_gain_db(&self) -> [f32; NUM_CHANNELS] {
+    /// of `f32::NEG_INFINITY` (silence) for all channels.
+    pub fn peak_gain_db(&self, db_epsilon: f32) -> [f32; NUM_CHANNELS] {
         std::array::from_fn(|i| {
-            gain_to_db_clamped_neg_100_db(self.shared_state.peak_gains[i].load(Ordering::Relaxed))
+            let db = amp_to_db(self.shared_state.peak_gains[i].load(Ordering::Relaxed));
+            if db <= db_epsilon {
+                f32::NEG_INFINITY
+            } else {
+                db
+            }
         })
     }
 

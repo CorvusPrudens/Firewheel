@@ -166,7 +166,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         };
 
         worker.assigned_worker_id = Some(worker_id);
-        worker.sampler_node = sampler_node.clone();
+        worker.sampler_node.sequence = sampler_node.sequence.clone();
 
         if let Some(delay) = delay {
             cx.queue_event_for(

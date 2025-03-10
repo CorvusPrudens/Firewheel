@@ -4,7 +4,7 @@ use clap::Parser;
 use firewheel::{
     error::UpdateError,
     nodes::sampler::{PlaybackState, RepeatMode, SamplerNode},
-    FirewheelContext,
+    FirewheelContext, Volume,
 };
 use symphonium::SymphoniumLoader;
 
@@ -46,7 +46,7 @@ fn main() {
             .unwrap()
             .into_dyn_resource();
 
-    sampler_node.set_sample(sample, 1.0, RepeatMode::PlayOnce);
+    sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
     cx.queue_event_for(
         sampler_id,
         sampler_node.sync_params_event(

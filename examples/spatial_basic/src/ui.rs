@@ -2,6 +2,7 @@ use std::ops::RangeInclusive;
 
 use eframe::App;
 use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke};
+use firewheel::Volume;
 
 use crate::system::AudioSystem;
 
@@ -40,16 +41,18 @@ impl App for DemoApp {
         egui::CentralPanel::default().show(cx, |ui| {
             let mut updated = false;
 
-            updated |= ui
+            let mut linear_volume = self.audio_system.spatial_basic_node.volume.linear();
+            if ui
                 .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.normalized_volume,
-                        0.0..=2.0,
-                    )
-                    .step_by(0.0)
-                    .text("volume"),
+                    egui::Slider::new(&mut linear_volume, 0.0..=2.0)
+                        .step_by(0.0)
+                        .text("volume"),
                 )
-                .changed();
+                .changed()
+            {
+                self.audio_system.spatial_basic_node.volume = Volume::Linear(linear_volume);
+                updated = true;
+            }
 
             updated |= ui
                 .add(

@@ -1,5 +1,5 @@
 use firewheel::{
-    dsp::decibel::DbMeterNormalizer,
+    dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
     error::UpdateError,
     node::NodeID,
     nodes::{
@@ -59,7 +59,7 @@ impl AudioSystem {
                         .into_dyn_resource();
 
                 let mut params = SamplerNode::default();
-                params.set_sample(sample, 1.0, RepeatMode::PlayOnce);
+                params.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
 
                 let node_id = cx.add_node(params.clone(), None);
 
@@ -89,13 +89,13 @@ impl AudioSystem {
     pub fn start_or_restart(
         &mut self,
         sampler_i: usize,
-        normalized_volume: f32,
+        linear_volume: f32,
         repeat_mode: RepeatMode,
     ) {
         let sampler = &mut self.samplers[sampler_i];
 
         let Some(SequenceType::SingleSample {
-            normalized_volume: old_normalized_volume,
+            volume: old_volume,
             repeat_mode: old_repeat_mode,
             ..
         }) = &mut sampler.params.sequence
@@ -103,8 +103,8 @@ impl AudioSystem {
             return;
         };
 
-        if normalized_volume != *old_normalized_volume || repeat_mode != *old_repeat_mode {
-            *old_normalized_volume = normalized_volume;
+        if Volume::Linear(linear_volume) != *old_volume || repeat_mode != *old_repeat_mode {
+            *old_volume = Volume::Linear(linear_volume);
             *old_repeat_mode = repeat_mode;
 
             self.cx
@@ -159,8 +159,10 @@ impl AudioSystem {
     }
 
     pub fn update_meters(&mut self, delta_seconds: f32) {
-        self.peak_meter_smoother
-            .update(self.peak_meter_node.peak_gain_db(), delta_seconds);
+        self.peak_meter_smoother.update(
+            self.peak_meter_node.peak_gain_db(DEFAULT_DB_EPSILON),
+            delta_seconds,
+        );
     }
 
     pub fn peak_meter_values(&self) -> [f32; 2] {

@@ -10,8 +10,8 @@ use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        decibel::normalized_volume_to_raw_gain,
         declick::{Declicker, FadeType},
+        volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::NodeEventList,
     node::{
@@ -27,8 +27,8 @@ use firewheel::{
 pub struct FilterNode {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
     pub cutoff_hz: f32,
-    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    pub normalized_volume: f32,
+    /// The overall volume.
+    pub volume: Volume,
     /// Whether or not this node is enabled.
     pub enabled: bool,
 }
@@ -37,7 +37,7 @@ impl Default for FilterNode {
     fn default() -> Self {
         Self {
             cutoff_hz: 1_000.0,
-            normalized_volume: 1.0,
+            volume: Volume::default(),
             enabled: true,
         }
     }
@@ -82,7 +82,7 @@ impl AudioNode for FilterNode {
         let sample_rate_recip = stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(20.0, 20_000.0);
-        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
+        let gain = self.volume.amp_clamped(DEFAULT_AMP_EPSILON);
 
         Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
@@ -137,7 +137,7 @@ impl AudioNodeProcessor for Processor {
             self.cutoff_hz
                 .set_value(self.params.cutoff_hz.clamp(20.0, 20_000.0));
             self.gain
-                .set_value(normalized_volume_to_raw_gain(self.params.normalized_volume));
+                .set_value(self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON));
 
             if enabled != self.params.enabled {
                 // Tell the declicker to crossfade.

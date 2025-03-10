@@ -1,7 +1,7 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
-    dsp::decibel::normalized_volume_to_raw_gain,
+    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     param::smoother::{SmoothedParam, SmootherConfig},
@@ -18,6 +18,10 @@ pub struct VolumeNodeConfig {
 
     /// The number of input and output channels.
     pub channels: NonZeroChannelCount,
+
+    /// If the resutling amplitude of the volume is less than or equal to this
+    /// value, then the amplitude will be clamped to `0.0` (silence).
+    pub amp_epsilon: f32,
 }
 
 impl Default for VolumeNodeConfig {
@@ -25,15 +29,15 @@ impl Default for VolumeNodeConfig {
         Self {
             smooth_secs: 10.0 / 1_000.0,
             channels: NonZeroChannelCount::STEREO,
+            amp_epsilon: DEFAULT_AMP_EPSILON,
         }
     }
 }
 
-#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumeNode {
-    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
-    pub normalized_volume: f32,
+    pub volume: Volume,
 }
 
 impl Patch for VolumeNode {
@@ -42,23 +46,9 @@ impl Patch for VolumeNode {
         data: &firewheel_core::event::ParamData,
         _path: &[u32],
     ) -> Result<(), firewheel_core::diff::PatchError> {
-        self.normalized_volume = data.try_into()?;
-
-        if self.normalized_volume < 0.00001 {
-            self.normalized_volume = 0.0;
-        } else if self.normalized_volume > 0.99999 && self.normalized_volume < 1.00001 {
-            self.normalized_volume = 1.0
-        }
+        self.volume = data.try_into()?;
 
         Ok(())
-    }
-}
-
-impl Default for VolumeNode {
-    fn default() -> Self {
-        Self {
-            normalized_volume: 1.0,
-        }
     }
 }
 
@@ -80,7 +70,7 @@ impl AudioNode for VolumeNode {
         config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
     ) -> impl AudioNodeProcessor {
-        let gain = normalized_volume_to_raw_gain(self.normalized_volume);
+        let gain = self.volume.amp_clamped(config.amp_epsilon);
 
         VolumeProcessor {
             params: *self,
@@ -93,6 +83,7 @@ impl AudioNode for VolumeNode {
                 stream_info.sample_rate,
             ),
             prev_block_was_silent: true,
+            amp_epsilon: config.amp_epsilon,
         }
     }
 }
@@ -102,6 +93,7 @@ struct VolumeProcessor {
     params: VolumeNode,
 
     prev_block_was_silent: bool,
+    amp_epsilon: f32,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -114,7 +106,11 @@ impl AudioNodeProcessor for VolumeProcessor {
         scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
-            self.gain.set_value(self.params.normalized_volume);
+            let mut gain = self.params.volume.amp_clamped(self.amp_epsilon);
+            if gain > 0.99999 && gain < 1.00001 {
+                gain = 1.0;
+            }
+            self.gain.set_value(gain);
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.

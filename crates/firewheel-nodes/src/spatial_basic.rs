@@ -6,9 +6,9 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        decibel::normalized_volume_to_raw_gain,
         filter::single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
         pan_law::PanLaw,
+        volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventList, Vec3},
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
@@ -27,12 +27,17 @@ pub struct SpatialBasicConfig {
     ///
     /// By default this is set to `0.01` (10ms).
     pub smooth_secs: f32,
+
+    /// If the resutling amplitude of the volume is less than or equal to this
+    /// value, then the amplitude will be clamped to `0.0` (silence).
+    pub amp_epsilon: f32,
 }
 
 impl Default for SpatialBasicConfig {
     fn default() -> Self {
         Self {
             smooth_secs: 10.0 / 1_000.0,
+            amp_epsilon: DEFAULT_AMP_EPSILON,
         }
     }
 }
@@ -43,11 +48,8 @@ impl Default for SpatialBasicConfig {
 #[derive(Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SpatialBasicNode {
-    /// The normalized volume where `0.0` is mute and `1.0` is unity gain. This is
-    /// applied before the spatialization algorithm.
-    ///
-    /// By default this is set to `1.0`.
-    pub normalized_volume: f32,
+    /// The overall volume. This is applied before the spatialization algorithm.
+    pub volume: Volume,
 
     /// A 3D vector representing the offset between the listener and the
     /// sound source.
@@ -98,6 +100,18 @@ pub struct SpatialBasicNode {
     pub panning_threshold: f32,
 }
 
+impl Default for SpatialBasicNode {
+    fn default() -> Self {
+        Self {
+            volume: Volume::default(),
+            offset: Vec3::new(0.0, 0.0, 0.0),
+            damping_distance: 100.0,
+            muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
+            panning_threshold: 0.6,
+        }
+    }
+}
+
 impl Patch for SpatialBasicNode {
     fn patch(
         &mut self,
@@ -106,12 +120,7 @@ impl Patch for SpatialBasicNode {
     ) -> Result<(), firewheel_core::diff::PatchError> {
         match path.first() {
             Some(0) => {
-                let value: f32 = data.try_into()?;
-                self.normalized_volume = value.max(0.0);
-
-                if self.normalized_volume < 0.00001 {
-                    self.normalized_volume = 0.0;
-                }
+                self.volume = data.try_into()?;
             }
             Some(1) => {
                 self.offset.patch(data, &path[1..])?;
@@ -139,20 +148,8 @@ impl Patch for SpatialBasicNode {
     }
 }
 
-impl Default for SpatialBasicNode {
-    fn default() -> Self {
-        Self {
-            normalized_volume: 1.0,
-            offset: Vec3::new(0.0, 0.0, 0.0),
-            damping_distance: 100.0,
-            muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
-            panning_threshold: 0.6,
-        }
-    }
-}
-
 impl SpatialBasicNode {
-    pub fn compute_values(&self) -> ComputedValues {
+    pub fn compute_values(&self, amp_epsilon: f32) -> ComputedValues {
         let x2_z2 = (self.offset[0] * self.offset[0]) + (self.offset[2] * self.offset[2]);
         let xyz_distance = (x2_z2 + (self.offset[1] * self.offset[1])).sqrt();
         let xz_distance = x2_z2.sqrt();
@@ -166,7 +163,13 @@ impl SpatialBasicNode {
         };
         let (pan_gain_l, pan_gain_r) = PanLaw::EqualPower3dB.compute_gains(pan);
 
-        let volume_gain = normalized_volume_to_raw_gain(self.normalized_volume);
+        let mut volume_gain = self.volume.amp();
+        if volume_gain > 0.99999 && volume_gain < 1.00001 {
+            volume_gain = 1.0;
+        }
+        if volume_gain <= amp_epsilon {
+            volume_gain = 0.0;
+        }
 
         let muffle_cutoff_hz = if self.muffle_cutoff_hz > DAMPING_CUTOFF_HZ_MAX - 0.00001 {
             DAMPING_CUTOFF_HZ_MAX
@@ -196,9 +199,19 @@ impl SpatialBasicNode {
             }
         };
 
+        let mut gain_l = pan_gain_l * distance_gain * volume_gain;
+        let mut gain_r = pan_gain_r * distance_gain * volume_gain;
+
+        if gain_l <= amp_epsilon {
+            gain_l = 0.0;
+        }
+        if gain_r <= amp_epsilon {
+            gain_r = 0.0;
+        }
+
         ComputedValues {
-            gain_l: pan_gain_l * distance_gain * volume_gain,
-            gain_r: pan_gain_r * distance_gain * volume_gain,
+            gain_l,
+            gain_r,
             damping_cutoff_hz,
         }
     }
@@ -228,7 +241,7 @@ impl AudioNode for SpatialBasicNode {
         config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
     ) -> impl AudioNodeProcessor {
-        let computed_values = self.compute_values();
+        let computed_values = self.compute_values(config.amp_epsilon);
 
         dbg!(stream_info.sample_rate);
 
@@ -265,6 +278,7 @@ impl AudioNode for SpatialBasicNode {
             params: *self,
             prev_block_was_silent: true,
             sample_rate_recip: stream_info.sample_rate_recip as f32,
+            amp_epsilon: config.amp_epsilon,
         }
     }
 }
@@ -282,6 +296,7 @@ struct Processor {
 
     prev_block_was_silent: bool,
     sample_rate_recip: f32,
+    amp_epsilon: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -294,7 +309,7 @@ impl AudioNodeProcessor for Processor {
         _scratch_buffers: ScratchBuffers,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
-            let computed_values = self.params.compute_values();
+            let computed_values = self.params.compute_values(self.amp_epsilon);
 
             self.gain_l.set_value(computed_values.gain_l);
             self.gain_r.set_value(computed_values.gain_r);

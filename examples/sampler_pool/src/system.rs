@@ -8,7 +8,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     sampler_pool::{FxChain, SamplerPool, VolumePanChain},
-    FirewheelContext,
+    FirewheelContext, Volume,
 };
 use symphonium::SymphoniumLoader;
 
@@ -64,7 +64,7 @@ impl AudioSystem {
         .into_dyn_resource();
 
         let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample, 1.0, RepeatMode::PlayOnce);
+        sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
 
         Self {
             cx,

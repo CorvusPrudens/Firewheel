@@ -217,7 +217,6 @@ pub struct CompiledSchedule {
     num_buffers: usize,
     max_block_frames: usize,
     graph_in_node_id: NodeID,
-    graph_out_node_id: NodeID,
 }
 
 impl Debug for CompiledSchedule {
@@ -245,7 +244,6 @@ impl CompiledSchedule {
         num_buffers: usize,
         max_block_frames: usize,
         graph_in_node_id: NodeID,
-        graph_out_node_id: NodeID,
     ) -> Self {
         let mut buffers = Vec::new();
         buffers.reserve_exact(num_buffers * max_block_frames);
@@ -258,7 +256,6 @@ impl CompiledSchedule {
             num_buffers,
             max_block_frames,
             graph_in_node_id,
-            graph_out_node_id,
         }
     }
 
@@ -359,9 +356,7 @@ impl CompiledSchedule {
         let mut outputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
 
         for scheduled_node in self.schedule.iter() {
-            if scheduled_node.id == self.graph_in_node_id
-                || scheduled_node.id == self.graph_out_node_id
-            {
+            if scheduled_node.id == self.graph_in_node_id {
                 continue;
             }
 
