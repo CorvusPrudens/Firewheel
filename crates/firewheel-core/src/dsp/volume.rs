@@ -107,7 +107,7 @@ impl Volume {
         Self::Linear(self.linear())
     }
 
-    /// Get the value as a [`Volume::Decibel`] value.
+    /// Get the value as a [`Volume::Decibels`] value.
     pub fn as_decibel_variant(&self) -> Self {
         Self::Decibels(self.decibels())
     }
