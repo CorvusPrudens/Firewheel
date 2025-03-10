@@ -245,13 +245,13 @@ impl StreamReaderState {
 
     /// If the value of [`StreamReaderState::occupied_seconds()`] is greater than the
     /// given threshold in seconds, then discard the number of input frames needed to
-    /// bring the value back down to [`ResamplingChannelConfig::latency_seconds()`] to avoid
+    /// bring the value back down to [`ResamplingChannelConfig::latency_seconds`] to avoid
     /// excessive overflows and reduce perceived audible glitchiness.
     ///
     /// Returns the number of input frames from the producer (not output frames from
     /// this consumer) that were discarded.
     ///
-    /// If `threshold_seconds` is less than [`ResamplingChannelConfig::latency_seconds()`],
+    /// If `threshold_seconds` is less than [`ResamplingChannelConfig::latency_seconds`],
     /// then this will do nothing.
     pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
         if let Some(state) = &mut self.active_state {
