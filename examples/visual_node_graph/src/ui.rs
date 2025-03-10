@@ -7,6 +7,7 @@ use egui_snarl::{
 use firewheel::{
     diff::Memo,
     nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
+    Volume,
 };
 
 use crate::system::{AudioSystem, NodeType};
@@ -284,9 +285,13 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         match snarl.get_node_mut(node).unwrap() {
             GuiAudioNode::BeepTest { id, params } => {
                 ui.vertical(|ui| {
-                    ui.add(
-                        egui::Slider::new(&mut params.normalized_volume, 0.0..=1.0).text("volume"),
-                    );
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
 
                     ui.add(
                         egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
@@ -300,26 +305,34 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 });
             }
             GuiAudioNode::VolumeMono { id, params } => {
+                let mut linear_volume = params.volume.linear();
                 if ui
-                    .add(egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"))
+                    .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
                     .changed()
                 {
+                    params.volume = Volume::Linear(linear_volume);
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 }
             }
             GuiAudioNode::VolumeStereo { id, params } => {
+                let mut linear_volume = params.volume.linear();
                 if ui
-                    .add(egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"))
+                    .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
                     .changed()
                 {
+                    params.volume = Volume::Linear(linear_volume);
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 }
             }
             GuiAudioNode::VolumePan { id, params } => {
                 ui.vertical(|ui| {
-                    ui.add(
-                        egui::Slider::new(&mut params.normalized_volume, 0.0..=2.0).text("volume"),
-                    );
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
 
                     ui.add(egui::Slider::new(&mut params.pan, -1.0..=1.0).text("pan"));
 

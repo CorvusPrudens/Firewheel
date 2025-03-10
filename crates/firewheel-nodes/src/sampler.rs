@@ -15,8 +15,8 @@ use firewheel_core::{
     collector::ArcGc,
     dsp::{
         buffer::InstanceBuffer,
-        decibel::normalized_volume_to_raw_gain,
         declick::{DeclickValues, Declicker, FadeType},
+        volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
@@ -27,7 +27,7 @@ use firewheel_core::{
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
@@ -48,6 +48,9 @@ pub struct SamplerConfig {
     ///
     /// By default this is set to `true`.
     pub crossfade_on_restart: bool,
+    /// If the resutling amplitude of the volume is less than or equal to this
+    /// value, then the amplitude will be clamped to `0.0` (silence).
+    pub amp_epsilon: f32,
 }
 
 impl Default for SamplerConfig {
@@ -57,6 +60,7 @@ impl Default for SamplerConfig {
             mono_to_stereo: true,
             num_declickers: DEFAULT_NUM_DECLICKERS as u32,
             crossfade_on_restart: true,
+            amp_epsilon: DEFAULT_AMP_EPSILON,
         }
     }
 }
@@ -103,20 +107,20 @@ impl SamplerNode {
     /// Set the parameters to a play a single sample.
     ///
     /// * `sample` - The sample resource to use.
-    /// * `normalized_volume` - The volume to play the sample at, where `0.0` is silence and
-    /// `1.0` is unity gain. Note that this node does not support changing the volume while
-    /// playing. Instead, use a node like the volume node for that.
+    /// * `volume` - The volume to play the sample at. Note that this node does not
+    /// support changing the volume while playing. Instead, use a node like the volume
+    /// node for that.
     /// * `repeat_mode` - How many times a sample/sequence should be repeated for each
     /// `StartOrRestart` command.
     pub fn set_sample(
         &mut self,
         sample: ArcGc<dyn SampleResource>,
-        normalized_volume: f32,
+        volume: Volume,
         repeat_mode: RepeatMode,
     ) {
         self.sequence = Some(SequenceType::SingleSample {
             sample,
-            normalized_volume,
+            volume,
             repeat_mode,
         });
     }
@@ -298,12 +302,11 @@ pub enum SequenceType {
     SingleSample {
         /// The sample resource to use.
         sample: ArcGc<dyn SampleResource>,
-        /// The volume to play the sample at, where `0.0` is silence and `1.0`
-        /// is unity gain.
+        /// The volume to play the sample at.
         ///
         /// Note that this node does not support changing the volume while
         /// playing. Instead, use a node like the volume node for that.
-        normalized_volume: f32,
+        volume: Volume,
         /// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
         repeat_mode: RepeatMode,
         // TODO: Pitch
@@ -400,6 +403,7 @@ impl AudioNode for SamplerNode {
             playback_pause_time_frames: ClockSamples::default(),
             start_delay: None,
             sample_rate: stream_info.sample_rate.get() as f64,
+            amp_epsilon: config.amp_epsilon,
         };
 
         sampler.set_sequence(
@@ -432,6 +436,7 @@ pub struct SamplerProcessor {
     start_delay: Option<EventDelay>,
 
     sample_rate: f64,
+    amp_epsilon: f32,
 }
 
 impl SamplerProcessor {
@@ -684,12 +689,12 @@ impl SamplerProcessor {
             }
             Some(SequenceType::SingleSample {
                 sample,
-                normalized_volume,
+                volume,
                 repeat_mode,
             }) => {
                 self.load_sample(
                     ArcGc::clone(sample),
-                    *normalized_volume,
+                    *volume,
                     *repeat_mode,
                     num_out_channels,
                 );
@@ -701,14 +706,11 @@ impl SamplerProcessor {
     fn load_sample(
         &mut self,
         sample: ArcGc<dyn SampleResource>,
-        normalized_volume: f32,
+        volume: Volume,
         repeat_mode: RepeatMode,
         num_out_channels: usize,
     ) {
-        let mut gain = normalized_volume_to_raw_gain(normalized_volume);
-        if gain < 0.00001 {
-            gain = 0.0;
-        }
+        let mut gain = volume.amp_clamped(self.amp_epsilon);
         if gain > 0.99999 && gain < 1.00001 {
             gain = 1.0;
         }
@@ -744,11 +746,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         events.for_each(|event| match event {
             NodeEventType::SequenceCommand(command) => {
                 if self.params.sequence.is_none() {
-                    self.params
-                        .shared_state
-                        .playback_state
-                        .store(PlaybackState::Stopped);
-
+                    self.playback_state = PlaybackState::Stopped;
                     return;
                 }
 
@@ -815,11 +813,6 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.playback_state = PlaybackState::Stopped;
                     }
                 }
-
-                self.params
-                    .shared_state
-                    .playback_state
-                    .store(self.playback_state);
             }
             NodeEventType::Custom(event) => {
                 let Some(event) = event.downcast_mut::<SamplerEvent>() else {
@@ -841,10 +834,6 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         if *start_immediately {
                             self.playback_state = PlaybackState::Playing;
-                            self.params
-                                .shared_state
-                                .playback_state
-                                .store(PlaybackState::Playing);
 
                             // Crossfade with the previous sample.
                             if self.config.crossfade_on_restart
@@ -856,11 +845,6 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                             self.playback_start_time_seconds = proc_info.clock_seconds.start;
                             self.playback_start_time_frames = proc_info.clock_samples;
-                        } else {
-                            self.params
-                                .shared_state
-                                .playback_state
-                                .store(PlaybackState::Stopped);
                         }
                     }
                     SamplerEvent::SetPlayheadSeconds(seconds) => {
@@ -884,6 +868,11 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
             _ => {}
         });
+
+        self.params
+            .shared_state
+            .playback_state
+            .store(self.playback_state);
 
         let start_on_frame = if let Some(delay) = self.start_delay {
             if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate as u32) {

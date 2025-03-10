@@ -1,9 +1,11 @@
 use std::time::{Duration, Instant};
 
-use firewheel::{error::UpdateError, nodes::beep_test::BeepTestNode, FirewheelContext};
+use firewheel::{
+    dsp::volume::Volume, error::UpdateError, nodes::beep_test::BeepTestNode, FirewheelContext,
+};
 
 const BEEP_FREQUENCY_HZ: f32 = 440.0;
-const BEEP_NORMALIZED_VOLUME: f32 = 0.45;
+const BEEP_VOLUME: Volume = Volume::Linear(0.45);
 const BEEP_DURATION: Duration = Duration::from_secs(4);
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
@@ -17,7 +19,7 @@ fn main() {
 
     let beep_test_node = BeepTestNode {
         freq_hz: BEEP_FREQUENCY_HZ,
-        normalized_volume: BEEP_NORMALIZED_VOLUME,
+        volume: BEEP_VOLUME,
         enabled: true,
     };
 

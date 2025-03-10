@@ -1,7 +1,7 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::decibel::normalized_volume_to_raw_gain,
+    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
@@ -20,10 +20,12 @@ pub struct BeepTestNode {
     /// value for testing is `440` (middle C).
     pub freq_hz: f32,
 
-    /// The normalized volume where `.0` is mute and `1.0` is unity gain.
-    /// NOTE, a sine wave at `1.0`` volume is *LOUD*, prefer to use a value
-    /// like `0.5``.
-    pub normalized_volume: f32,
+    /// The overall volume.
+    ///
+    /// NOTE, a sine wave at `Volume::Linear(1.0) or Volume::Decibels(0.0)` volume
+    /// is *LOUD*, prefer to use a value `Volume::Linear(0.5) or
+    /// Volume::Decibels(-12.0)`.
+    pub volume: Volume,
 
     /// Whether or not the node is currently enabled.
     pub enabled: bool,
@@ -33,7 +35,7 @@ impl Default for BeepTestNode {
     fn default() -> Self {
         Self {
             freq_hz: 440.0,
-            normalized_volume: 0.5,
+            volume: Volume::Linear(0.5),
             enabled: true,
         }
     }
@@ -60,7 +62,7 @@ impl AudioNode for BeepTestNode {
         Processor {
             phasor: 0.0,
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,
-            gain: normalized_volume_to_raw_gain(self.normalized_volume),
+            gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
             sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
             params: *self,
         }
@@ -90,7 +92,7 @@ impl AudioNodeProcessor for Processor {
 
         if self.params.patch_list(events) {
             self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
-            self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+            self.gain = self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON);
         }
 
         if !self.params.enabled {

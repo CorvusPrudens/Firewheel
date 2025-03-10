@@ -3,7 +3,7 @@
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::decibel::normalized_volume_to_raw_gain,
+    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
     node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     SilenceMask, StreamInfo,
@@ -12,10 +12,11 @@ use firewheel::{
 // The parameter struct holds all of the parameters of the node as plain values.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct NoiseGenNode {
-    /// The normalized volume where `0.0` is mute and `1.0` is unity gain.
+    /// The overall volume.
     ///
-    /// White noise is really loud, so use something like `0.4`.
-    pub normalized_volume: f32,
+    /// Note, white noise is really loud, so prefer to use a value like
+    /// `Volume::Linear(0.4)` or `Volume::Decibels(-18.0)`.
+    pub volume: Volume,
     /// Whether or not this node is enabled.
     pub enabled: bool,
 }
@@ -23,7 +24,7 @@ pub struct NoiseGenNode {
 impl Default for NoiseGenNode {
     fn default() -> Self {
         Self {
-            normalized_volume: 0.4,
+            volume: Volume::Linear(0.4),
             enabled: true,
         }
     }
@@ -83,7 +84,7 @@ impl AudioNode for NoiseGenNode {
 
         Processor {
             fpd: seed,
-            gain: normalized_volume_to_raw_gain(self.normalized_volume),
+            gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
             params: *self,
         }
     }
@@ -115,7 +116,7 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         // Process the events.
         if self.params.patch_list(events) {
-            self.gain = normalized_volume_to_raw_gain(self.params.normalized_volume);
+            self.gain = self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON);
         }
 
         if !self.params.enabled {

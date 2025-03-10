@@ -429,7 +429,6 @@ impl<'a> GraphIR<'a> {
             self.max_num_buffers,
             self.max_block_frames,
             self.graph_in_id,
-            self.graph_out_id,
         )
     }
 }

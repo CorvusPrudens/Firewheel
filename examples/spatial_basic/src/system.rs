@@ -6,7 +6,7 @@ use firewheel::{
         sampler::{RepeatMode, SamplerNode},
         spatial_basic::SpatialBasicNode,
     },
-    FirewheelContext,
+    FirewheelContext, Volume,
 };
 use symphonium::SymphoniumLoader;
 
@@ -40,7 +40,7 @@ impl AudioSystem {
         let graph_out_node_id = cx.graph_out_node_id();
 
         let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample, 1.0, RepeatMode::RepeatEndlessly);
+        sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::RepeatEndlessly);
 
         let sampler_node_id = cx.add_node(sampler_node.clone(), None);
 
