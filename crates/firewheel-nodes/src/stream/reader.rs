@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
@@ -9,11 +10,9 @@ use std::{
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
+    collector::ArcGc,
     event::{NodeEventList, NodeEventType},
-    node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        ScratchBuffers,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
     sync_wrapper::SyncWrapper,
     StreamInfo,
 };
@@ -23,9 +22,6 @@ pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StreamReaderConfig {
-    /// The configuration of the input to output channel.
-    pub channel_config: ResamplingChannelConfig,
-
     /// The number of channels.
     pub channels: NonZeroChannelCount,
 }
@@ -33,34 +29,30 @@ pub struct StreamReaderConfig {
 impl Default for StreamReaderConfig {
     fn default() -> Self {
         Self {
-            channel_config: ResamplingChannelConfig::default(),
             channels: NonZeroChannelCount::STEREO,
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct StreamReaderNode {
-    /// The configuration of the stream.
-    ///
-    /// Changing this will have no effect until a new stream is started.
-    pub config: StreamReaderConfig,
+pub struct StreamReaderNode;
 
+#[derive(Clone)]
+pub struct StreamReaderState {
     channels: NonZeroChannelCount,
     active_state: Option<ActiveState>,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
 }
 
-impl StreamReaderNode {
-    pub fn new(config: StreamReaderConfig, channels: NonZeroChannelCount) -> Self {
+impl StreamReaderState {
+    pub fn new(channels: NonZeroChannelCount) -> Self {
         assert!((channels.get().get() as usize) < MAX_CHANNELS);
 
         Self {
-            config,
             channels,
             active_state: None,
-            shared_state: Arc::new(SharedState::new()),
+            shared_state: ArcGc::new(SharedState::new()),
         }
     }
 
@@ -105,6 +97,7 @@ impl StreamReaderNode {
     ///
     /// * `sample_rate` - The sample rate of this node.
     /// * `output_stream_sample_rate` - The sample rate of the active output audio stream.
+    /// * `channel_config` - The configuration of the input to output channel.
     ///
     /// If there is already an active stream running on this node, then this will return
     /// an error.
@@ -112,6 +105,7 @@ impl StreamReaderNode {
         &mut self,
         sample_rate: NonZeroU32,
         output_stream_sample_rate: NonZeroU32,
+        channel_config: ResamplingChannelConfig,
     ) -> Result<NewOutputStreamEvent, ()> {
         if self.is_active() {
             return Err(());
@@ -123,7 +117,7 @@ impl StreamReaderNode {
             NonZeroUsize::new(self.channels.get().get() as usize).unwrap(),
             output_stream_sample_rate.get(),
             sample_rate.get(),
-            self.config.channel_config,
+            channel_config,
         );
 
         self.active_state = Some(ActiveState {
@@ -165,12 +159,6 @@ impl StreamReaderNode {
         self.active_state
             .as_ref()
             .map(|s| s.cons.lock().unwrap().occupied_seconds())
-    }
-
-    /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
-    /// this channel was created.
-    pub fn latency_seconds(&self) -> f64 {
-        self.config.channel_config.latency_seconds
     }
 
     /// The number of channels in this node.
@@ -298,35 +286,47 @@ impl StreamReaderNode {
         self.active_state = None;
         self.shared_state.reset();
     }
+
+    pub fn handle(&self) -> Mutex<Self> {
+        Mutex::new((*self).clone())
+    }
 }
 
-impl Drop for StreamReaderNode {
+impl Drop for StreamReaderState {
     fn drop(&mut self) {
         self.stop_stream();
     }
 }
 
 impl AudioNode for StreamReaderNode {
-    type Configuration = EmptyConfig;
+    type Configuration = StreamReaderConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo::new()
             .debug_name("stream_reader")
             .channel_config(ChannelConfig {
-                num_inputs: self.channels.get(),
+                num_inputs: config.channels.get(),
                 num_outputs: ChannelCount::ZERO,
             })
             .uses_events(true)
+            .custom_state(Some(Box::new(StreamReaderState::new(config.channels))))
     }
 
     fn processor(
         &self,
         _config: &Self::Configuration,
         _stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
+        let custom_state = custom_state
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<StreamReaderState>()
+            .unwrap();
+
         Processor {
             prod: None,
-            shared_state: Arc::clone(&self.shared_state),
+            shared_state: ArcGc::clone(&custom_state.shared_state),
         }
     }
 }
@@ -367,7 +367,7 @@ impl SharedState {
 
 struct Processor {
     prod: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
 }
 
 impl AudioNodeProcessor for Processor {

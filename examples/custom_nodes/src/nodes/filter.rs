@@ -4,7 +4,7 @@
 //! declickers from the dsp module, as well as how to make proper use of the
 //! silence flags for optimization.
 
-use std::f32::consts::PI;
+use std::{any::Any, f32::consts::PI};
 
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -22,7 +22,7 @@ use firewheel::{
     SilenceMask, StreamInfo,
 };
 
-// The parameter struct holds all of the parameters of the node as plain values.
+// The node struct holds all of the parameters of the node as plain values.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct FilterNode {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
@@ -77,6 +77,7 @@ impl AudioNode for FilterNode {
         &self,
         _config: &Self::Configuration,
         stream_info: &StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         // The reciprocal of the sample rate.
         let sample_rate_recip = stream_info.sample_rate_recip as f32;

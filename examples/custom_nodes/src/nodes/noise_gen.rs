@@ -1,5 +1,7 @@
 //! A simple node that generates white noise.
 
+use std::any::Any;
+
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -9,7 +11,7 @@ use firewheel::{
     SilenceMask, StreamInfo,
 };
 
-// The parameter struct holds all of the parameters of the node as plain values.
+// The node struct holds all of the parameters of the node as plain values.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct NoiseGenNode {
     /// The overall volume.
@@ -78,6 +80,7 @@ impl AudioNode for NoiseGenNode {
         &self,
         config: &Self::Configuration,
         _stream_info: &StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         // Seed cannot be zero.
         let seed = if config.seed == 0 { 17 } else { config.seed };

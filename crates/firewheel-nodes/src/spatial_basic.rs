@@ -2,6 +2,8 @@
 //! not make use of any fancy binaural algorithms, rather it just applies basic
 //! panning and filtering.
 
+use std::any::Any;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -240,6 +242,7 @@ impl AudioNode for SpatialBasicNode {
         &self,
         config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         let computed_values = self.compute_values(config.amp_epsilon);
 

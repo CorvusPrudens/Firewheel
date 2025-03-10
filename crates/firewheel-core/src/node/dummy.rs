@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use crate::{channel_config::ChannelConfig, event::NodeEventList, StreamInfo};
 
 use super::{
@@ -28,6 +30,7 @@ impl AudioNode for DummyNode {
         &self,
         _config: &Self::Configuration,
         _stream_info: &StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         DummyProcessor
     }

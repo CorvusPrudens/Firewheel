@@ -1,9 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{any::Any, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
+    diff::{Diff, Patch},
     dsp::volume::{amp_to_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
@@ -152,25 +153,23 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Diff, Patch, Debug, Clone, Copy)]
 pub struct PeakMeterNode<const NUM_CHANNELS: usize> {
+    pub enabled: bool,
+}
+
+pub struct PeakMeterState<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }
 
-impl<const NUM_CHANNELS: usize> PeakMeterNode<NUM_CHANNELS> {
-    /// Create a new [`PeakMeterNode`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if `NUM_CHANNELS == 0` or `NUM_CHANNELS > 64`.
-    pub fn new(enabled: bool) -> Self {
+impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
+    fn new() -> Self {
         assert_ne!(NUM_CHANNELS, 0);
         assert!(NUM_CHANNELS <= 64);
 
         Self {
             shared_state: ArcGc::new(SharedState {
                 peak_gains: std::array::from_fn(|_| AtomicF32::new(0.0)),
-                enabled: AtomicBool::new(enabled),
             }),
         }
     }
@@ -192,19 +191,6 @@ impl<const NUM_CHANNELS: usize> PeakMeterNode<NUM_CHANNELS> {
             }
         })
     }
-
-    /// Whether or not the node is currently enabled.
-    pub fn enabled(&self) -> bool {
-        self.shared_state.enabled.load(Ordering::Relaxed)
-    }
-
-    /// Enable/disable this node.
-    ///
-    /// It is a good idea to disable this node when not in use to save
-    /// on CPU.
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.shared_state.enabled.store(enabled, Ordering::Relaxed);
-    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
@@ -217,29 +203,36 @@ impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
                 num_inputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
             })
-            .uses_events(false)
+            .uses_events(true)
+            .custom_state(Some(Box::new(PeakMeterState::<NUM_CHANNELS>::new())))
     }
 
     fn processor(
         &self,
         _config: &Self::Configuration,
         _stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
+        let custom_state = custom_state
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<PeakMeterState<NUM_CHANNELS>>()
+            .unwrap();
+
         Processor {
-            shared_state: ArcGc::clone(&self.shared_state),
-            enabled: self.shared_state.enabled.load(Ordering::Relaxed),
+            params: self.clone(),
+            shared_state: ArcGc::clone(&custom_state.shared_state),
         }
     }
 }
 
 struct SharedState<const NUM_CHANNELS: usize> {
     peak_gains: [AtomicF32; NUM_CHANNELS],
-    enabled: AtomicBool,
 }
 
 struct Processor<const NUM_CHANNELS: usize> {
+    params: PeakMeterNode<NUM_CHANNELS>,
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
-    enabled: bool,
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
@@ -247,20 +240,21 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         &mut self,
         inputs: &[&[f32]],
         _outputs: &mut [&mut [f32]],
-        _events: NodeEventList,
+        events: NodeEventList,
         proc_info: &ProcInfo,
         _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> ProcessStatus {
-        let enabled = self.shared_state.enabled.load(Ordering::Relaxed);
+        let was_enabled = self.params.enabled;
 
-        if self.enabled && !enabled {
+        self.params.patch_list(events);
+
+        if was_enabled && !self.params.enabled {
             for ch in self.shared_state.peak_gains.iter() {
                 ch.store(0.0, Ordering::Relaxed);
             }
         }
-        self.enabled = enabled;
 
-        if !self.enabled {
+        if !self.params.enabled {
             return ProcessStatus::Bypass;
         }
 

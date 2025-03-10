@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -102,6 +104,7 @@ impl AudioNode for VolumePanNode {
         &self,
         config: &Self::Configuration,
         stream_info: &firewheel_core::StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         let (gain_l, gain_r) = self.compute_gains(config.amp_epsilon);
 

@@ -508,6 +508,16 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         self.graph.node_info(id)
     }
 
+    /// Get an immutable reference to the custom state of a node.
+    pub fn node_state<T: 'static>(&self, id: NodeID) -> Option<&T> {
+        self.graph.node_state(id)
+    }
+
+    /// Get a mutable reference to the custom state of a node.
+    pub fn node_state_mut<T: 'static>(&mut self, id: NodeID) -> Option<&mut T> {
+        self.graph.node_state_mut(id)
+    }
+
     /// Get a list of all the existing nodes in the graph.
     pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry> {
         self.graph.nodes()

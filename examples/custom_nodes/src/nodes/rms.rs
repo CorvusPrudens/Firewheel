@@ -2,7 +2,7 @@
 //!
 //! This node calculates the RMS (root-mean-square) of a mono signal.
 
-use std::sync::atomic::Ordering;
+use std::{any::Any, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
 use firewheel::{
@@ -32,31 +32,34 @@ impl Default for RmsConfig {
     }
 }
 
-// The parameter struct holds all of the parameters of the node.
-#[derive(Debug, Diff, Patch, Clone)]
+// The node struct holds all of the parameters of the node.
+#[derive(Debug, Diff, Patch, Clone, Copy)]
 pub struct RmsNode {
     /// Whether or not this node is enabled.
     pub enabled: bool,
+}
+
+impl Default for RmsNode {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+// The state struct is stored in the Firewheel context, and can be gotten by
+// the user using the node's ID.
+pub struct RmsState {
     // `ArcGc` is a simple wrapper around `Arc` that automatically collects
     // dropped resources from the audio thread and drops them on another
     // thread.
     //
     // Because this type is synchronized with atomics, it
     // doesn't need any diffing or patching.
-    #[diff(skip)]
     shared_state: ArcGc<SharedState>,
 }
 
-impl Default for RmsNode {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RmsNode {
-    pub fn new() -> Self {
+impl RmsState {
+    fn new() -> Self {
         Self {
-            enabled: true,
             shared_state: ArcGc::new(SharedState {
                 rms_value: AtomicF32::new(0.0),
             }),
@@ -89,6 +92,8 @@ impl AudioNode for RmsNode {
             // this to `false` will save a bit of memory by not allocating an
             // event buffer for this node.
             .uses_events(true)
+            // Store custom `!Send`-compatible state in the Firewheel context.
+            .custom_state(Some(Box::new(RmsState::new())))
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -100,12 +105,21 @@ impl AudioNode for RmsNode {
         &self,
         config: &Self::Configuration,
         stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         let window_frames =
             (config.window_size_secs * stream_info.sample_rate.get() as f32).round() as usize;
 
+        // Extract the custom state so we can get a reference to the shared state.
+        let custom_state = custom_state
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<RmsState>()
+            .unwrap();
+
         Processor {
             params: self.clone(),
+            shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
@@ -117,6 +131,7 @@ impl AudioNode for RmsNode {
 // The realtime processor counterpart to your node.
 struct Processor {
     params: RmsNode,
+    shared_state: ArcGc<SharedState>,
     squares: f32,
     num_squared_values: usize,
     window_frames: usize,
@@ -143,10 +158,7 @@ impl AudioNodeProcessor for Processor {
         self.params.patch_list(events);
 
         if !self.params.enabled {
-            self.params
-                .shared_state
-                .rms_value
-                .store(0.0, Ordering::Relaxed);
+            self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
 
             self.squares = 0.0;
             self.num_squared_values = 0;
@@ -170,10 +182,7 @@ impl AudioNodeProcessor for Processor {
                 let mean = self.squares / self.window_frames as f32;
                 let rms = mean.sqrt();
 
-                self.params
-                    .shared_state
-                    .rms_value
-                    .store(rms, Ordering::Relaxed);
+                self.shared_state.rms_value.store(rms, Ordering::Relaxed);
 
                 self.squares = 0.0;
                 self.num_squared_values = 0;

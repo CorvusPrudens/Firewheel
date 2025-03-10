@@ -2,7 +2,7 @@ use eframe::App;
 use egui::{Color32, ProgressBar};
 use firewheel::dsp::volume::Volume;
 
-use crate::system::AudioSystem;
+use crate::{nodes::rms::RmsState, system::AudioSystem};
 
 pub struct DemoApp {
     audio_system: AudioSystem,
@@ -98,7 +98,12 @@ impl App for DemoApp {
                 );
             }
 
-            let rms_value = self.audio_system.rms_node.rms_value();
+            let rms_value = self
+                .audio_system
+                .cx
+                .node_state::<RmsState>(self.audio_system.rms_node_id)
+                .unwrap()
+                .rms_value();
 
             // The rms value is quite low, so scale it up to register on the meter better.
             ui.add(ProgressBar::new(rms_value * 2.0).fill(Color32::DARK_GREEN));

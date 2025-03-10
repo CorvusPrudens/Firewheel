@@ -28,12 +28,13 @@ impl Default for NodeID {
 ///
 /// This struct enforces the use of the builder pattern for future-proofness, as
 /// it is likely that more fields will be added in the future.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AudioNodeInfo {
     debug_name: &'static str,
     channel_config: ChannelConfig,
     uses_events: bool,
     call_update_method: bool,
+    custom_state: Option<Box<dyn Any>>,
 }
 
 impl AudioNodeInfo {
@@ -47,6 +48,7 @@ impl AudioNodeInfo {
             },
             uses_events: false,
             call_update_method: false,
+            custom_state: None,
         }
     }
 
@@ -84,15 +86,22 @@ impl AudioNodeInfo {
         self.call_update_method = call_update_method;
         self
     }
+
+    /// Custom `!Send` state that can be stored in the Firewheel context.
+    pub fn custom_state(mut self, custom_state: Option<Box<dyn Any>>) -> Self {
+        self.custom_state = custom_state;
+        self
+    }
 }
 
 /// Information about an [`AudioNode`]. Used internally by the Firewheel context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AudioNodeInfoInner {
     pub debug_name: &'static str,
     pub channel_config: ChannelConfig,
     pub uses_events: bool,
     pub call_update_method: bool,
+    pub custom_state: Option<Box<dyn Any>>,
 }
 
 impl Into<AudioNodeInfoInner> for AudioNodeInfo {
@@ -102,6 +111,7 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
             channel_config: self.channel_config,
             uses_events: self.uses_events,
             call_update_method: self.call_update_method,
+            custom_state: self.custom_state,
         }
     }
 }
@@ -124,6 +134,7 @@ pub trait AudioNode {
         &self,
         configuration: &Self::Configuration,
         stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
@@ -147,7 +158,7 @@ pub struct UpdateContext<'a> {
     pub stream_info: Option<&'a StreamInfo>,
     /// Custom `!Send` data that can be stored in the Firewheel
     /// context.
-    pub custom_data: &'a mut Option<Box<dyn Any>>,
+    pub custom_state: &'a mut Option<Box<dyn Any>>,
     event_queue: &'a mut Vec<NodeEvent>,
 }
 
@@ -155,13 +166,13 @@ impl<'a> UpdateContext<'a> {
     pub fn new(
         node_id: NodeID,
         stream_info: Option<&'a StreamInfo>,
-        custom_data: &'a mut Option<Box<dyn Any>>,
+        custom_state: &'a mut Option<Box<dyn Any>>,
         event_queue: &'a mut Vec<NodeEvent>,
     ) -> Self {
         Self {
             node_id,
             stream_info,
-            custom_data,
+            custom_state,
             event_queue,
         }
     }
@@ -187,7 +198,11 @@ pub struct EmptyConfig;
 /// A dyn-compatible [`AudioNode`].
 pub trait DynAudioNode {
     fn info(&self) -> AudioNodeInfo;
-    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn processor(
+        &self,
+        stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
+    ) -> Box<dyn AudioNodeProcessor>;
     fn update(&mut self, cx: UpdateContext) {
         let _ = cx;
     }
@@ -215,8 +230,15 @@ impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
         self.constructor.info(&self.configuration)
     }
 
-    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor> {
-        Box::new(self.constructor.processor(&self.configuration, stream_info))
+    fn processor(
+        &self,
+        stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
+    ) -> Box<dyn AudioNodeProcessor> {
+        Box::new(
+            self.constructor
+                .processor(&self.configuration, stream_info, custom_state),
+        )
     }
 
     fn update(&mut self, cx: UpdateContext) {

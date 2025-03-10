@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
@@ -28,6 +30,7 @@ impl AudioNode for StereoToMonoNode {
         &self,
         _config: &Self::Configuration,
         _stream_info: &firewheel_core::StreamInfo,
+        _custom_state: &mut Option<Box<dyn Any>>,
     ) -> impl AudioNodeProcessor {
         StereoToMonoProcessor
     }
