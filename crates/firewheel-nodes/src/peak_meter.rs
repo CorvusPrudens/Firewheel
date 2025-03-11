@@ -241,7 +241,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _events: NodeEventList,
+        events: NodeEventList,
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 

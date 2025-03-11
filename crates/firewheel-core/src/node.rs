@@ -203,7 +203,11 @@ pub trait DynAudioNode {
     fn info(&self) -> AudioNodeInfo;
 
     /// Construct a processor for this node.
-    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+    fn processor(
+        &self,
+        stream_info: &StreamInfo,
+        custom_state: &mut Option<Box<dyn Any>>,
+    ) -> Box<dyn AudioNodeProcessor>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
