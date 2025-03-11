@@ -10,7 +10,7 @@ use firewheel::{
     collector::ArcGc,
     diff::{Diff, Patch},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
     StreamInfo,
 };
 
@@ -143,18 +143,12 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
-        // The list of input buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        inputs: &[&[f32]],
-        // The list of output buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        _outputs: &mut [&mut [f32]],
-        // The list of events for our node to process.
-        events: NodeEventList,
+        // The buffers of data to process.
+        buffers: ProcBuffers,
         // Additional information about the process.
         proc_info: &ProcInfo,
-        // Optional scratch buffers that can be used for processing.
-        _scratch_buffers: ScratchBuffers,
+        // The list of events for our node to process.
+        events: NodeEventList,
     ) -> ProcessStatus {
         self.params.patch_list(events);
 
@@ -172,7 +166,8 @@ impl AudioNodeProcessor for Processor {
             let process_frames = (proc_info.frames - frames_processed)
                 .min(self.window_frames - self.num_squared_values);
 
-            for &s in inputs[0][frames_processed..frames_processed + process_frames].iter() {
+            for &s in buffers.inputs[0][frames_processed..frames_processed + process_frames].iter()
+            {
                 self.squares += s * s;
             }
 

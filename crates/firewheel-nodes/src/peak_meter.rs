@@ -8,8 +8,8 @@ use firewheel_core::{
     dsp::volume::{amp_to_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        NUM_SCRATCH_BUFFERS,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
     },
     StreamInfo,
 };
@@ -239,11 +239,9 @@ struct Processor<const NUM_CHANNELS: usize> {
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        _outputs: &mut [&mut [f32]],
-        events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        _events: NodeEventList,
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 
@@ -259,7 +257,8 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
             return ProcessStatus::Bypass;
         }
 
-        for (i, (in_ch, peak_shared)) in inputs
+        for (i, (in_ch, peak_shared)) in buffers
+            .inputs
             .iter()
             .zip(self.shared_state.peak_gains.iter())
             .enumerate()

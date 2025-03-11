@@ -2,9 +2,7 @@ use std::any::Any;
 
 use crate::{channel_config::ChannelConfig, event::NodeEventList, StreamInfo};
 
-use super::{
-    AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers,
-};
+use super::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus};
 
 /// A "dummy" [`AudioNode`], a node which does nothing.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,11 +39,9 @@ struct DummyProcessor;
 impl AudioNodeProcessor for DummyProcessor {
     fn process(
         &mut self,
-        _inputs: &[&[f32]],
-        _outputs: &mut [&mut [f32]],
-        _events: NodeEventList,
+        _buffers: ProcBuffers,
         _proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        _events: NodeEventList,
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }

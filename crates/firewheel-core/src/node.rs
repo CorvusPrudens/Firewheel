@@ -197,12 +197,19 @@ pub struct EmptyConfig;
 
 /// A dyn-compatible [`AudioNode`].
 pub trait DynAudioNode {
+    /// Get information about this node.
+    ///
+    /// This method is only called once after the node is added to the audio graph.
     fn info(&self) -> AudioNodeInfo;
-    fn processor(
-        &self,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
-    ) -> Box<dyn AudioNodeProcessor>;
+
+    /// Construct a processor for this node.
+    fn processor(&self, stream_info: &StreamInfo) -> Box<dyn AudioNodeProcessor>;
+
+    /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
+    /// context will call this method on every update cycle.
+    ///
+    /// * `id` - The ID of this node.
+    /// * `configuration` - The custom configuration of this node.
     fn update(&mut self, cx: UpdateContext) {
         let _ = cx;
     }
@@ -258,22 +265,14 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// If any output buffers contain all zeros up to `samples` (silent),
     /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
     ///
-    /// * `inputs` - The input buffers.
-    /// * `outputs` - The output buffers,
-    /// * `events` - A list of events for this node to process.
+    /// * `buffers` - The buffers of data to process.
     /// * `proc_info` - Additional information about the process.
-    /// * `scratch_buffers` - A list of extra scratch buffers that can be
-    /// used for processing. This removes the need for nodes to allocate
-    /// their own scratch buffers. Each buffer has a length of
-    /// [`StreamInfo::max_block_frames`]. These buffers are shared across
-    /// all nodes, so assume that they contain junk data.
+    /// * `events` - A list of events for this node to process.
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        scratch_buffers: ScratchBuffers,
+        events: NodeEventList,
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
@@ -291,12 +290,33 @@ pub trait AudioNodeProcessor: 'static + Send {
 
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
-/// A list of extra scratch buffers that can be
-/// used for processing. This removes the need for nodes to allocate
-/// their own scratch buffers. Each buffer has a length of
-/// [`StreamInfo::max_block_frames`]. These buffers are shared across
-/// all nodes, so assume that they contain junk data.
-pub type ScratchBuffers<'a, 'b> = &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS];
+/// The buffers used in [`AudioNodeProcessor::process`].
+pub struct ProcBuffers<'a, 'b, 'c, 'd> {
+    /// The audio input buffers.
+    ///
+    /// The number of channels will always equal the [`ChannelConfig::num_inputs`]
+    /// value that was returned in [`AudioNode::info`].
+    ///
+    /// Each channel slice will have a length of [`ProcInfo::frames`].
+    pub inputs: &'a [&'b [f32]],
+
+    /// The audio input buffers.
+    ///
+    /// The number of channels will always equal the [`ChannelConfig::num_outputs`]
+    /// value that was returned in [`AudioNode::info`].
+    ///
+    /// Each channel slice will have a length of [`ProcInfo::frames`].
+    ///
+    /// These buffers may contain junk data.
+    pub outputs: &'a mut [&'b mut [f32]],
+
+    /// A list of extra scratch buffers that can be used for processing.
+    /// This removes the need for nodes to allocate their own scratch buffers.
+    /// Each buffer has a length of [`StreamInfo::max_block_frames`]. These
+    /// buffers are shared across all nodes, so assume that they contain junk
+    /// data.
+    pub scratch_buffers: &'c mut [&'d mut [f32]; NUM_SCRATCH_BUFFERS],
+}
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a> {

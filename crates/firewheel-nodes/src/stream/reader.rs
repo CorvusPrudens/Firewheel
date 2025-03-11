@@ -12,7 +12,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     event::{NodeEventList, NodeEventType},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
+    },
     sync_wrapper::SyncWrapper,
     StreamInfo,
 };
@@ -373,11 +376,9 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        _outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {
@@ -408,7 +409,7 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        let pushed_frames = prod.push(inputs, 0..proc_info.frames);
+        let pushed_frames = prod.push(buffers.inputs, 0..proc_info.frames);
 
         if pushed_frames < proc_info.frames {
             self.shared_state

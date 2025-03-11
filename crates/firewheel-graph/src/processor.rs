@@ -16,8 +16,8 @@ use firewheel_core::{
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, NodeEventList},
     node::{
-        AudioNodeProcessor, NodeID, ProcInfo, ProcessStatus, StreamStatus, TransportInfo,
-        NUM_SCRATCH_BUFFERS,
+        AudioNodeProcessor, NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus,
+        TransportInfo, NUM_SCRATCH_BUFFERS,
     },
     SilenceMask, StreamInfo,
 };
@@ -531,11 +531,11 @@ impl FirewheelProcessorInner {
 
         schedule_data.schedule.process(
             block_frames,
+            &mut scratch_buffers,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
-             inputs: &[&[f32]],
-             outputs: &mut [&mut [f32]]|
+             proc_buffers: ProcBuffers|
              -> ProcessStatus {
                 let Some(node_entry) = self.nodes.get_mut(node_id.0) else {
                     return ProcessStatus::Bypass;
@@ -546,13 +546,9 @@ impl FirewheelProcessorInner {
                 proc_info.in_silence_mask = in_silence_mask;
                 proc_info.out_silence_mask = out_silence_mask;
 
-                let status = node_entry.processor.process(
-                    inputs,
-                    outputs,
-                    events,
-                    &proc_info,
-                    &mut scratch_buffers,
-                );
+                let status = node_entry
+                    .processor
+                    .process(proc_buffers, &proc_info, events);
 
                 node_entry.event_indices.clear();
 
