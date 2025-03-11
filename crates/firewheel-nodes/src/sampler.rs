@@ -19,7 +19,7 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
 };
@@ -737,11 +737,9 @@ impl SamplerProcessor {
 impl AudioNodeProcessor for SamplerProcessor {
     fn process(
         &mut self,
-        _inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         events.for_each(|event| match event {
             NodeEventType::SequenceCommand(command) => {
@@ -752,7 +750,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                 match command {
                     SequenceCommand::StartOrRestart { delay } => {
-                        self.stop(proc_info.declick_values, outputs.len());
+                        self.stop(proc_info.declick_values, buffers.outputs.len());
 
                         self.playback_state = PlaybackState::Playing;
 
@@ -808,7 +806,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         }
                     }
                     SequenceCommand::Stop => {
-                        self.stop(proc_info.declick_values, outputs.len());
+                        self.stop(proc_info.declick_values, buffers.outputs.len());
 
                         self.playback_state = PlaybackState::Stopped;
                     }
@@ -824,9 +822,9 @@ impl AudioNodeProcessor for SamplerProcessor {
                         params,
                         start_immediately,
                     } => {
-                        self.stop(proc_info.declick_values, outputs.len());
+                        self.stop(proc_info.declick_values, buffers.outputs.len());
 
-                        self.set_sequence(&mut params.sequence, outputs.len());
+                        self.set_sequence(&mut params.sequence, buffers.outputs.len());
 
                         if self.params.sequence.is_none() {
                             return;
@@ -855,13 +853,17 @@ impl AudioNodeProcessor for SamplerProcessor {
                                 + (seconds.fract() * self.sample_rate).round() as u64
                         };
 
-                        self.set_playhead(playhead_frames, proc_info.declick_values, outputs.len());
+                        self.set_playhead(
+                            playhead_frames,
+                            proc_info.declick_values,
+                            buffers.outputs.len(),
+                        );
                     }
                     SamplerEvent::SetPlayheadSamples(playhead_frames) => {
                         self.set_playhead(
                             *playhead_frames,
                             proc_info.declick_values,
-                            outputs.len(),
+                            buffers.outputs.len(),
                         );
                     }
                 }
@@ -907,7 +909,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         .do_loop(sample_state.num_times_looped_back);
 
                     let (finished, n_channels) = self.process_internal(
-                        outputs,
+                        buffers.outputs,
                         proc_info.frames,
                         looping,
                         proc_info.declick_values,
@@ -938,7 +940,12 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
         }
 
-        for (i, out_buf) in outputs.iter_mut().enumerate().skip(num_filled_channels) {
+        for (i, out_buf) in buffers
+            .outputs
+            .iter_mut()
+            .enumerate()
+            .skip(num_filled_channels)
+        {
             if !proc_info.out_silence_mask.is_channel_silent(i) {
                 out_buf[..proc_info.frames].fill(0.0);
             }
@@ -960,7 +967,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 let copy_frames = proc_info.frames.min(declicker.frames_left);
                 let start_frame = fade_out_frames - declicker.frames_left;
 
-                for (out_buf, tmp_buf) in outputs.iter_mut().zip(tmp_buffers.iter()) {
+                for (out_buf, tmp_buf) in buffers.outputs.iter_mut().zip(tmp_buffers.iter()) {
                     for (os, &ts) in out_buf[..copy_frames]
                         .iter_mut()
                         .zip(tmp_buf[start_frame..start_frame + copy_frames].iter())
@@ -978,10 +985,10 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
         }
 
-        let out_silence_mask = if num_filled_channels >= outputs.len() {
+        let out_silence_mask = if num_filled_channels >= buffers.outputs.len() {
             SilenceMask::NONE_SILENT
         } else {
-            let mut mask = SilenceMask::new_all_silent(outputs.len());
+            let mut mask = SilenceMask::new_all_silent(buffers.outputs.len());
             for i in 0..num_filled_channels {
                 mask.set_channel(i, false);
             }

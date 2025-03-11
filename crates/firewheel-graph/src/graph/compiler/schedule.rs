@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use std::fmt::Debug;
 
 use firewheel_core::{
-    node::{AudioNodeProcessor, ProcessStatus},
+    node::{AudioNodeProcessor, ProcBuffers, ProcessStatus, NUM_SCRATCH_BUFFERS},
     SilenceMask,
 };
 
@@ -339,16 +339,11 @@ impl CompiledSchedule {
         (read_outputs)(outputs.as_slice(), silence_mask);
     }
 
-    pub fn process(
+    pub fn process<'a, 'b>(
         &mut self,
         frames: usize,
-        mut process: impl FnMut(
-            NodeID,
-            SilenceMask,
-            SilenceMask,
-            &[&[f32]],
-            &mut [&mut [f32]],
-        ) -> ProcessStatus,
+        scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
+        mut process: impl FnMut(NodeID, SilenceMask, SilenceMask, ProcBuffers) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
 
@@ -409,8 +404,11 @@ impl CompiledSchedule {
                 scheduled_node.id,
                 in_silence_mask,
                 out_silence_mask,
-                inputs.as_slice(),
-                outputs.as_mut_slice(),
+                ProcBuffers {
+                    inputs: inputs.as_slice(),
+                    outputs: outputs.as_mut_slice(),
+                    scratch_buffers,
+                },
             );
 
             let clear_buffer = |buffer_index: usize, silence_flag: &mut bool| {

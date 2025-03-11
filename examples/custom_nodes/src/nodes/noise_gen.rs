@@ -5,7 +5,7 @@ use firewheel::{
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
     SilenceMask, StreamInfo,
 };
 
@@ -101,18 +101,12 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
-        // The list of input buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        _inputs: &[&[f32]],
-        // The list of output buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        outputs: &mut [&mut [f32]],
-        // The list of events for our node to process.
-        events: NodeEventList,
+        // The buffers of data to process.
+        buffers: ProcBuffers,
         // Additional information about the process.
         _proc_info: &ProcInfo,
-        // Optional scratch buffers that can be used for processing.
-        _scratch_buffers: ScratchBuffers,
+        // The list of events for our node to process.
+        events: NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
         if self.params.patch_list(events) {
@@ -123,18 +117,18 @@ impl AudioNodeProcessor for Processor {
             // Tell the engine to automatically and efficiently clear the output buffers
             // for us. This is equivalent to doing:
             // ```
-            // for (i, out_ch) in outputs.iter_mut().enumerate() {
+            // for (i, out_ch) in buffers.outputs.iter_mut().enumerate() {
             //    if !proc_info.out_silence_mask.is_channel_silent(i) {
             //        out_ch.fill(0.0);
             //    } // otherwise buffer is already silent
             // }
             //
-            // return ProcessStatus::OutputsModified { out_silence_mask: SilenceMask::new_all_silent(outputs.len()) }
+            // return ProcessStatus::OutputsModified { out_silence_mask: SilenceMask::new_all_silent(buffers.outputs.len()) };
             // ```
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in outputs[0].iter_mut() {
+        for s in buffers.outputs[0].iter_mut() {
             // Tick the random number generator.
             self.fpd ^= self.fpd << 13;
             self.fpd ^= self.fpd >> 17;

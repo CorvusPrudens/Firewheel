@@ -3,7 +3,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -99,11 +99,9 @@ struct VolumeProcessor {
 impl AudioNodeProcessor for VolumeProcessor {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        scratch_buffers: ScratchBuffers,
+        events: NodeEventList,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
             let mut gain = self.params.volume.amp_clamped(self.amp_epsilon);
@@ -120,7 +118,10 @@ impl AudioNodeProcessor for VolumeProcessor {
 
         self.prev_block_was_silent = false;
 
-        if proc_info.in_silence_mask.all_channels_silent(inputs.len()) {
+        if proc_info
+            .in_silence_mask
+            .all_channels_silent(buffers.inputs.len())
+        {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain.reset();
@@ -138,7 +139,12 @@ impl AudioNodeProcessor for VolumeProcessor {
                 // Unity gain, there is no need to process.
                 return ProcessStatus::Bypass;
             } else {
-                for (ch_i, (out_ch, in_ch)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
+                for (ch_i, (out_ch, in_ch)) in buffers
+                    .outputs
+                    .iter_mut()
+                    .zip(buffers.inputs.iter())
+                    .enumerate()
+                {
                     if proc_info.in_silence_mask.is_channel_silent(ch_i) {
                         if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
                             out_ch.fill(0.0);
@@ -156,17 +162,17 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        if inputs.len() == 1 {
+        if buffers.inputs.len() == 1 {
             // Provide an optimized loop for mono.
-            for (os, &is) in outputs[0].iter_mut().zip(inputs[0].iter()) {
+            for (os, &is) in buffers.outputs[0].iter_mut().zip(buffers.inputs[0].iter()) {
                 *os = is * self.gain.next_smoothed();
             }
-        } else if inputs.len() == 2 {
+        } else if buffers.inputs.len() == 2 {
             // Provide an optimized loop for stereo.
 
-            let in0 = &inputs[0][..proc_info.frames];
-            let in1 = &inputs[1][..proc_info.frames];
-            let (out0, out1) = outputs.split_first_mut().unwrap();
+            let in0 = &buffers.inputs[0][..proc_info.frames];
+            let in1 = &buffers.inputs[1][..proc_info.frames];
+            let (out0, out1) = buffers.outputs.split_first_mut().unwrap();
             let out0 = &mut out0[..proc_info.frames];
             let out1 = &mut out1[0][..proc_info.frames];
 
@@ -178,9 +184,14 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         } else {
             self.gain
-                .process_into_buffer(&mut scratch_buffers[0][..proc_info.frames]);
+                .process_into_buffer(&mut buffers.scratch_buffers[0][..proc_info.frames]);
 
-            for (ch_i, (out_ch, in_ch)) in outputs.iter_mut().zip(inputs.iter()).enumerate() {
+            for (ch_i, (out_ch, in_ch)) in buffers
+                .outputs
+                .iter_mut()
+                .zip(buffers.inputs.iter())
+                .enumerate()
+            {
                 if proc_info.in_silence_mask.is_channel_silent(ch_i) {
                     if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
                         out_ch.fill(0.0);
@@ -191,7 +202,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 for ((os, &is), &g) in out_ch
                     .iter_mut()
                     .zip(in_ch.iter())
-                    .zip(scratch_buffers[0][..proc_info.frames].iter())
+                    .zip(buffers.scratch_buffers[0][..proc_info.frames].iter())
                 {
                     *os = is * g;
                 }

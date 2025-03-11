@@ -4,8 +4,8 @@ use firewheel_core::{
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
     },
 };
 
@@ -80,13 +80,11 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        _inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        events: NodeEventList,
+        buffers: ProcBuffers,
         _proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        events: NodeEventList,
     ) -> ProcessStatus {
-        let Some(out) = outputs.first_mut() else {
+        let Some(out) = buffers.outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;
         };
 

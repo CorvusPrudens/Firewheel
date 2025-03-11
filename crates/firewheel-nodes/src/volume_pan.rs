@@ -3,7 +3,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{pan_law::PanLaw, volume::Volume},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcInfo, ProcessStatus, ScratchBuffers},
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -142,11 +142,9 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        events: NodeEventList,
     ) -> ProcessStatus {
         if self.params.patch_list(events) {
             let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
@@ -170,9 +168,9 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let in1 = &inputs[0][..proc_info.frames];
-        let in2 = &inputs[1][..proc_info.frames];
-        let (out1, out2) = outputs.split_first_mut().unwrap();
+        let in1 = &buffers.inputs[0][..proc_info.frames];
+        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
         let out1 = &mut out1[..proc_info.frames];
         let out2 = &mut out2[0][..proc_info.frames];
 

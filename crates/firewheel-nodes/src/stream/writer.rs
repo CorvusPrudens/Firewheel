@@ -12,8 +12,8 @@ use firewheel_core::{
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
     },
     sync_wrapper::SyncWrapper,
     SilenceMask, StreamInfo,
@@ -354,11 +354,9 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        _inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        mut events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         events.for_each(|event| {
             if let NodeEventType::Custom(event) = event {
@@ -403,7 +401,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        match cons.read(outputs, 0..proc_info.frames) {
+        match cons.read(buffers.outputs, 0..proc_info.frames) {
             ReadStatus::Ok => {}
             ReadStatus::Underflow {
                 num_frames_dropped: _,
@@ -416,7 +414,7 @@ impl AudioNodeProcessor for Processor {
 
         if !self.pause_declicker.is_settled() {
             self.pause_declicker.process(
-                outputs,
+                buffers.outputs,
                 0..proc_info.frames,
                 proc_info.declick_values,
                 1.0,
@@ -428,7 +426,7 @@ impl AudioNodeProcessor for Processor {
         if self.check_for_silence {
             let resampler_channels = cons.num_channels().get();
 
-            for (ch_i, ch) in outputs.iter().enumerate() {
+            for (ch_i, ch) in buffers.outputs.iter().enumerate() {
                 if ch_i >= resampler_channels {
                     // `cons.read()` clears any extra channels
                     silence_mask.set_channel(ch_i, true);

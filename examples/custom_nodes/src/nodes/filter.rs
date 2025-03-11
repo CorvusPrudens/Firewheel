@@ -15,8 +15,8 @@ use firewheel::{
     },
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     SilenceMask, StreamInfo,
@@ -115,18 +115,12 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
-        // The list of input buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        inputs: &[&[f32]],
-        // The list of output buffers. This will always be equal to the number we
-        // gave in `info()`.`
-        outputs: &mut [&mut [f32]],
-        // The list of events for our node to process.
-        events: NodeEventList,
+        // The buffers of data to process.
+        buffers: ProcBuffers,
         // Additional information about the process.
         proc_info: &ProcInfo,
-        // Optional scratch buffers that can be used for processing.
-        _scratch_buffers: ScratchBuffers,
+        // The list of events for our node to process.
+        events: NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
         //
@@ -173,9 +167,9 @@ impl AudioNodeProcessor for Processor {
         //
         // Doing it this way allows the compiler to better optimize the processing
         // loops below.
-        let in1 = &inputs[0][..proc_info.frames];
-        let in2 = &inputs[1][..proc_info.frames];
-        let (out1, out2) = outputs.split_first_mut().unwrap();
+        let in1 = &buffers.inputs[0][..proc_info.frames];
+        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
         let out1 = &mut out1[..proc_info.frames];
         let out2 = &mut out2[0][..proc_info.frames];
 
@@ -224,8 +218,8 @@ impl AudioNodeProcessor for Processor {
 
         // Crossfade between the wet and dry signals to declick enabling/disabling.
         self.enable_declicker.process_crossfade(
-            inputs,
-            outputs,
+            buffers.inputs,
+            buffers.outputs,
             proc_info.frames,
             proc_info.declick_values,
             FadeType::EqualPower3dB,

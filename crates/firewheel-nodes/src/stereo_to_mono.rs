@@ -2,8 +2,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcInfo, ProcessStatus,
-        ScratchBuffers,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
+        ProcessStatus,
     },
 };
 
@@ -38,22 +38,20 @@ struct StereoToMonoProcessor;
 impl AudioNodeProcessor for StereoToMonoProcessor {
     fn process(
         &mut self,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-        _events: NodeEventList,
+        buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _scratch_buffers: ScratchBuffers,
+        _events: NodeEventList,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)
-            || inputs.len() < 2
-            || outputs.is_empty()
+            || buffers.inputs.len() < 2
+            || buffers.outputs.is_empty()
         {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for (out_s, (&in1, &in2)) in outputs[0]
+        for (out_s, (&in1, &in2)) in buffers.outputs[0]
             .iter_mut()
-            .zip(inputs[0].iter().zip(inputs[1].iter()))
+            .zip(buffers.inputs[0].iter().zip(buffers.inputs[1].iter()))
         {
             *out_s = (in1 + in2) * 0.5;
         }
