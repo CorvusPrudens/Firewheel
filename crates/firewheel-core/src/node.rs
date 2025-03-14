@@ -87,9 +87,13 @@ impl AudioNodeInfo {
         self
     }
 
-    /// Custom `!Send` state that can be stored in the Firewheel context.
-    pub fn custom_state(mut self, custom_state: Option<Box<dyn Any>>) -> Self {
-        self.custom_state = custom_state;
+    /// Custom `!Send` state that can be stored in the Firewheel context and accessed
+    /// by the user.
+    ///
+    /// The user accesses this state via `FirewheelCtx::node_state` and
+    /// `FirewheelCtx::node_state_mut`.
+    pub fn custom_state<T: 'static>(mut self, custom_state: T) -> Self {
+        self.custom_state = Some(Box::new(custom_state));
         self
     }
 }
@@ -116,11 +120,56 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
     }
 }
 
+/// A trait representing a node in a Firewheel audio graph.
+///
+/// # Notes about ECS
+///
+/// In order to be friendlier to ECS's (entity component systems), it is encouraged
+/// that any struct deriving this trait be POD (plain ol' data). If you want your
+/// audio node to be usable in the Bevy game engine, also derive
+/// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
+/// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
+///
+/// # Audio Node Lifecycle
+///
+/// 1. The user constructs the node as POD or from a custom constructor method for
+/// that node.
+/// 2. The user adds the node to the graph using `FirewheelCtx::add_node`. If the
+/// node has any custom configuration, then the user passes that configuration to this
+/// method as well. In this method, the Firewheel context calls [`AudioNode::info`] to
+/// get information about the node. The node can also store any custom state in the
+/// [`AudioNodeInfo`] struct.
+/// 3. At this point the user may now call `FirewheelCtx::node_state` and
+/// `FirewheelCtx::node_state_mut` to retrieve the node's custom state.
+/// 4. If [`AudioNodeInfo::call_update_method`] was set to `true`, then
+/// [`AudioNode::update`] will be called every time the Firewheel context updates.
+/// The node's custom state is also accessible in this method.
+/// 5. When the Firewheel context is ready for the node to start processing data,
+/// it calls [`AudioNode::construct_processor`] to retrieve the realtime
+/// [`AudioNodeProcessor`] counterpart of the node. This processor counterpart is
+/// then sent to the audio thread.
+/// 6. The Firewheel processor calls [`AudioNodeProcessor::process`] whenever there
+/// is a new block of audio data to process.
+/// 7. (Graceful shutdown)
+///
+///     7a. The Firewheel processor calls [`AudioNodeProcessor::stream_stopped`].
+/// The processor is then sent back to the main thread.
+///
+///     7b. If a new audio stream is started, then the context will call
+/// [`AudioNodeProcessor::new_stream`] on the main thread, and then send the
+/// processor back to the audio thread for processing.
+///
+///     7c. If the Firewheel context is dropped before a new stream is started, then
+/// both the node and the processor counterpart are dropped.
+/// 8. (Audio thread crashes or stops unexpectedly) - The node's processor counterpart
+/// may or may not be dropped. The user may try to create a new audio stream, in which
+/// case [`AudioNode::construct_processor`] might be called again. If a second processor
+/// instance is not able to be created, then the node may panic.
 pub trait AudioNode {
     /// A type representing this constructor's configuration.
     ///
     /// This is intended as a one-time configuration to be used
-    /// when constructing an audio processor. When no configuration
+    /// when constructing an audio node. When no configuration
     /// is required, [`EmptyConfig`] should be used.
     type Configuration: Default;
 
@@ -129,12 +178,11 @@ pub trait AudioNode {
     /// This method is only called once after the node is added to the audio graph.
     fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo;
 
-    /// Construct a processor for this node.
-    fn processor(
+    /// Construct a realtime processor for this node.
+    fn construct_processor(
         &self,
         configuration: &Self::Configuration,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
@@ -149,6 +197,45 @@ pub trait AudioNode {
     }
 }
 
+/// A context for [`AudioNode::processor`].
+pub struct ConstructProcessorContext<'a> {
+    /// The ID of this audio node.
+    pub node_id: NodeID,
+    /// Information about the running audio stream.
+    pub stream_info: &'a StreamInfo,
+    custom_state: &'a mut Option<Box<dyn Any>>,
+}
+
+impl<'a> ConstructProcessorContext<'a> {
+    pub fn new(
+        node_id: NodeID,
+        stream_info: &'a StreamInfo,
+        custom_state: &'a mut Option<Box<dyn Any>>,
+    ) -> Self {
+        Self {
+            node_id,
+            stream_info,
+            custom_state,
+        }
+    }
+
+    /// Get an immutable reference to the custom state that was created in
+    /// [`AudioNodeInfo::custom_state`].
+    pub fn custom_state<T: 'static>(&self) -> Option<&T> {
+        self.custom_state
+            .as_ref()
+            .and_then(|s| s.downcast_ref::<T>())
+    }
+
+    /// Get a mutable reference to the custom state that was created in
+    /// [`AudioNodeInfo::custom_state`].
+    pub fn custom_state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.custom_state
+            .as_mut()
+            .and_then(|s| s.downcast_mut::<T>())
+    }
+}
+
 /// A context for [`AudioNode::update`].
 pub struct UpdateContext<'a> {
     /// The ID of this audio node.
@@ -156,9 +243,7 @@ pub struct UpdateContext<'a> {
     /// Information about the running audio stream. If no audio stream is running,
     /// then this will be `None`.
     pub stream_info: Option<&'a StreamInfo>,
-    /// Custom `!Send` data that can be stored in the Firewheel
-    /// context.
-    pub custom_state: &'a mut Option<Box<dyn Any>>,
+    custom_state: &'a mut Option<Box<dyn Any>>,
     event_queue: &'a mut Vec<NodeEvent>,
 }
 
@@ -184,6 +269,22 @@ impl<'a> UpdateContext<'a> {
             event,
         });
     }
+
+    /// Get an immutable reference to the custom state that was created in
+    /// [`AudioNodeInfo::custom_state`].
+    pub fn custom_state<T: 'static>(&self) -> Option<&T> {
+        self.custom_state
+            .as_ref()
+            .and_then(|s| s.downcast_ref::<T>())
+    }
+
+    /// Get a mutable reference to the custom state that was created in
+    /// [`AudioNodeInfo::custom_state`].
+    pub fn custom_state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.custom_state
+            .as_mut()
+            .and_then(|s| s.downcast_mut::<T>())
+    }
 }
 
 /// An empty constructor configuration.
@@ -195,19 +296,15 @@ impl<'a> UpdateContext<'a> {
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct EmptyConfig;
 
-/// A dyn-compatible [`AudioNode`].
+/// A type-erased dyn-compatible [`AudioNode`].
 pub trait DynAudioNode {
     /// Get information about this node.
     ///
     /// This method is only called once after the node is added to the audio graph.
     fn info(&self) -> AudioNodeInfo;
 
-    /// Construct a processor for this node.
-    fn processor(
-        &self,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
-    ) -> Box<dyn AudioNodeProcessor>;
+    /// Construct a realtime processor for this node.
+    fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
@@ -241,14 +338,10 @@ impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
         self.constructor.info(&self.configuration)
     }
 
-    fn processor(
-        &self,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
-    ) -> Box<dyn AudioNodeProcessor> {
+    fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor> {
         Box::new(
             self.constructor
-                .processor(&self.configuration, stream_info, custom_state),
+                .construct_processor(&self.configuration, cx),
         )
     }
 

@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
@@ -13,9 +12,12 @@ use firewheel_core::{
     collector::ArcGc,
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     sync_wrapper::SyncWrapper,
-    SilenceMask, StreamInfo,
+    SilenceMask,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
@@ -289,24 +291,19 @@ impl AudioNode for StreamWriterNode {
                 num_outputs: config.channels.get(),
             })
             .uses_events(true)
-            .custom_state(Some(Box::new(StreamWriterState::new(config.channels))))
+            .custom_state(StreamWriterState::new(config.channels))
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        _stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let custom_state = custom_state
-            .as_ref()
-            .unwrap()
-            .downcast_ref::<StreamWriterState>()
-            .unwrap();
-
         Processor {
             cons: None,
-            shared_state: ArcGc::clone(&custom_state.shared_state),
+            shared_state: ArcGc::clone(
+                &cx.custom_state::<StreamWriterState>().unwrap().shared_state,
+            ),
             discard_jitter_threshold_seconds: config.discard_jitter_threshold_seconds,
             check_for_silence: config.check_for_silence,
             pause_declicker: Declicker::SettledAt0,

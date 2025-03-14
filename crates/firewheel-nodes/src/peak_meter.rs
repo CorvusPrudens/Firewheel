@@ -1,5 +1,3 @@
-use std::{any::Any, sync::atomic::Ordering};
-
 use atomic_float::AtomicF32;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -8,11 +6,11 @@ use firewheel_core::{
     dsp::volume::{amp_to_db, DbMeterNormalizer},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcInfo, ProcessStatus,
     },
-    StreamInfo,
 };
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PeakMeterSmootherConfig {
@@ -205,24 +203,21 @@ impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
                 num_outputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
             })
             .uses_events(true)
-            .custom_state(Some(Box::new(PeakMeterState::<NUM_CHANNELS>::new())))
+            .custom_state(PeakMeterState::<NUM_CHANNELS>::new())
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        _stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let custom_state = custom_state
-            .as_ref()
-            .unwrap()
-            .downcast_ref::<PeakMeterState<NUM_CHANNELS>>()
-            .unwrap();
-
         Processor {
             params: self.clone(),
-            shared_state: ArcGc::clone(&custom_state.shared_state),
+            shared_state: ArcGc::clone(
+                &cx.custom_state::<PeakMeterState<NUM_CHANNELS>>()
+                    .unwrap()
+                    .shared_state,
+            ),
         }
     }
 }

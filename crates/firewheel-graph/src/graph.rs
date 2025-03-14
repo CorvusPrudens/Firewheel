@@ -6,7 +6,7 @@ use std::hash::Hash;
 use ahash::AHashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::NodeEvent;
-use firewheel_core::node::UpdateContext;
+use firewheel_core::node::{ConstructProcessorContext, UpdateContext};
 use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -553,11 +553,15 @@ impl AudioGraph {
                     Vec::new()
                 };
 
+                let cx = ConstructProcessorContext::new(
+                    entry.id,
+                    stream_info,
+                    &mut entry.info.custom_state,
+                );
+
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
-                    processor: entry
-                        .dyn_node
-                        .processor(&stream_info, &mut entry.info.custom_state),
+                    processor: entry.dyn_node.construct_processor(cx),
                     event_buffer_indices,
                 });
             }

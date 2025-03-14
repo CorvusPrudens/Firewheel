@@ -1,11 +1,12 @@
-use std::any::Any;
-
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -67,11 +68,10 @@ impl AudioNode for VolumeNode {
             .uses_events(true)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        stream_info: &firewheel_core::StreamInfo,
-        _custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let gain = self.volume.amp_clamped(config.amp_epsilon);
 
@@ -83,7 +83,7 @@ impl AudioNode for VolumeNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             prev_block_was_silent: true,
             amp_epsilon: config.amp_epsilon,

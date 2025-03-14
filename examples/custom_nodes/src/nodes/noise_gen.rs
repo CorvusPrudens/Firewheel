@@ -1,17 +1,26 @@
 //! A simple node that generates white noise.
 
-use std::any::Any;
-
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
-    SilenceMask, StreamInfo,
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
+    SilenceMask,
 };
 
 // The node struct holds all of the parameters of the node as plain values.
+///
+/// # Notes about ECS
+///
+/// In order to be friendlier to ECS's (entity component systems), it is encouraged
+/// that any struct deriving this trait be POD (plain ol' data). If you want your
+/// audio node to be usable in the Bevy game engine, also derive
+/// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
+/// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct NoiseGenNode {
     /// The overall volume.
@@ -76,11 +85,10 @@ impl AudioNode for NoiseGenNode {
     //
     // This method is called before the node processor is sent to the realtime
     // thread, so it is safe to do non-realtime things here like allocating.
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        _stream_info: &StreamInfo,
-        _custom_state: &mut Option<Box<dyn Any>>,
+        _cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         // Seed cannot be zero.
         let seed = if config.seed == 0 { 17 } else { config.seed };

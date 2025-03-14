@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
@@ -12,9 +11,11 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     event::{NodeEventList, NodeEventType},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     sync_wrapper::SyncWrapper,
-    StreamInfo,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
@@ -310,24 +311,19 @@ impl AudioNode for StreamReaderNode {
                 num_outputs: ChannelCount::ZERO,
             })
             .uses_events(true)
-            .custom_state(Some(Box::new(StreamReaderState::new(config.channels))))
+            .custom_state(StreamReaderState::new(config.channels))
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        _stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let custom_state = custom_state
-            .as_ref()
-            .unwrap()
-            .downcast_ref::<StreamReaderState>()
-            .unwrap();
-
         Processor {
             prod: None,
-            shared_state: ArcGc::clone(&custom_state.shared_state),
+            shared_state: ArcGc::clone(
+                &cx.custom_state::<StreamReaderState>().unwrap().shared_state,
+            ),
         }
     }
 }

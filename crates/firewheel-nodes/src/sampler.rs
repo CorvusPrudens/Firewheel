@@ -1,7 +1,6 @@
 use crossbeam_utils::atomic::AtomicCell;
 use smallvec::SmallVec;
 use std::{
-    any::Any,
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
     sync::{
@@ -20,7 +19,10 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventList, NodeEventType, SequenceCommand},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
 };
@@ -383,14 +385,13 @@ impl AudioNode for SamplerNode {
                 num_outputs: config.channels.get(),
             })
             .uses_events(true)
-            .custom_state(Some(Box::new(SamplerState::new())))
+            .custom_state(SamplerState::new())
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let stop_declicker_buffers = if config.num_declickers == 0 {
             None
@@ -398,20 +399,14 @@ impl AudioNode for SamplerNode {
             Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
                 config.num_declickers as usize,
                 NonZeroUsize::new(config.channels.get().get() as usize).unwrap(),
-                stream_info.declick_frames.get() as usize,
+                cx.stream_info.declick_frames.get() as usize,
             ))
         };
-
-        let custom_state = custom_state
-            .as_ref()
-            .unwrap()
-            .downcast_ref::<SamplerState>()
-            .unwrap();
 
         let mut sampler = SamplerProcessor {
             config: config.clone(),
             params: self.clone(),
-            shared_state: ArcGc::clone(&custom_state.shared_state),
+            shared_state: ArcGc::clone(&cx.custom_state::<SamplerState>().unwrap().shared_state),
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             playback_state: PlaybackState::Stopped,
@@ -423,7 +418,7 @@ impl AudioNode for SamplerNode {
             playback_start_time_frames: ClockSamples::default(),
             playback_pause_time_frames: ClockSamples::default(),
             start_delay: None,
-            sample_rate: stream_info.sample_rate.get() as f64,
+            sample_rate: cx.stream_info.sample_rate.get() as f64,
             amp_epsilon: config.amp_epsilon,
         };
 

@@ -2,17 +2,19 @@
 //!
 //! This node calculates the RMS (root-mean-square) of a mono signal.
 
-use std::{any::Any, sync::atomic::Ordering};
-
 use atomic_float::AtomicF32;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
     diff::{Diff, Patch},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     StreamInfo,
 };
+use std::sync::atomic::Ordering;
 
 #[derive(Debug)]
 struct SharedState {
@@ -33,6 +35,17 @@ impl Default for RmsConfig {
 }
 
 // The node struct holds all of the parameters of the node.
+///
+/// # Notes about ECS
+///
+/// In order to be friendlier to ECS's (entity component systems), it is encouraged
+/// that any struct deriving this trait be POD (plain ol' data). If you want your
+/// audio node to be usable in the Bevy game engine, also derive
+/// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
+/// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
+///
+/// To keep this struct POD, this example makes use of the "custom state" API to
+/// send the rms value from the processor to the user.
 #[derive(Debug, Diff, Patch, Clone, Copy)]
 pub struct RmsNode {
     /// Whether or not this node is enabled.
@@ -45,16 +58,13 @@ impl Default for RmsNode {
     }
 }
 
-// The state struct is stored in the Firewheel context, and can be gotten by
-// the user using the node's ID.
+// The state struct is stored in the Firewheel context, and the user can retrieve
+// it using `FirewheelCtx::node_state` and `FirewheelCtx::node_state_mut`.
 #[derive(Clone)]
 pub struct RmsState {
     // `ArcGc` is a simple wrapper around `Arc` that automatically collects
     // dropped resources from the audio thread and drops them on another
     // thread.
-    //
-    // Because this type is synchronized with atomics, it
-    // doesn't need any diffing or patching.
     shared_state: ArcGc<SharedState>,
 }
 
@@ -93,8 +103,12 @@ impl AudioNode for RmsNode {
             // this to `false` will save a bit of memory by not allocating an
             // event buffer for this node.
             .uses_events(true)
-            // Store custom `!Send`-compatible state in the Firewheel context.
-            .custom_state(Some(Box::new(RmsState::new())))
+            // Custom !Send state that can be stored in the Firewheel context and
+            // accessed by the user.
+            //
+            // The user accesses this state via `FirewheelCtx::node_state` and
+            // `FirewheelCtx::node_state_mut`.
+            .custom_state(RmsState::new())
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -102,21 +116,16 @@ impl AudioNode for RmsNode {
     //
     // This method is called before the node processor is sent to the realtime
     // thread, so it is safe to do non-realtime things here like allocating.
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        stream_info: &StreamInfo,
-        custom_state: &mut Option<Box<dyn Any>>,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let window_frames =
-            (config.window_size_secs * stream_info.sample_rate.get() as f32).round() as usize;
+            (config.window_size_secs * cx.stream_info.sample_rate.get() as f32).round() as usize;
 
         // Extract the custom state so we can get a reference to the shared state.
-        let custom_state = custom_state
-            .as_ref()
-            .unwrap()
-            .downcast_ref::<RmsState>()
-            .unwrap();
+        let custom_state = cx.custom_state::<RmsState>().unwrap();
 
         Processor {
             params: self.clone(),
