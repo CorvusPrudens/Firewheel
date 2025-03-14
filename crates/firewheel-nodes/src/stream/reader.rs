@@ -21,6 +21,7 @@ use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamReaderConfig {
     /// The number of channels.
     pub channels: NonZeroChannelCount,
