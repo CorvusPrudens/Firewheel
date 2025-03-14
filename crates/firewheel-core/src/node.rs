@@ -197,7 +197,7 @@ pub trait AudioNode {
     }
 }
 
-/// A context for [`AudioNode::processor`].
+/// A context for [`AudioNode::construct_processor`].
 pub struct ConstructProcessorContext<'a> {
     /// The ID of this audio node.
     pub node_id: NodeID,
