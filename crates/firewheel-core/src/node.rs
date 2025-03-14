@@ -179,6 +179,10 @@ pub trait AudioNode {
     fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo;
 
     /// Construct a realtime processor for this node.
+    ///
+    /// * `configuration` - The custom configuration of this node.
+    /// * `cx` - A context for interacting with the Firewheel context. This context
+    /// also includes information about the audio stream.
     fn construct_processor(
         &self,
         configuration: &Self::Configuration,
@@ -188,7 +192,6 @@ pub trait AudioNode {
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
     ///
-    /// * `id` - The ID of this node.
     /// * `configuration` - The custom configuration of this node.
     /// * `cx` - A context for interacting with the Firewheel context.
     fn update(&mut self, configuration: &Self::Configuration, cx: UpdateContext) {
@@ -304,13 +307,15 @@ pub trait DynAudioNode {
     fn info(&self) -> AudioNodeInfo;
 
     /// Construct a realtime processor for this node.
+    ///
+    /// * `cx` - A context for interacting with the Firewheel context. This context
+    /// also includes information about the audio stream.
     fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
     ///
-    /// * `id` - The ID of this node.
-    /// * `configuration` - The custom configuration of this node.
+    /// * `cx` - A context for interacting with the Firewheel context.
     fn update(&mut self, cx: UpdateContext) {
         let _ = cx;
     }
