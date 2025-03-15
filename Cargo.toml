@@ -80,6 +80,8 @@ spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 stream_nodes = ["firewheel-nodes/stream"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
+# Enables the wasm-bindgen feature for the CPAL backend
+wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.3.0" }
