@@ -1,15 +1,11 @@
-use std::{
-    num::NonZeroU32,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use firewheel::{
     channel_config::NonZeroChannelCount,
     error::UpdateError,
     nodes::stream::{
-        reader::{StreamReaderConfig, StreamReaderNode},
-        writer::{StreamWriterConfig, StreamWriterNode},
+        reader::{StreamReaderConfig, StreamReaderNode, StreamReaderState},
+        writer::{StreamWriterConfig, StreamWriterNode, StreamWriterState},
         ReadStatus, ResamplingChannelConfig,
     },
     FirewheelContext,
@@ -33,23 +29,55 @@ fn main() {
 
     let graph_out_node_id = cx.graph_out_node_id();
 
-    let mut stream_writer_node = StreamWriterNode::new(
-        StreamWriterConfig {
-            channel_config: ResamplingChannelConfig {
+    let stream_writer_id = cx.add_node(
+        StreamWriterNode,
+        Some(StreamWriterConfig {
+            channels: NUM_CHANNELS,
+            ..Default::default()
+        }),
+    );
+    let stream_reader_id = cx.add_node(
+        StreamReaderNode,
+        Some(StreamReaderConfig {
+            channels: NUM_CHANNELS,
+        }),
+    );
+
+    cx.connect(
+        stream_writer_id,
+        graph_out_node_id,
+        &[(0, 0), (1, 1)],
+        false,
+    )
+    .unwrap();
+    cx.connect(stream_writer_id, stream_reader_id, &[(0, 0), (1, 1)], false)
+        .unwrap();
+
+    let event = cx
+        .node_state_mut::<StreamWriterState>(stream_writer_id)
+        .unwrap()
+        .start_stream(
+            IN_SAMPLE_RATE,
+            output_stream_sample_rate,
+            ResamplingChannelConfig {
                 // By default this is set to `0.4` (400 ms). You will probably want a larger
                 // capacity buffer depending on your use case. Generally this value should
                 // be at least twice as large as the size of packets you intend to send.
                 capacity_seconds: CHANNEL_CAPACITY_SECONDS,
                 ..Default::default()
             },
-            ..Default::default()
-        },
-        NUM_CHANNELS,
-    );
+        )
+        .unwrap();
+    // This event must be sent to the node's processor for the stream to take effect.
+    cx.queue_event_for(stream_writer_id, event.into());
 
-    let mut stream_reader_node = StreamReaderNode::new(
-        StreamReaderConfig {
-            channel_config: ResamplingChannelConfig {
+    let event = cx
+        .node_state_mut::<StreamReaderState>(stream_reader_id)
+        .unwrap()
+        .start_stream(
+            OUT_SAMPLE_RATE,
+            output_stream_sample_rate,
+            ResamplingChannelConfig {
                 // For stream readers, the `latency_seconds` value should also be at least
                 // the size of packets you intend to read. Here, we use twice that size to
                 // be safe.
@@ -62,41 +90,23 @@ fn main() {
                 capacity_seconds: 0.6,
                 ..Default::default()
             },
-            ..Default::default()
-        },
-        NUM_CHANNELS,
-    );
-
-    let stream_writer_id = cx.add_node(stream_writer_node.clone(), None);
-    let stream_reader_id = cx.add_node(stream_reader_node.clone(), None);
-
-    cx.connect(
-        stream_writer_id,
-        graph_out_node_id,
-        &[(0, 0), (1, 1)],
-        false,
-    )
-    .unwrap();
-    cx.connect(stream_writer_id, stream_reader_id, &[(0, 0), (1, 1)], false)
-        .unwrap();
-
-    let event = stream_writer_node
-        .start_stream(IN_SAMPLE_RATE, output_stream_sample_rate)
-        .unwrap();
-    // This event must be sent to the node's processor for the stream to take effect.
-    cx.queue_event_for(stream_writer_id, event.into());
-
-    let event = stream_reader_node
-        .start_stream(OUT_SAMPLE_RATE, output_stream_sample_rate)
+        )
         .unwrap();
     // This event must be sent to the node's processor for the stream to take effect.
     cx.queue_event_for(stream_reader_id, event.into());
 
     // Wrap the handles in an `Arc<Mutex<T>>>` so that we can send them to other threads.
-    let stream_writer_handle = Arc::new(Mutex::new(stream_writer_node));
-    let stream_reader_handle = Arc::new(Mutex::new(stream_reader_node));
+    let stream_writer_handle = Arc::new(
+        cx.node_state::<StreamWriterState>(stream_writer_id)
+            .unwrap()
+            .handle(),
+    );
+    let stream_reader_handle = Arc::new(
+        cx.node_state::<StreamReaderState>(stream_reader_id)
+            .unwrap()
+            .handle(),
+    );
 
-    let stream_writer_handle_2 = Arc::clone(&stream_writer_handle);
     std::thread::spawn(move || {
         let mut phasor: f32 = 0.0;
         let phasor_inc: f32 = 440.0 / IN_SAMPLE_RATE.get() as f32;
@@ -107,7 +117,7 @@ fn main() {
         let mut in_buf = vec![0.0; packet_frames * NUM_CHANNELS.get().get() as usize];
 
         loop {
-            let mut handle = stream_writer_handle_2.lock().unwrap();
+            let mut handle = stream_writer_handle.lock().unwrap();
 
             // If this happens excessively in Release mode, you may want to consider
             // increasing [`StreamWriterConfig::channel_config.latency_seconds`].
@@ -157,7 +167,6 @@ fn main() {
         }
     });
 
-    let stream_reader_handle_2 = Arc::clone(&stream_reader_handle);
     std::thread::spawn(move || {
         // We will read packets of data that are 15 ms long, this time in
         // de-interleaved format.
@@ -168,7 +177,7 @@ fn main() {
             .collect();
 
         loop {
-            let mut handle = stream_reader_handle_2.lock().unwrap();
+            let mut handle = stream_reader_handle.lock().unwrap();
 
             // If this happens excessively in Release mode, you may want to consider
             // increasing [`StreamReaderConfig::channel_config.latency_seconds`].
@@ -237,8 +246,12 @@ fn main() {
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // Notify the stream node handles that the output stream has stopped.
                 // This will automatically stop any active streams on the nodes.
-                stream_writer_handle.lock().unwrap().stop_stream();
-                stream_reader_handle.lock().unwrap().stop_stream();
+                cx.node_state_mut::<StreamWriterState>(stream_writer_id)
+                    .unwrap()
+                    .stop_stream();
+                cx.node_state_mut::<StreamReaderState>(stream_reader_id)
+                    .unwrap()
+                    .stop_stream();
 
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)

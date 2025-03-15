@@ -4,8 +4,8 @@ use firewheel_core::{
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcInfo, ProcessStatus,
     },
 };
 
@@ -54,16 +54,17 @@ impl AudioNode for BeepTestNode {
             .uses_events(true)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        stream_info: &firewheel_core::StreamInfo,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         Processor {
             phasor: 0.0,
-            phasor_inc: self.freq_hz.clamp(20.0, 20_000.0) * stream_info.sample_rate_recip as f32,
+            phasor_inc: self.freq_hz.clamp(20.0, 20_000.0)
+                * cx.stream_info.sample_rate_recip as f32,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
-            sample_rate_recip: (stream_info.sample_rate.get() as f32).recip(),
+            sample_rate_recip: (cx.stream_info.sample_rate.get() as f32).recip(),
             params: *self,
         }
     }

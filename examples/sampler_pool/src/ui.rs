@@ -55,7 +55,11 @@ impl App for DemoApp {
                 );
             }
 
-            let num_active_works = self.audio_system.sampler_pool_1.poll().num_active_workers;
+            let num_active_works = self
+                .audio_system
+                .sampler_pool_1
+                .poll(&self.audio_system.cx)
+                .num_active_workers;
 
             ui.label(format!("Num active workers: {}", num_active_works));
 
@@ -85,7 +89,11 @@ impl App for DemoApp {
                 );
             }
 
-            let num_active_works = self.audio_system.sampler_pool_2.poll().num_active_workers;
+            let num_active_works = self
+                .audio_system
+                .sampler_pool_2
+                .poll(&self.audio_system.cx)
+                .num_active_workers;
 
             ui.label(format!("Num active workers: {}", num_active_works));
         });

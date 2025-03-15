@@ -15,14 +15,22 @@ use firewheel::{
     },
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     SilenceMask, StreamInfo,
 };
 
-// The parameter struct holds all of the parameters of the node as plain values.
+// The node struct holds all of the parameters of the node as plain values.
+///
+/// # Notes about ECS
+///
+/// In order to be friendlier to ECS's (entity component systems), it is encouraged
+/// that any struct deriving this trait be POD (plain ol' data). If you want your
+/// audio node to be usable in the Bevy game engine, also derive
+/// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
+/// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct FilterNode {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
@@ -73,13 +81,13 @@ impl AudioNode for FilterNode {
     //
     // This method is called before the node processor is sent to the realtime
     // thread, so it is safe to do non-realtime things here like allocating.
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        stream_info: &StreamInfo,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         // The reciprocal of the sample rate.
-        let sample_rate_recip = stream_info.sample_rate_recip as f32;
+        let sample_rate_recip = cx.stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(20.0, 20_000.0);
         let gain = self.volume.amp_clamped(DEFAULT_AMP_EPSILON);
@@ -87,8 +95,12 @@ impl AudioNode for FilterNode {
         Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             filter_r: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
-            cutoff_hz: SmoothedParam::new(cutoff_hz, Default::default(), stream_info.sample_rate),
-            gain: SmoothedParamBuffer::new(gain, Default::default(), stream_info),
+            cutoff_hz: SmoothedParam::new(
+                cutoff_hz,
+                Default::default(),
+                cx.stream_info.sample_rate,
+            ),
+            gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
             enable_declicker: Declicker::from_enabled(self.enabled),
             params: *self,
             sample_rate_recip,

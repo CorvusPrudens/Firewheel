@@ -3,7 +3,10 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{pan_law::PanLaw, volume::Volume},
     event::NodeEventList,
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -98,10 +101,10 @@ impl AudioNode for VolumePanNode {
             .uses_events(true)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        stream_info: &firewheel_core::StreamInfo,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let (gain_l, gain_r) = self.compute_gains(config.amp_epsilon);
 
@@ -112,7 +115,7 @@ impl AudioNode for VolumePanNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             gain_r: SmoothedParam::new(
                 gain_r,
@@ -120,7 +123,7 @@ impl AudioNode for VolumePanNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             params: *self,
             prev_block_was_silent: true,

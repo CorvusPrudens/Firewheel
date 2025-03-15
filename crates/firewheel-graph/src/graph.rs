@@ -6,7 +6,7 @@ use std::hash::Hash;
 use ahash::AHashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::NodeEvent;
-use firewheel_core::node::UpdateContext;
+use firewheel_core::node::{ConstructProcessorContext, UpdateContext};
 use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -121,6 +121,7 @@ impl AudioGraph {
     ) -> NodeID {
         let constructor = Constructor::new(node, config);
         let info: AudioNodeInfoInner = constructor.info().into();
+        let call_update_method = info.call_update_method;
 
         let new_id = NodeID(
             self.nodes
@@ -128,7 +129,7 @@ impl AudioGraph {
         );
         self.nodes[new_id.0].id = new_id;
 
-        if info.call_update_method {
+        if call_update_method {
             self.nodes_to_call_update_method.push(new_id);
         }
 
@@ -140,11 +141,12 @@ impl AudioGraph {
     /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
     pub fn add_dyn_node<T: DynAudioNode + 'static>(&mut self, node: T) -> NodeID {
         let info: AudioNodeInfoInner = node.info().into();
+        let call_update_method = info.call_update_method;
 
         let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
         self.nodes[new_id.0].id = new_id;
 
-        if info.call_update_method {
+        if call_update_method {
             self.nodes_to_call_update_method.push(new_id);
         }
 
@@ -191,6 +193,28 @@ impl AudioGraph {
     /// Get information about a node in the graph.
     pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
         self.nodes.get(id.0)
+    }
+
+    /// Get an immutable reference to the custom state of a node.
+    pub fn node_state<T: 'static>(&self, id: NodeID) -> Option<&T> {
+        self.nodes.get(id.0).and_then(|node_entry| {
+            node_entry
+                .info
+                .custom_state
+                .as_ref()
+                .and_then(|s| s.downcast_ref::<T>())
+        })
+    }
+
+    /// Get a mutable reference to the custom state of a node.
+    pub fn node_state_mut<T: 'static>(&mut self, id: NodeID) -> Option<&mut T> {
+        self.nodes.get_mut(id.0).and_then(|node_entry| {
+            node_entry
+                .info
+                .custom_state
+                .as_mut()
+                .and_then(|s| s.downcast_mut::<T>())
+        })
     }
 
     /// Get a list of all the existing nodes in the graph.
@@ -529,9 +553,15 @@ impl AudioGraph {
                     Vec::new()
                 };
 
+                let cx = ConstructProcessorContext::new(
+                    entry.id,
+                    stream_info,
+                    &mut entry.info.custom_state,
+                );
+
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
-                    processor: entry.dyn_node.processor(&stream_info),
+                    processor: entry.dyn_node.construct_processor(cx),
                     event_buffer_indices,
                 });
             }
@@ -582,7 +612,7 @@ impl AudioGraph {
                 node_entry.dyn_node.update(UpdateContext::new(
                     *node_id,
                     stream_info,
-                    &mut node_entry.custom_data,
+                    &mut node_entry.info.custom_state,
                     event_queue,
                 ));
             } else {

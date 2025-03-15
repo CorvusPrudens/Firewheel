@@ -3,8 +3,8 @@ use firewheel::{
     error::UpdateError,
     node::NodeID,
     nodes::{
-        peak_meter::{PeakMeterNode, PeakMeterSmoother},
-        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
+        peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
+        sampler::{PlaybackState, RepeatMode, SamplerNode, SamplerState, SequenceType},
     },
     FirewheelContext,
 };
@@ -27,7 +27,7 @@ pub struct AudioSystem {
 
     samplers: Vec<Sampler>,
 
-    peak_meter_node: PeakMeterNode<2>,
+    peak_meter_id: NodeID,
     peak_meter_smoother: PeakMeterSmoother<2>,
     peak_meter_normalizer: DbMeterNormalizer,
 }
@@ -43,7 +43,7 @@ impl AudioSystem {
 
         let graph_out = cx.graph_out_node_id();
 
-        let peak_meter_node = PeakMeterNode::<2>::new(true);
+        let peak_meter_node = PeakMeterNode::<2> { enabled: true };
         let peak_meter_smoother = PeakMeterSmoother::<2>::new(Default::default());
 
         let peak_meter_id = cx.add_node(peak_meter_node.clone(), None);
@@ -76,7 +76,7 @@ impl AudioSystem {
         Self {
             cx,
             samplers,
-            peak_meter_node,
+            peak_meter_id,
             peak_meter_smoother,
             peak_meter_normalizer: DbMeterNormalizer::default(),
         }
@@ -103,41 +103,53 @@ impl AudioSystem {
             return;
         };
 
+        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
+
         if Volume::Linear(linear_volume) != *old_volume || repeat_mode != *old_repeat_mode {
             *old_volume = Volume::Linear(linear_volume);
             *old_repeat_mode = repeat_mode;
 
-            self.cx
-                .queue_event_for(sampler.node_id, sampler.params.sync_params_event(true));
+            self.cx.queue_event_for(
+                sampler.node_id,
+                node_state.sync_params_event(&sampler.params, true),
+            );
         } else {
-            self.cx
-                .queue_event_for(sampler.node_id, sampler.params.start_or_restart_event(None));
+            self.cx.queue_event_for(
+                sampler.node_id,
+                node_state.start_or_restart_event(&sampler.params, None),
+            );
         }
     }
 
     pub fn pause(&mut self, sampler_i: usize) {
         let sampler = &self.samplers[sampler_i];
+        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
 
         self.cx
-            .queue_event_for(sampler.node_id, sampler.params.pause_event());
+            .queue_event_for(sampler.node_id, node_state.pause_event());
     }
 
     pub fn resume(&mut self, sampler_i: usize) {
         let sampler = &self.samplers[sampler_i];
+        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
 
         self.cx
-            .queue_event_for(sampler.node_id, sampler.params.resume_event());
+            .queue_event_for(sampler.node_id, node_state.resume_event(&sampler.params));
     }
 
     pub fn stop(&mut self, sampler_i: usize) {
         let sampler = &self.samplers[sampler_i];
+        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
 
         self.cx
-            .queue_event_for(sampler.node_id, sampler.params.stop_event());
+            .queue_event_for(sampler.node_id, node_state.stop_event());
     }
 
     pub fn playback_state(&self, sampler_i: usize) -> PlaybackState {
-        self.samplers[sampler_i].params.playback_state()
+        self.cx
+            .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
+            .unwrap()
+            .playback_state()
     }
 
     pub fn update(&mut self) {
@@ -160,7 +172,10 @@ impl AudioSystem {
 
     pub fn update_meters(&mut self, delta_seconds: f32) {
         self.peak_meter_smoother.update(
-            self.peak_meter_node.peak_gain_db(DEFAULT_DB_EPSILON),
+            self.cx
+                .node_state::<PeakMeterState<2>>(self.peak_meter_id)
+                .unwrap()
+                .peak_gain_db(DEFAULT_DB_EPSILON),
             delta_seconds,
         );
     }

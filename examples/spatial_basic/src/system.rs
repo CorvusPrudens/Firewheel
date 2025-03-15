@@ -3,7 +3,7 @@ use firewheel::{
     error::UpdateError,
     node::NodeID,
     nodes::{
-        sampler::{RepeatMode, SamplerNode},
+        sampler::{RepeatMode, SamplerNode, SamplerState},
         spatial_basic::SpatialBasicNode,
     },
     FirewheelContext, Volume,
@@ -62,7 +62,11 @@ impl AudioSystem {
         )
         .unwrap();
 
-        cx.queue_event_for(sampler_node_id, sampler_node.start_or_restart_event(None));
+        let event = cx
+            .node_state::<SamplerState>(sampler_node_id)
+            .unwrap()
+            .start_or_restart_event(&sampler_node, None);
+        cx.queue_event_for(sampler_node_id, event);
 
         Self {
             cx,

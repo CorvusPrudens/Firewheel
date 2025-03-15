@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    nodes::sampler::{PlaybackState, RepeatMode, SamplerNode},
+    nodes::sampler::{PlaybackState, RepeatMode, SamplerNode, SamplerState},
     FirewheelContext, Volume,
 };
 use symphonium::SymphoniumLoader;
@@ -47,12 +47,11 @@ fn main() {
             .into_dyn_resource();
 
     sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
-    cx.queue_event_for(
-        sampler_id,
-        sampler_node.sync_params_event(
-            true, // start immediately
-        ),
-    );
+    let event = cx
+        .node_state::<SamplerState>(sampler_id)
+        .unwrap()
+        .sync_params_event(&sampler_node, true);
+    cx.queue_event_for(sampler_id, event);
 
     // Alternatively, instead of setting `start_immediately` to `true`, you can
     // tell the sampler to start playing its sequence like this:
@@ -65,7 +64,12 @@ fn main() {
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if sampler_node.playback_state() == PlaybackState::Stopped {
+        if cx
+            .node_state::<SamplerState>(sampler_id)
+            .unwrap()
+            .playback_state()
+            == PlaybackState::Stopped
+        {
             // Sample has finished playing.
             break;
         }

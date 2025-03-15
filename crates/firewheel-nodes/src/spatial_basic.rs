@@ -11,7 +11,10 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventList, Vec3},
-    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus},
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
 };
@@ -236,14 +239,12 @@ impl AudioNode for SpatialBasicNode {
             .uses_events(true)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         config: &Self::Configuration,
-        stream_info: &firewheel_core::StreamInfo,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let computed_values = self.compute_values(config.amp_epsilon);
-
-        dbg!(stream_info.sample_rate);
 
         Processor {
             gain_l: SmoothedParam::new(
@@ -252,7 +253,7 @@ impl AudioNode for SpatialBasicNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             gain_r: SmoothedParam::new(
                 computed_values.gain_r,
@@ -260,7 +261,7 @@ impl AudioNode for SpatialBasicNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             damping_cutoff_hz: SmoothedParam::new(
                 computed_values
@@ -270,14 +271,14 @@ impl AudioNode for SpatialBasicNode {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
                 },
-                stream_info.sample_rate,
+                cx.stream_info.sample_rate,
             ),
             damping_disabled: computed_values.damping_cutoff_hz.is_none(),
             filter_l: SinglePoleIirLPF::default(),
             filter_r: SinglePoleIirLPF::default(),
             params: *self,
             prev_block_was_silent: true,
-            sample_rate_recip: stream_info.sample_rate_recip as f32,
+            sample_rate_recip: cx.stream_info.sample_rate_recip as f32,
             amp_epsilon: config.amp_epsilon,
         }
     }

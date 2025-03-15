@@ -1,6 +1,9 @@
-use crate::{channel_config::ChannelConfig, event::NodeEventList, StreamInfo};
+use crate::{channel_config::ChannelConfig, event::NodeEventList};
 
-use super::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ProcBuffers, ProcInfo, ProcessStatus};
+use super::{
+    AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers, ProcInfo,
+    ProcessStatus,
+};
 
 /// A "dummy" [`AudioNode`], a node which does nothing.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,10 +25,10 @@ impl AudioNode for DummyNode {
             .uses_events(false)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        _stream_info: &StreamInfo,
+        _cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         DummyProcessor
     }

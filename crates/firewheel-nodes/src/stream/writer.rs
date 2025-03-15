@@ -9,23 +9,25 @@ use std::{
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
+    collector::ArcGc,
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
     },
     sync_wrapper::SyncWrapper,
-    SilenceMask, StreamInfo,
+    SilenceMask,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
 pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct StreamWriterConfig {
-    /// The configuration of the input to output channel.
-    pub channel_config: ResamplingChannelConfig,
+    /// The number of channels.
+    pub channels: NonZeroChannelCount,
 
     /// If the value of ResamplingCons::occupied_seconds() is greater than the
     /// given threshold in seconds, then discard the number of input frames
@@ -52,33 +54,30 @@ pub struct StreamWriterConfig {
 impl Default for StreamWriterConfig {
     fn default() -> Self {
         Self {
-            channel_config: ResamplingChannelConfig::default(),
+            channels: NonZeroChannelCount::STEREO,
             discard_jitter_threshold_seconds: None,
             check_for_silence: true,
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct StreamWriterNode {
-    /// The configuration of the stream.
-    ///
-    /// Changing this will have no effect until a new stream is started.
-    pub config: StreamWriterConfig,
+pub struct StreamWriterNode;
 
+#[derive(Clone)]
+pub struct StreamWriterState {
     channels: NonZeroChannelCount,
     active_state: Option<ActiveState>,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
 }
 
-impl StreamWriterNode {
-    pub fn new(config: StreamWriterConfig, channels: NonZeroChannelCount) -> Self {
+impl StreamWriterState {
+    fn new(channels: NonZeroChannelCount) -> Self {
         Self {
-            config,
             channels,
             active_state: None,
-            shared_state: Arc::new(SharedState::new()),
+            shared_state: ArcGc::new(SharedState::new()),
         }
     }
 
@@ -91,7 +90,7 @@ impl StreamWriterNode {
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamWriterConfig::channel_config.latency_seconds`].
+    /// increasing [`ResamplingChannelConfig::latency_seconds`].
     ///
     /// (Calling this will also reset the flag indicating whether an
     /// underflow occurred.)
@@ -105,7 +104,7 @@ impl StreamWriterNode {
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
-    /// increasing [`StreamWriterConfig::channel_config.capacity_seconds`]. For
+    /// increasing [`ResamplingChannelConfig::capacity_seconds`]. For
     /// example, if you are streaming data from a network, you may want to
     /// increase the capacity to several seconds.
     ///
@@ -134,19 +133,13 @@ impl StreamWriterNode {
 
     /// The amount of data in seconds that is currently occupied in the channel.
     ///
-    /// This value will be in the range `[0.0, ResamplingCons::capacity_seconds()]`.
+    /// This value will be in the range `[0.0, ResamplingChannelConfig::capacity_seconds]`.
     ///
     /// If there is no active stream, then this will return `None`.
     pub fn occupied_seconds(&self) -> Option<f64> {
         self.active_state
             .as_ref()
             .map(|s| s.prod.lock().unwrap().occupied_seconds())
-    }
-
-    /// The value of [`ResamplingChannelConfig::latency_seconds`] that was passed when
-    /// this channel was created.
-    pub fn latency_seconds(&self) -> f64 {
-        self.config.channel_config.latency_seconds
     }
 
     /// The number of channels in this node.
@@ -167,6 +160,7 @@ impl StreamWriterNode {
     ///
     /// * `sample_rate` - The sample rate of this node.
     /// * `output_stream_sample_rate` - The sample rate of the active output audio stream.
+    /// * `channel_config` - The configuration of the input to output channel.
     ///
     /// If there is already an active stream running on this node, then this will return
     /// an error.
@@ -174,6 +168,7 @@ impl StreamWriterNode {
         &mut self,
         sample_rate: NonZeroU32,
         output_stream_sample_rate: NonZeroU32,
+        channel_config: ResamplingChannelConfig,
     ) -> Result<NewInputStreamEvent, ()> {
         if self.is_active() {
             return Err(());
@@ -185,7 +180,7 @@ impl StreamWriterNode {
             NonZeroUsize::new(self.channels.get().get() as usize).unwrap(),
             sample_rate.get(),
             output_stream_sample_rate.get(),
-            self.config.channel_config,
+            channel_config,
         );
 
         self.active_state = Some(ActiveState {
@@ -273,37 +268,44 @@ impl StreamWriterNode {
         self.active_state = None;
         self.shared_state.reset();
     }
+
+    pub fn handle(&self) -> Mutex<Self> {
+        Mutex::new((*self).clone())
+    }
 }
 
-impl Drop for StreamWriterNode {
+impl Drop for StreamWriterState {
     fn drop(&mut self) {
         self.stop_stream();
     }
 }
 
 impl AudioNode for StreamWriterNode {
-    type Configuration = EmptyConfig;
+    type Configuration = StreamWriterConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo::new()
             .debug_name("stream_writer")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
-                num_outputs: self.channels.get(),
+                num_outputs: config.channels.get(),
             })
             .uses_events(true)
+            .custom_state(StreamWriterState::new(config.channels))
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
-        _config: &Self::Configuration,
-        _stream_info: &StreamInfo,
+        config: &Self::Configuration,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         Processor {
             cons: None,
-            shared_state: Arc::clone(&self.shared_state),
-            discard_jitter_threshold_seconds: self.config.discard_jitter_threshold_seconds,
-            check_for_silence: self.config.check_for_silence,
+            shared_state: ArcGc::clone(
+                &cx.custom_state::<StreamWriterState>().unwrap().shared_state,
+            ),
+            discard_jitter_threshold_seconds: config.discard_jitter_threshold_seconds,
+            check_for_silence: config.check_for_silence,
             pause_declicker: Declicker::SettledAt0,
         }
     }
@@ -345,7 +347,7 @@ impl SharedState {
 
 struct Processor {
     cons: Option<fixed_resample::ResamplingCons<f32>>,
-    shared_state: Arc<SharedState>,
+    shared_state: ArcGc<SharedState>,
     discard_jitter_threshold_seconds: Option<f64>,
     check_for_silence: bool,
     pause_declicker: Declicker,

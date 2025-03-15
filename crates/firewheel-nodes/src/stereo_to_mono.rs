@@ -2,8 +2,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, EmptyConfig, ProcBuffers, ProcInfo,
-        ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcInfo, ProcessStatus,
     },
 };
 
@@ -24,10 +24,10 @@ impl AudioNode for StereoToMonoNode {
             .uses_events(false)
     }
 
-    fn processor(
+    fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        _stream_info: &firewheel_core::StreamInfo,
+        _cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         StereoToMonoProcessor
     }
