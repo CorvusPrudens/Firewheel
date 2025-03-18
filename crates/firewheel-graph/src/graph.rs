@@ -1,5 +1,6 @@
 mod compiler;
 
+use core::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -197,24 +198,26 @@ impl AudioGraph {
 
     /// Get an immutable reference to the custom state of a node.
     pub fn node_state<T: 'static>(&self, id: NodeID) -> Option<&T> {
-        self.nodes.get(id.0).and_then(|node_entry| {
-            node_entry
-                .info
-                .custom_state
-                .as_ref()
-                .and_then(|s| s.downcast_ref::<T>())
-        })
+        self.node_state_dyn(id).and_then(|s| s.downcast_ref())
+    }
+
+    /// Get a type-erased, immutable reference to the custom state of a node.
+    pub fn node_state_dyn(&self, id: NodeID) -> Option<&dyn Any> {
+        self.nodes
+            .get(id.0)
+            .and_then(|node_entry| node_entry.info.custom_state.as_ref().map(|s| s.as_ref()))
     }
 
     /// Get a mutable reference to the custom state of a node.
     pub fn node_state_mut<T: 'static>(&mut self, id: NodeID) -> Option<&mut T> {
-        self.nodes.get_mut(id.0).and_then(|node_entry| {
-            node_entry
-                .info
-                .custom_state
-                .as_mut()
-                .and_then(|s| s.downcast_mut::<T>())
-        })
+        self.node_state_dyn_mut(id).and_then(|s| s.downcast_mut())
+    }
+
+    /// Get a type-erased, mutable reference to the custom state of a node.
+    pub fn node_state_dyn_mut(&mut self, id: NodeID) -> Option<&mut dyn Any> {
+        self.nodes
+            .get_mut(id.0)
+            .and_then(|node_entry| node_entry.info.custom_state.as_mut().map(|s| s.as_mut()))
     }
 
     /// Get a list of all the existing nodes in the graph.
