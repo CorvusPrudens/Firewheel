@@ -1,4 +1,5 @@
 use atomic_float::AtomicF64;
+use core::any::Any;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
@@ -513,9 +514,18 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         self.graph.node_state(id)
     }
 
+    /// Get a type-erased, immutable reference to the custom state of a node.
+    pub fn node_state_dyn(&self, id: NodeID) -> Option<&dyn Any> {
+        self.graph.node_state_dyn(id)
+    }
+
     /// Get a mutable reference to the custom state of a node.
     pub fn node_state_mut<T: 'static>(&mut self, id: NodeID) -> Option<&mut T> {
         self.graph.node_state_mut(id)
+    }
+
+    pub fn node_state_dyn_mut(&mut self, id: NodeID) -> Option<&mut dyn Any> {
+        self.graph.node_state_dyn_mut(id)
     }
 
     /// Get a list of all the existing nodes in the graph.
