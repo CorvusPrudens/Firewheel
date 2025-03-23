@@ -17,7 +17,7 @@ use firewheel_core::{
     },
     sync_wrapper::SyncWrapper,
 };
-use fixed_resample::{ReadStatus, ResamplingChannelConfig};
+use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 
 pub const MAX_CHANNELS: usize = 16;
 
@@ -245,21 +245,24 @@ impl StreamReaderState {
         }
     }
 
-    /// If the value of [`StreamReaderState::occupied_seconds()`] is greater than the
-    /// given threshold in seconds, then discard the number of input frames needed to
-    /// bring the value back down to [`ResamplingChannelConfig::latency_seconds`] to avoid
-    /// excessive overflows and reduce perceived audible glitchiness.
+    /// Correct for any overflows.
     ///
-    /// Returns the number of input frames from the producer (not output frames from
-    /// this consumer) that were discarded.
+    /// This returns the number of frames (samples in a single channel of audio) that were
+    /// discarded due to an overflow occurring. If no overflow occured, then `None`
+    /// is returned.
     ///
-    /// If `threshold_seconds` is less than [`ResamplingChannelConfig::latency_seconds`],
-    /// then this will do nothing.
-    pub fn discard_jitter(&mut self, threshold_seconds: f64) -> usize {
+    /// Note, this method is already automatically called in [`StreamReaderState::read`] and
+    /// [`StreamReaderState::read_interleaved`].
+    ///
+    /// This will have no effect if [`ResamplingChannelConfig::overflow_autocorrect_percent_threshold`]
+    /// was set to `None`.
+    ///
+    /// This method is realtime-safe.
+    pub fn autocorrect_overflows(&mut self) -> Option<usize> {
         if let Some(state) = &mut self.active_state {
-            state.cons.lock().unwrap().discard_jitter(threshold_seconds)
+            state.cons.lock().unwrap().autocorrect_overflows()
         } else {
-            0
+            None
         }
     }
 
@@ -403,12 +406,24 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        let pushed_frames = prod.push(buffers.inputs, 0..proc_info.frames);
+        let status = prod.push(buffers.inputs, 0..proc_info.frames);
 
-        if pushed_frames < proc_info.frames {
-            self.shared_state
-                .overflow_occurred
-                .store(true, Ordering::Relaxed);
+        match status {
+            PushStatus::OverflowOccurred {
+                num_frames_pushed: _,
+            } => {
+                self.shared_state
+                    .overflow_occurred
+                    .store(true, Ordering::Relaxed);
+            }
+            PushStatus::UnderflowCorrected {
+                num_zero_frames_pushed: _,
+            } => {
+                self.shared_state
+                    .underflow_occurred
+                    .store(true, Ordering::Relaxed);
+            }
+            _ => {}
         }
 
         ProcessStatus::Bypass

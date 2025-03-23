@@ -1,10 +1,7 @@
 use std::{
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
-    },
+    sync::mpsc,
     time::Duration,
     u32,
 };
@@ -16,7 +13,7 @@ use firewheel_graph::{
     processor::FirewheelProcessor,
     FirewheelCtx,
 };
-use fixed_resample::ResamplingChannelConfig;
+use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 use ringbuf::traits::{Consumer, Producer, Split};
 
 /// 1024 samples is a latency of about 23 milliseconds, which should
@@ -397,13 +394,11 @@ impl AudioBackend for CpalBackend {
             num_stream_in_channels,
             input_device_name,
             input_to_output_latency_seconds,
-            ready_flags,
         ) = if let StartInputStreamResult::Started {
             stream_handle,
             cons,
             num_stream_in_channels,
             input_device_name,
-            ready_flags,
         } = input_stream
         {
             let input_to_output_latency_seconds = cons.latency_seconds();
@@ -414,10 +409,9 @@ impl AudioBackend for CpalBackend {
                 num_stream_in_channels,
                 Some(input_device_name),
                 input_to_output_latency_seconds,
-                ready_flags,
             )
         } else {
-            (None, None, 0, None, 0.0, Arc::new(ReadyFlags::new()))
+            (None, None, 0, None, 0.0)
         };
 
         let (to_stream_tx, from_cx_rx) =
@@ -437,7 +431,6 @@ impl AudioBackend for CpalBackend {
             from_cx_rx,
             out_stream_config.sample_rate.0,
             input_stream_cons,
-            ready_flags,
             #[cfg(any(
                 target_os = "linux",
                 target_os = "dragonfly",
@@ -641,26 +634,21 @@ fn start_input_stream(
         &stream_config
     );
 
-    let ready_flags = Arc::new(ReadyFlags::new());
-    let ready_flags_1 = Arc::clone(&ready_flags);
-
     let stream_handle = match in_device.build_input_stream(
         &stream_config,
         move |input: &[f32], _info: &cpal::InputCallbackInfo| {
-            ready_flags_1.input_ready.store(true, Ordering::Relaxed);
+            let status = prod.push_interleaved(input);
 
-            if ready_flags_1.output_ready.load(Ordering::Relaxed) {
-                if prod.correct_underflows() {
-                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
-                    log::warn!("Underflow occured in audio input to output channel! Try increasing the channel latency.");
-                }
-
-                let pushed_frames = prod.push_interleaved(input);
-
-                if pushed_frames * num_in_channels < input.len() {
+            match status {
+                PushStatus::OverflowOccurred { num_frames_pushed: _ } => {
                     // TODO: Logging is not realtime-safe. Find a different way to notify the user.
                     log::warn!("Overflow occured in audio input to output channel! Try increasing the channel capacity.");
                 }
+                PushStatus::UnderflowCorrected { num_zero_frames_pushed: _ } => {
+                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
+                    log::warn!("Underflow occured in audio input to output channel! Try increasing the channel latency.");
+                }
+                _ => {}
             }
         },
         move |err| {
@@ -699,7 +687,6 @@ fn start_input_stream(
         cons,
         num_stream_in_channels: num_in_channels as u32,
         input_device_name: in_device_name,
-        ready_flags,
     })
 }
 
@@ -710,22 +697,7 @@ enum StartInputStreamResult {
         cons: fixed_resample::ResamplingCons<f32>,
         num_stream_in_channels: u32,
         input_device_name: String,
-        ready_flags: Arc<ReadyFlags>,
     },
-}
-
-struct ReadyFlags {
-    input_ready: AtomicBool,
-    output_ready: AtomicBool,
-}
-
-impl ReadyFlags {
-    fn new() -> Self {
-        Self {
-            input_ready: AtomicBool::new(false),
-            output_ready: AtomicBool::new(false),
-        }
-    }
 }
 
 struct DataCallback {
@@ -739,7 +711,6 @@ struct DataCallback {
     predicted_stream_secs: Option<f64>,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
-    ready_flags: Arc<ReadyFlags>,
 
     #[cfg(any(
         target_os = "linux",
@@ -757,7 +728,6 @@ impl DataCallback {
         from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
-        ready_flags: Arc<ReadyFlags>,
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -786,7 +756,6 @@ impl DataCallback {
             first_fallback_clock_instant: None,
             input_stream_cons,
             input_buffer,
-            ready_flags,
             #[cfg(any(
                 target_os = "linux",
                 target_os = "dragonfly",
@@ -798,8 +767,6 @@ impl DataCallback {
     }
 
     fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
-        self.ready_flags.output_ready.store(true, Ordering::Relaxed);
-
         for msg in self.from_cx_rx.pop_iter() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
@@ -901,8 +868,21 @@ impl DataCallback {
         let num_in_chanenls = if let Some(cons) = &mut self.input_stream_cons {
             let num_in_channels = cons.num_channels().get();
 
-            if self.ready_flags.input_ready.load(Ordering::Relaxed) {
-                cons.read_interleaved(&mut self.input_buffer[..frames * num_in_channels]);
+            // TODO: Have some realtime-safe way to notify users of underflows and overflows.
+            let status = cons.read_interleaved(&mut self.input_buffer[..frames * num_in_channels]);
+
+            match status {
+                ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
+                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
+                    log::warn!("Underflow occured in audio input to output channel! Try increasing the channel latency.");
+                }
+                ReadStatus::OverflowCorrected {
+                    num_frames_discarded: _,
+                } => {
+                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
+                    log::warn!("Overflow occured in audio input to output channel! Try increasing the channel capacity.");
+                }
+                _ => {}
             }
 
             num_in_channels

@@ -5,14 +5,13 @@ use firewheel::{
     error::UpdateError,
     nodes::stream::{
         reader::{StreamReaderConfig, StreamReaderNode, StreamReaderState},
-        writer::{StreamWriterConfig, StreamWriterNode, StreamWriterState},
+        writer::{PushStatus, StreamWriterConfig, StreamWriterNode, StreamWriterState},
         ReadStatus, ResamplingChannelConfig,
     },
     FirewheelContext,
 };
 
 const CHANNEL_CAPACITY_SECONDS: f64 = 4.0;
-const JITTER_THRESHOLD_SECONDS: f64 = 3.5;
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 const IN_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(44100).unwrap();
 const OUT_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(48000).unwrap();
@@ -64,6 +63,11 @@ fn main() {
                 // capacity buffer depending on your use case. Generally this value should
                 // be at least twice as large as the size of packets you intend to send.
                 capacity_seconds: CHANNEL_CAPACITY_SECONDS,
+                // By default the channel will try to autocorrect underflows and overflows
+                // by discarding samples and pushing zero samples if a certain threshold
+                // is reached. Set this to `None` to disable this behavior.
+                overflow_autocorrect_percent_threshold: None,
+                underflow_autocorrect_percent_threshold: None,
                 ..Default::default()
             },
         )
@@ -88,6 +92,11 @@ fn main() {
                 //
                 // This value should also be at least twice as large as `latency_seconds`.
                 capacity_seconds: 0.6,
+                // By default the channel will try to autocorrect underflows and overflows
+                // by discarding samples and pushing zero samples if a certain threshold
+                // is reached. Set this to `None` to disable this behavior.
+                overflow_autocorrect_percent_threshold: None,
+                underflow_autocorrect_percent_threshold: None,
                 ..Default::default()
             },
         )
@@ -157,9 +166,34 @@ fn main() {
                         }
                     }
 
-                    handle.push_interleaved(&in_buf);
+                    let status = handle.push_interleaved(&in_buf);
 
-                    println!("Stream writer pushed data.");
+                    match status {
+                        PushStatus::Ok => {
+                            println!("Successfully wrote data");
+                        }
+                        PushStatus::OutputNotReady => {
+                            // The output stream is not ready yet.
+                        }
+                        PushStatus::OverflowOccurred { num_frames_pushed } => {
+                            // An overflow occured. This may result in audible audio
+                            // glitches.
+                            println!(
+                                "Overflow occured in stream writer node! Number of frames discarded: {}",
+                                packet_frames - num_frames_pushed
+                            );
+                        }
+                        PushStatus::UnderflowCorrected {
+                            num_zero_frames_pushed,
+                        } => {
+                            // An underflow occured. This may result in audible audio
+                            // glitches.
+                            println!(
+                                "Underflow occured in stream writer node! Number of frames dropped: {}",
+                                packet_frames - num_zero_frames_pushed
+                            );
+                        }
+                    }
                 }
             }
 
@@ -195,32 +229,31 @@ fn main() {
 
             // Wait until the node's processor is ready to read data.
             if handle.is_ready() {
-                // Optionally, If the value of `StreamReaderHandle::occupied_seconds()`
-                // is greater than the given threshold in seconds, then discard the
-                // number of input frames needed to bring the value back down to
-                // `StreamReaderHandle::latency_seconds()` to avoid excessive overflows
-                // and reduce perceived audible glitchiness.
-                //
-                // Alternatively, instead of discarding samples, you may choose to read
-                // an extra packet of data to correct for the jitter.
-                let discarded_frames = handle.discard_jitter(JITTER_THRESHOLD_SECONDS);
-                if discarded_frames > 0 {
-                    println!("Overflow occured in stream reader node!");
-                    println!("Discarded frames in stream reader: {}", discarded_frames);
-                }
-
                 let status = handle.read(&mut out_buf, 0..packet_frames).unwrap();
 
                 match status {
                     ReadStatus::Ok => {
                         println!("Successfully read data");
                     }
-                    ReadStatus::Underflow { num_frames_dropped } => {
-                        // An input underflow occured. This may result in audible audio
+                    ReadStatus::InputNotReady => {
+                        // The input stream is not ready yet.
+                    }
+                    ReadStatus::UnderflowOccurred { num_frames_read } => {
+                        // An underflow occured. This may result in audible audio
                         // glitches.
                         println!(
                             "Underflow occured in stream reader node! Number of frames dropped: {}",
-                            num_frames_dropped
+                            packet_frames - num_frames_read
+                        );
+                    }
+                    ReadStatus::OverflowCorrected {
+                        num_frames_discarded,
+                    } => {
+                        // An overflow occured. This may result in audible audio
+                        // glitches.
+                        println!(
+                            "Overflow occured in stream reader node! Number of frames discarded: {}",
+                            num_frames_discarded
                         );
                     }
                 }

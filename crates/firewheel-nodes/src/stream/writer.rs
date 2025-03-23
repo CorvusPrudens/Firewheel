@@ -21,6 +21,8 @@ use firewheel_core::{
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
+pub use fixed_resample::PushStatus;
+
 pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,20 +30,6 @@ pub const MAX_CHANNELS: usize = 16;
 pub struct StreamWriterConfig {
     /// The number of channels.
     pub channels: NonZeroChannelCount,
-
-    /// If the value of ResamplingCons::occupied_seconds() is greater than the
-    /// given threshold in seconds, then discard the number of input frames
-    /// needed to bring the value back down to ResamplingCons::latency_seconds()
-    /// to avoid excessive overflows and reduce perceived audible glitchiness.
-    ///
-    /// This can happen if there are a lot of underruns occuring in the
-    /// output audio thread.
-    ///
-    /// If this is `None`, then the threshold will be the entire capacity of
-    /// the channel.
-    ///
-    /// By default this is set to `None`.
-    pub discard_jitter_threshold_seconds: Option<f64>,
 
     /// Whether or not to check for silence in the input stream. Highly
     /// recommened to set this to `true` to improve audio graph performance
@@ -55,7 +43,6 @@ impl Default for StreamWriterConfig {
     fn default() -> Self {
         Self {
             channels: NonZeroChannelCount::STEREO,
-            discard_jitter_threshold_seconds: None,
             check_for_silence: true,
         }
     }
@@ -203,9 +190,9 @@ impl StreamWriterState {
     /// If there is no active stream, the stream is paused, or the processor end
     /// is not ready to receive samples, then no data will be sent and this will
     /// return `0`.
-    pub fn push_interleaved(&mut self, data: &[f32]) -> usize {
+    pub fn push_interleaved(&mut self, data: &[f32]) -> PushStatus {
         if !self.is_ready() {
-            return 0;
+            return PushStatus::OutputNotReady;
         }
 
         self.active_state
@@ -229,9 +216,9 @@ impl StreamWriterState {
     /// If there is no active stream, the stream is paused, or the processor end
     /// is not ready to receive samples, then no data will be sent and this will
     /// return `0`.
-    pub fn push<Vin: AsRef<[f32]>>(&mut self, data: &[Vin], range: Range<usize>) -> usize {
+    pub fn push<Vin: AsRef<[f32]>>(&mut self, data: &[Vin], range: Range<usize>) -> PushStatus {
         if !self.is_ready() {
-            return 0;
+            return PushStatus::OutputNotReady;
         }
 
         self.active_state
@@ -255,6 +242,27 @@ impl StreamWriterState {
     pub fn pause_stream(&mut self) {
         if self.is_active() {
             self.shared_state.paused.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Correct for any underflows.
+    ///
+    /// This returns the number of extra zero frames (samples in a single channel of audio)
+    /// that were added due to an underflow occurring. If no underflow occured, then `None`
+    /// is returned.
+    ///
+    /// Note, this method is already automatically called in [`StreamWriterState::push`] and
+    /// [`StreamWriterState::push_interleaved`].
+    ///
+    /// This will have no effect if [`ResamplingChannelConfig::underflow_autocorrect_percent_threshold`]
+    /// was set to `None`.
+    ///
+    /// This method is realtime-safe.
+    pub fn autocorrect_underflows(&mut self) -> Option<usize> {
+        if let Some(state) = &mut self.active_state {
+            state.prod.lock().unwrap().autocorrect_underflows()
+        } else {
+            None
         }
     }
 
@@ -304,7 +312,6 @@ impl AudioNode for StreamWriterNode {
             shared_state: ArcGc::clone(
                 &cx.custom_state::<StreamWriterState>().unwrap().shared_state,
             ),
-            discard_jitter_threshold_seconds: config.discard_jitter_threshold_seconds,
             check_for_silence: config.check_for_silence,
             pause_declicker: Declicker::SettledAt0,
         }
@@ -348,7 +355,6 @@ impl SharedState {
 struct Processor {
     cons: Option<fixed_resample::ResamplingCons<f32>>,
     shared_state: ArcGc<SharedState>,
-    discard_jitter_threshold_seconds: Option<f64>,
     check_for_silence: bool,
     pause_declicker: Declicker,
 }
@@ -394,24 +400,22 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        if let Some(threshold) = self.discard_jitter_threshold_seconds {
-            let num_discarded_samples = cons.discard_jitter(threshold);
-            if num_discarded_samples > 0 {
-                self.shared_state
-                    .overflow_occurred
-                    .store(true, Ordering::Relaxed);
-            }
-        }
+        let status = cons.read(buffers.outputs, 0..proc_info.frames);
 
-        match cons.read(buffers.outputs, 0..proc_info.frames) {
-            ReadStatus::Ok => {}
-            ReadStatus::Underflow {
-                num_frames_dropped: _,
-            } => {
+        match status {
+            ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
                 self.shared_state
                     .underflow_occurred
                     .store(true, Ordering::Relaxed);
             }
+            ReadStatus::OverflowCorrected {
+                num_frames_discarded: _,
+            } => {
+                self.shared_state
+                    .overflow_occurred
+                    .store(true, Ordering::Relaxed);
+            }
+            _ => {}
         }
 
         if !self.pause_declicker.is_settled() {

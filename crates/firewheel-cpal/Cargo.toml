@@ -26,6 +26,6 @@ log.workspace = true
 ringbuf.workspace = true
 thiserror.workspace = true
 fast-interleave.workspace = true
-fixed-resample = { version = "0.7.1", default-features = false, features = [
+fixed-resample = { version = "0.8.0", default-features = false, features = [
   "channel",
 ] }
