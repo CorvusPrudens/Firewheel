@@ -30,7 +30,7 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [x] Option to hard clip outputs at 0dB to help protect the system's speakers.
 * [x] Properly respect realtime constraints (no mutexes!)
 * [x] Windows, Mac, and Linux support 
-* [ ] Verify WebAssembly support (Note special considerations must be made about the design of the threading model.)
+* [x] Verify WebAssembly support (Note special considerations must be made about the design of the threading model.)
 
 ## Later Goals
 
@@ -46,19 +46,23 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek))
 * [ ] A `SampleResource` with network streaming support
 * [ ] Better spatial positioning with sound absorption capabilities
-* [ ] [RtAudio](https://github.com/thestk/rtaudio) backend
+* [ ] [RtAudio](https://github.com/thestk/rtaudio) backen
 * [ ] [Interflow](https://github.com/SolarLiner/interflow) backend
-* [ ] C bindings
+* [ ] C bindings?
 
 ## Non-Goals
 
-* MIDI on the audio-graph level (It will still be possible to create a custom sampler/synthesizer that reads a MIDI file as input.)
-* Parameter events on the audio-graph level (as in you can't pass parameter events from one node to another)
-* Connecting to system MIDI devices
+While Firewheel is meant to cover nearly every use case for games and generic applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engine and DAW audio engine are in conflict*.
+
+> \* This conflict arises in how state is expected to be synchronized between the user's state and the state of the processor. In a DAW, the state is tied to the state of the "transport", and the host is allowed to discard any user-generated parameter update events that conflict with this transport state (or vice versa). However, in a game engine and other generic applications, the user's state can dynamically change at any time. So to avoid the processor state from becoming desynchronized with the user's state, parameter update events are only allowed to come from a single source (the user), and are gauranteed to not be discarded by the engine.
+
+* MIDI on the audio-graph level (It will still be possible to create a custom sampler/synthesizer nodes that read MIDI files as input.)
+* Parameter events on the audio-graph level (as in you can't pass parameter update events from one node to another)
+* Connecting to system MIDI devices (Although this feature could be added in the future if there is enough demand for it).
 * Built-in synthesizer instruments (This can still be done with third-party nodes/CLAP plugins.)
-* Advanced mixing effects like parametric EQs, compressors, and limiters (This again can be done with third-party nodes/CLAP plugins.) Though a compressor and/or limiter might be added to the official library if it is deemed a common enough use case.
-* GUIs for hosted CLAP plugins (This is a game audio engine, not a DAW audio engine.)
-* Multi-threaded audio graph processing (This would make the engine a lot more complicated, and it is probably overkill for games.)
+* Advanced mixing effects like parametric EQs, compressors, and limiters (This again can be done with third-party nodes/CLAP plugins.)
+* GUIs for hosted CLAP plugins (Although this feature could be added in the future if there is enough demand for it).
+* Multi-threaded audio graph processing (This would make the engine a lot more complicated, and it is probably overkill for games and genric applications.)
 * VST, VST3, LV2, and AU plugin hosting
 
 ## Codebase Overview

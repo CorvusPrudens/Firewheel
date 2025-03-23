@@ -4,7 +4,9 @@
 [![Crates.io](https://img.shields.io/crates/v/firewheel.svg)](https://crates.io/crates/firewheel)
 [![License](https://img.shields.io/crates/l/firewheel.svg)](https://github.com/BillyDM/firewheel/blob/main/LICENSE-APACHE)
 
-Firewheel is a fully-featured libre open source audio graph engine for games and other applications!
+A low-level open source audio graph engine for games and applications, written in Rust.
+
+This crate can be used as-is or as a base for other higher-level audio engines. (Think of it like [wgpu](https://wgpu.rs/) but for audio).
 
 ## Key Features
 
@@ -13,56 +15,22 @@ Firewheel is a fully-featured libre open source audio graph engine for games and
 * Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * A suite of essential built-in audio nodes
 * Custom audio node API allowing for a plethora of 3rd party generators and effects
-* Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
+* (TODO) Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
 * Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused)
-* Ability to add "sequences" to certain nodes (i.e. automation and sequences of events)
 * Support for loading a wide variety of audio files using [Symphonium]
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)
 * Properly respect realtime constraints (no mutexes!)
+* An API that is friendly to ECS's (entity component systems)
 
-## Roadmap
+## Non-features
 
-✅ = complete, 🚧 = partially complete, ⬛ = Not implemented yet, ❔= might implement
-
-| Feature                                               | Status                                               |
-| ----------------------------------------------------- | ---------------------------------------------------- |
-| Core audio graph engine                               | ✅                                                   |
-| 3rd party plugin API                                  | ✅                                                   |
-| [CPAL] audio backend                                  | ✅                                                   |
-| Loading audio files with [Symphonium]                 | ✅                                                   |
-| Volume node                                           | ✅                                                   |
-| VolumePan node                                        | ✅                                                   |
-| Stereo to mono node                                   | ✅                                                   |
-| Peak meter node                                       | ✅                                                   |
-| Beep test node                                        | ✅                                                   |
-| Sampler node                                          | 🚧 (one-shot works, pitch shift WIP, sequencer WIP)  |
-| Basic spatial positioning node                        | ✅                                                   |
-| Stream writer node (stream audio into the graph)      | ✅                                                   |
-| Stream reader node (stream audio out of the graph)    | ✅                                                   |
-| Blending sampler node (blend between music tracks)    | ⬛                                                   |
-| Disk streaming SampleResource (using [creek])         | ⬛                                                   |
-| Network streaming SampleResource                      | ❔ (only if demand is there)                         |
-| Filter effect node (LP, HP, BP)                       | ⬛                                                   |
-| Convolution node (apply IR effects like reverb)       | ⬛                                                   |
-| Echo effect node                                      | ⬛                                                   |
-| [CLAP] plugin node                                    | ⬛                                                   |
-| Delay compensation node                               | ⬛                                                   |
-| Advanced spatial positioning node                     | ❔ (help from DSP expert needed)                     |
-| [RtAudio] backend                                     | ⬛                                                   |
-| [Interflow] backend                                   | ⬛                                                   |
-| C bindings                                            | ❔ (only if demand is there)                         |
-
-## Motivation
-
-While Firewheel is its own standalone project, we are also working closely with the [Bevy](https://bevyengine.org/) game engine to make it Bevy's default audio engine.
+While Firewheel is meant to cover nearly every use case for games and other applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engine and DAW audio engine are in conflict. (See the design document for more details on why).
 
 ## Get Involved
 
 Join the discussion in the [Firewheel Discord Server](https://discord.gg/rKzZpjGCGs) or in the [Bevy Discord Server](https://discord.gg/bevy) under the `working-groups -> Better Audio` channel!
 
 If you are interested in contributing code, first read the [Design Document] and then visit the [Project Board](https://github.com/users/BillyDM/projects/1).
-
-If you are a game or other app developer that wishes to see this project flourish, please consider donating or sponsoring! Links are on the right side of the GitHub page. 🌼
 
 ## License
 
