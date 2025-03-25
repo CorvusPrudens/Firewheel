@@ -143,7 +143,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         steal: bool,
         cx: &mut FirewheelContext,
         fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
-    ) -> Result<PlayResult, NewWorkerError> {
+    ) -> Result<NewWorkerResult, NewWorkerError> {
         if params.playback == PlaybackState::Stop {
             return Err(NewWorkerError::PlaybackStateIsStop);
         }
@@ -207,7 +207,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
         (fx_chain)(&mut worker.fx_state, cx);
 
-        Ok(PlayResult {
+        Ok(NewWorkerResult {
             worker_id,
             old_worker_id,
             was_playing_sequence,
@@ -443,8 +443,8 @@ pub struct PollResult {
     pub finished_workers: SmallVec<[WorkerID; 4]>,
 }
 
-/// The result of calling [`SamplerPool::play`].
-pub struct PlayResult {
+/// The result of calling [`SamplerPool::new_worker`].
+pub struct NewWorkerResult {
     /// The new ID of the worker assigned to play this sequence.
     pub worker_id: WorkerID,
 
