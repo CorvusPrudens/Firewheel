@@ -712,7 +712,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        assert!(baseline.patch_event(&messages[0]));
+        assert!(baseline.apply_event(&messages[0]));
         assert_eq!(baseline, value);
     }
 
@@ -725,7 +725,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        assert!(baseline.patch_event(&messages[0]));
+        assert!(baseline.apply_event(&messages[0]));
         assert_eq!(baseline, value);
     }
 }

@@ -232,7 +232,8 @@ impl PatchOutput {
         let mut patch_variants = vec![quote! {
             Variant(#identifier)
         }];
-        let mut arms = Vec::new();
+        let mut patch_arms = Vec::new();
+        // let mut apply_arms = Vec::new();
         let mut types = TypeSet::default();
         for (index, variant) in data.variants.iter().enumerate() {
             let variant_index = index as u32;
@@ -240,11 +241,9 @@ impl PatchOutput {
 
             match &variant.fields {
                 syn::Fields::Unit => {
-                    arms.push(quote! {
-                        ([#variant_index], s) => {
-                            *s = #identifier::#variant_ident;
-
-                            Ok(())
+                    patch_arms.push(quote! {
+                        [#variant_index] => {
+                            Ok(#patch_ident::Variant(#identifier::#variant_ident))
                         }
                     });
                 }
@@ -291,18 +290,17 @@ impl PatchOutput {
                         quote! { #member: <#ty as ::core::clone::Clone>::clone(#unpack) }
                     });
 
-                    let outer = quote! {
-                        ([#variant_index], s) => {
+                    let outer_patch = quote! {
+                        [#variant_index] => {
                             let (#(#unpacked,)*): &(#(#unpacked_types,)*) = data
                                 .downcast_ref()
                                 .ok_or(#diff_path::PatchError::InvalidData)?;
 
-                            *s = #identifier::#variant_ident{ #(#structured),* };
-                            Ok(())
+                            Ok(#patch_ident::Variant(#identifier::#variant_ident { #(#structured),* }))
                         }
                     };
 
-                    arms.push(outer);
+                    patch_arms.push(outer_patch);
 
                     let destructured: Vec<_> = fields
                         .iter()
@@ -313,26 +311,25 @@ impl PatchOutput {
                         })
                         .collect();
 
-                    let inner = fields.iter().enumerate().map(|(i, (a, _))| {
+                    let inner_patch = fields.iter().enumerate().map(|(i, (a, field_variant))| {
                         let ty = &a.ty;
-                        let a = &a.unpack_ident;
                         let i = i as u32;
 
                         quote! {
-                            ([#variant_index, #i, tail @ ..], #identifier::#variant_ident{ #(#destructured),* }) => {
-                                <#ty as #diff_path::Patch>::patch(#a, data, tail)
+                            [#variant_index, #i, tail @ ..] => {
+                                Ok(#patch_ident::#field_variant(<#ty as #diff_path::Patch>::patch(data, tail)?))
                             }
                         }
                     });
 
-                    arms.extend(inner);
+                    patch_arms.extend(inner_patch);
                 }
             }
         }
 
-        let body = quote! {
-            match (path, self) {
-                #(#arms)*
+        let patch_body = quote! {
+            match path {
+                #(#patch_arms)*
                 _ => #FQResult::Err(#diff_path::PatchError::InvalidPath),
             }
         };
@@ -340,7 +337,7 @@ impl PatchOutput {
         Ok(Self {
             create_update_struct: true,
             fields: patch_variants,
-            patch_body: quote! {},
+            patch_body,
             apply_body: quote! {},
             bounds: types
                 .iter()
