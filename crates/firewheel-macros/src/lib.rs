@@ -48,29 +48,78 @@ fn should_skip(attrs: &[syn::Attribute]) -> bool {
     skip
 }
 
-fn struct_fields(data: &syn::DataStruct) -> Vec<(TokenStream2, &syn::Type)> {
+fn struct_fields(data: &syn::Fields) -> impl Iterator<Item = (syn::Member, &syn::Type)> {
     // NOTE: a trivial optimization would be to automatically
     // flatten structs with only a single field so their
     // paths can be one index shorter.
-    let fields: Vec<_> = match &data.fields {
-        syn::Fields::Named(fields) => fields
-            .named
-            .iter()
-            .filter(|f| !should_skip(&f.attrs))
-            .map(|f| (f.ident.as_ref().unwrap().to_token_stream(), &f.ty))
-            .collect(),
-        syn::Fields::Unnamed(fields) => fields
-            .unnamed
-            .iter()
-            .filter(|f| !should_skip(&f.attrs))
-            .enumerate()
-            .map(|(i, f)| {
-                let accessor: syn::Index = i.into();
-                (accessor.to_token_stream(), &f.ty)
-            })
-            .collect(),
-        syn::Fields::Unit => Vec::new(),
-    };
+    data.iter()
+        .enumerate()
+        .filter(|(_, f)| !should_skip(&f.attrs))
+        .map(|(i, f)| (as_member(f.ident.as_ref(), i), &f.ty))
+}
 
-    fields
+fn as_member(ident: Option<&syn::Ident>, index: usize) -> syn::Member {
+    ident.map_or_else(
+        || syn::Member::from(index),
+        |ident| syn::Member::Named(ident.clone()),
+    )
+}
+
+#[derive(Default)]
+struct TypeSet<'a>(Vec<&'a syn::Type>);
+
+impl<'a> TypeSet<'a> {
+    pub fn insert(&mut self, ty: &'a syn::Type) -> bool {
+        // This is a simple check for the most common types
+        let already_exists = self.0.iter().any(|existing| match (ty, existing) {
+            (syn::Type::Path(a), syn::Type::Path(b)) => a == b,
+            _ => false,
+        });
+
+        if already_exists {
+            return false;
+        }
+
+        self.0.push(ty);
+        true
+    }
+}
+
+impl<'a> IntoIterator for TypeSet<'a> {
+    type Item = &'a syn::Type;
+    type IntoIter = <Vec<&'a syn::Type> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> core::ops::Deref for TypeSet<'a> {
+    type Target = [&'a syn::Type];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// A convenience struct for keeping track of a variant's
+/// identifier along with an identifier we can use without causing
+/// name clashing.
+struct EnumField<'a> {
+    /// The type is useful for error spans.
+    ty: &'a syn::Type,
+    /// The struct field's actual name.
+    member: syn::Member,
+    /// An identifier that avoids the possibility of name clashing.
+    unpack_ident: syn::Ident,
+}
+
+impl EnumField<'_> {
+    fn unpack(&self) -> TokenStream2 {
+        let member = &self.member;
+        let unpack = &self.unpack_ident;
+        quote! {
+            #member: #unpack
+        }
+    }
 }
