@@ -188,6 +188,8 @@ use smallvec::SmallVec;
 mod collections;
 mod leaf;
 mod memo;
+mod notify;
+mod update;
 
 pub use memo::Memo;
 
@@ -467,52 +469,52 @@ pub trait Diff {
 ///     }
 /// }
 /// ```
-pub trait Patch {
-    /// Patch `self` according to the incoming data.
-    /// This will generally be called from within
-    /// the audio thread.
-    ///
-    /// `data` is intentionally made a shared reference.
-    /// This should make accidental syscalls due to
-    /// additional allocations or drops more difficult.
-    /// If you find yourself reaching for interior
-    /// mutability, consider whether you're building
-    /// realtime-appropriate behavior.
-    fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError>;
-
-    /// Patch a set of parameters with incoming events.
-    ///
-    /// Returns `true` if any parameters have changed.
-    ///
-    /// This is useful as a convenience method for extracting the path
-    /// and data components from a [`NodeEventType`]. Errors produced
-    /// here are ignored.
-    fn patch_event(&mut self, event: &NodeEventType) -> bool {
-        if let NodeEventType::Param { data, path } = event {
-            // NOTE: It may not be ideal to ignore errors.
-            // Would it be possible to log these in debug mode?
-            self.patch(data, path).is_ok()
-        } else {
-            false
-        }
-    }
-
-    /// Patch a set of parameters with a list of incoming events.
-    ///
-    /// Returns `true` if any parameters have changed.
-    ///
-    /// This is useful as a convenience method for patching parameters
-    /// directly from a [`NodeEventList`]. Errors produced here are ignored.
-    fn patch_list(&mut self, mut event_list: NodeEventList) -> bool {
-        let mut changed = false;
-
-        event_list.for_each(|e| {
-            changed |= self.patch_event(e);
-        });
-
-        changed
-    }
-}
+// pub trait Patch {
+//     /// Patch `self` according to the incoming data.
+//     /// This will generally be called from within
+//     /// the audio thread.
+//     ///
+//     /// `data` is intentionally made a shared reference.
+//     /// This should make accidental syscalls due to
+//     /// additional allocations or drops more difficult.
+//     /// If you find yourself reaching for interior
+//     /// mutability, consider whether you're building
+//     /// realtime-appropriate behavior.
+//     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError>;
+//
+//     /// Patch a set of parameters with incoming events.
+//     ///
+//     /// Returns `true` if any parameters have changed.
+//     ///
+//     /// This is useful as a convenience method for extracting the path
+//     /// and data components from a [`NodeEventType`]. Errors produced
+//     /// here are ignored.
+//     fn patch_event(&mut self, event: &NodeEventType) -> bool {
+//         if let NodeEventType::Param { data, path } = event {
+//             // NOTE: It may not be ideal to ignore errors.
+//             // Would it be possible to log these in debug mode?
+//             self.patch(data, path).is_ok()
+//         } else {
+//             false
+//         }
+//     }
+//
+//     /// Patch a set of parameters with a list of incoming events.
+//     ///
+//     /// Returns `true` if any parameters have changed.
+//     ///
+//     /// This is useful as a convenience method for patching parameters
+//     /// directly from a [`NodeEventList`]. Errors produced here are ignored.
+//     fn patch_list(&mut self, mut event_list: NodeEventList) -> bool {
+//         let mut changed = false;
+//
+//         event_list.for_each(|e| {
+//             changed |= self.patch_event(e);
+//         });
+//
+//         changed
+//     }
+// }
 
 /// A path of indices that uniquely describes an arbitrarily nested field.
 pub enum ParamPath {
@@ -528,6 +530,70 @@ impl core::ops::Deref for ParamPath {
             Self::Single(single) => core::slice::from_ref(single),
             Self::Multi(multi) => multi.as_ref(),
         }
+    }
+}
+
+// TODO: actually, let's just force `Patch` to construct an update enum
+// and then use that to mutate itself. This is great for a few reasons,
+// one being that you can easily "mix and match," reacting to some
+// changes directly while simply applying the rest.
+//
+// The main downside being that users have to essentially write
+// type-traversing code twice when manually implementing `Patch`.
+// (But also, who's gonna manually implement it once this is pushed?)
+pub trait Patch {
+    type Patch;
+
+    /// Construct a patch from a parameter event.
+    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
+
+    /// Construct a patch from a parameter event.
+    fn patch_event(event: &NodeEventType) -> Option<Self::Patch> {
+        match event {
+            NodeEventType::Param { data, path } => Some(Self::patch(data, path).ok()?),
+            _ => None,
+        }
+    }
+
+    /// Apply a patch.
+    /// This will generally be called from within
+    /// the audio thread.
+    fn apply(&mut self, patch: Self::Patch);
+
+    /// Patch a set of parameters with incoming events.
+    ///
+    /// Returns `true` if any parameters have changed.
+    ///
+    /// This is useful as a convenience method for extracting the path
+    /// and data components from a [`NodeEventType`]. Errors produced
+    /// here are ignored.
+    fn apply_event(&mut self, event: &NodeEventType) -> bool {
+        match event {
+            NodeEventType::Param { data, path } => match Self::patch(data, path) {
+                Ok(patch) => {
+                    self.apply(patch);
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Patch a set of parameters with a list of incoming events.
+    ///
+    /// Returns `true` if any parameters have changed.
+    ///
+    /// This is useful as a convenience method for patching parameters
+    /// directly from a [`NodeEventList`]. Errors produced here are ignored.
+    fn apply_list(&mut self, mut event_list: NodeEventList) -> bool {
+        let mut changed = false;
+
+        event_list.for_each(|e| {
+            changed |= self.apply_event(e);
+        });
+
+        changed
     }
 }
 
@@ -599,6 +665,36 @@ pub enum PatchError {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[derive(Debug, Clone, Diff, Patch, PartialEq)]
+    struct StructDiff {
+        a: f32,
+        b: bool,
+    }
+
+    #[test]
+    fn test_simple_diff() {
+        let mut a = StructDiff { a: 1.0, b: false };
+
+        let mut b = a.clone();
+
+        a.a = 0.5;
+
+        let mut patches = Vec::new();
+        a.diff(&b, PathBuilder::default(), &mut patches);
+
+        assert_eq!(patches.len(), 1);
+
+        for patch in &patches {
+            let patch = StructDiff::patch_event(patch).unwrap();
+
+            assert!(matches!(patch, StructDiffPatch::A(a) if a == 0.5));
+
+            b.apply(patch);
+        }
+
+        assert_eq!(a, b);
+    }
 
     #[derive(Debug, Clone, Diff, Patch, PartialEq)]
     enum DiffingExample {

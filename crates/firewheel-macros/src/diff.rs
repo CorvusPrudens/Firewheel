@@ -3,43 +3,51 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 
-use crate::{get_paths, struct_fields};
+use crate::{get_paths, struct_fields, EnumField, TypeSet};
 
 pub fn derive_diff(input: TokenStream) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;
     let identifier = &input.ident;
     let (firewheel_path, diff_path) = get_paths();
 
-    let DiffOutput { body, bounds } = match &input.data {
-        syn::Data::Struct(data) => DiffOutput::from_struct(data, &diff_path)?,
+    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
+
+    fn generate_where(
+        where_clause: Option<&syn::WhereClause>,
+        bounds: impl Iterator<Item = TokenStream2>,
+    ) -> TokenStream2 {
+        match where_clause {
+            Some(wg) => {
+                quote! {
+                    #wg
+                    #(#bounds,)*
+                }
+            }
+            None => {
+                quote! {
+                    where #(#bounds,)*
+                }
+            }
+        }
+    }
+
+    let (body, where_generics) = match &input.data {
+        syn::Data::Struct(data) => {
+            let DiffOutput { body, bounds } = DiffOutput::from_struct(data, &diff_path)?;
+
+            (body, generate_where(where_generics, bounds))
+        }
         syn::Data::Enum(data) => {
-            DiffOutput::from_enum(identifier, data, &firewheel_path, &diff_path)?
+            let DiffOutput { body, bounds } =
+                DiffOutput::from_enum(identifier, data, &firewheel_path, &diff_path)?;
+
+            (body, generate_where(where_generics, bounds))
         }
         syn::Data::Union(_) => {
             return Err(syn::Error::new(
                 input.span(),
                 "`Diff` cannot be derived on unions.",
             ));
-        }
-    };
-
-    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
-
-    let where_generics = match where_generics {
-        Some(wg) => {
-            quote! {
-                #wg
-                #(#bounds,)*
-            }
-        }
-        None => {
-            if bounds.is_empty() {
-                quote! {}
-            } else {
-                quote! {
-                    where #(#bounds,)*
-                }
-            }
         }
     };
 
@@ -52,33 +60,17 @@ pub fn derive_diff(input: TokenStream) -> syn::Result<TokenStream2> {
     })
 }
 
-struct DiffOutput {
+struct DiffOutput<B> {
     body: TokenStream2,
-    bounds: Vec<TokenStream2>,
+    bounds: B,
 }
 
-struct UnnamedField<'a> {
-    /// The type is useful for error spans.
-    ty: &'a syn::Type,
-    /// An identifier for tuple fields.
-    unpack_ident: syn::Ident,
-}
-
-/// A convenience struct for keeping track of a struct variant's
-/// identifier along with an identifier we can use without causing
-/// name clashing.
-struct NamedField<'a> {
-    /// The type is useful for error spans.
-    ty: &'a syn::Type,
-    /// The struct field's actual name.
-    type_ident: &'a syn::Ident,
-    /// An identifier that avoids the possibility of name clashing.
-    unpack_ident: syn::Ident,
-}
-
-impl DiffOutput {
-    pub fn from_struct(data: &syn::DataStruct, diff_path: &TokenStream2) -> syn::Result<Self> {
-        let fields = struct_fields(data);
+impl DiffOutput<()> {
+    pub fn from_struct<'a>(
+        data: &'a syn::DataStruct,
+        diff_path: &'a TokenStream2,
+    ) -> syn::Result<DiffOutput<impl Iterator<Item = TokenStream2> + use<'a>>> {
+        let fields: Vec<_> = struct_fields(&data.fields).collect();
 
         let arms = fields.iter().enumerate().map(|(i, (identifier, _))| {
             let index = i as u32;
@@ -87,29 +79,31 @@ impl DiffOutput {
             }
         });
 
-        Ok(Self {
+        let mut types = TypeSet::default();
+        for field in &fields {
+            types.insert(field.1);
+        }
+
+        Ok(DiffOutput {
             body: quote! { #(#arms)* },
-            bounds: fields
-                .iter()
-                .map(|(_, ty)| {
-                    let span = ty.span();
-                    quote_spanned! {span=> #ty: #diff_path::Diff }
-                })
-                .collect(),
+            bounds: types.into_iter().map(move |ty| {
+                let span = ty.span();
+                quote_spanned! {span=> #ty: #diff_path::Diff }
+            }),
         })
     }
 
-    // This is quite a bit more complicated because we need to account for
+    // This is a fair bit more complicated because we need to account for
     // three kinds of variants _and_ we need to be able to construct variants
     // with all required data at once in addition to fine-grained diffing.
-    pub fn from_enum(
-        identifier: &syn::Ident,
-        data: &syn::DataEnum,
-        firewheel_path: &syn::Path,
-        diff_path: &TokenStream2,
-    ) -> syn::Result<DiffOutput> {
+    pub fn from_enum<'a>(
+        identifier: &'a syn::Ident,
+        data: &'a syn::DataEnum,
+        firewheel_path: &'a syn::Path,
+        diff_path: &'a TokenStream2,
+    ) -> syn::Result<DiffOutput<impl Iterator<Item = TokenStream2> + use<'a>>> {
         let mut arms = Vec::new();
-        let mut types = Vec::new();
+        let mut types = TypeSet::default();
         for (index, variant) in data.variants.iter().enumerate() {
             let variant_index = index as u32;
             let variant_ident = &variant.ident;
@@ -129,20 +123,28 @@ impl DiffOutput {
                         }
                     });
                 }
-                syn::Fields::Unnamed(fields) => {
+                fields => {
+                    let filtered_fields = fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, f)| !crate::should_skip(&f.attrs));
+
                     let mut a_idents = Vec::new();
                     let mut b_idents = Vec::new();
 
-                    for (i, field) in fields.unnamed.iter().enumerate() {
-                        types.push(&field.ty);
+                    for (i, field) in filtered_fields {
+                        types.insert(&field.ty);
 
-                        a_idents.push(UnnamedField {
+                        a_idents.push(EnumField {
                             ty: &field.ty,
                             unpack_ident: format_ident!("a{i}"),
+                            member: crate::as_member(field.ident.as_ref(), i),
                         });
-                        b_idents.push(UnnamedField {
+
+                        b_idents.push(EnumField {
                             ty: &field.ty,
                             unpack_ident: format_ident!("b{i}"),
+                            member: crate::as_member(field.ident.as_ref(), i),
                         });
                     }
 
@@ -159,110 +161,18 @@ impl DiffOutput {
                         },
                     );
 
-                    let a_unpacked: Vec<_> = a_idents
-                        .iter()
-                        .map(|a| {
-                            let unpack = &a.unpack_ident;
+                    let a_unpacked: Vec<_> = a_idents.iter().map(EnumField::unpack).collect();
+                    let b_unpacked = b_idents.iter().map(EnumField::unpack);
 
-                            quote! {
-                                #unpack
-                            }
-                        })
-                        .collect();
-
-                    let b_unpacked = b_idents.iter().map(|b| {
-                        let unpack = &b.unpack_ident;
-
-                        quote! {
-                            #unpack
-                        }
-                    });
-
-                    arms.push(quote! {
-                        (#identifier::#variant_ident(#(#a_unpacked),*), #identifier::#variant_ident(#(#b_unpacked),*)) => {
-                            let path = path.with(#variant_index);
-
-                            #(#diff_statements)*
-                        }
-                    });
-
-                    let set_items = a_idents.iter().map(|a| {
-                        let ty = &a.ty;
-                        let a = &a.unpack_ident;
-
-                        quote! { <#ty as ::core::clone::Clone>::clone(&#a) }
-                    });
-
-                    arms.push(quote! {
-                        (#identifier::#variant_ident(#(#a_unpacked),*), _) => {
-                            event_queue.push_param(
-                                #firewheel_path::event::ParamData::any((#(#set_items,)*)),
-                                path.with(#variant_index),
-                            );
-                        }
-                    })
-                }
-                syn::Fields::Named(fields) => {
-                    let mut a_idents = Vec::new();
-                    let mut b_idents = Vec::new();
-
-                    for (i, field) in fields.named.iter().enumerate() {
-                        types.push(&field.ty);
-
-                        a_idents.push(NamedField {
-                            ty: &field.ty,
-                            type_ident: field.ident.as_ref().expect("field ident should exist"),
-                            unpack_ident: format_ident!("a{i}"),
-                        });
-
-                        b_idents.push(NamedField {
-                            ty: &field.ty,
-                            type_ident: field.ident.as_ref().expect("field ident should exist"),
-                            unpack_ident: format_ident!("b{i}"),
-                        });
-                    }
-
-                    let a_unpacked: Vec<_> = a_idents
-                        .iter()
-                        .map(|a| {
-                            let ident = a.type_ident;
-                            let unpack = &a.unpack_ident;
-
-                            quote! {
-                                #ident: #unpack
-                            }
-                        })
-                        .collect();
-
-                    let b_unpacked = b_idents.iter().map(|b| {
-                        let ident = b.type_ident;
-                        let unpack = &b.unpack_ident;
-
-                        quote! {
-                            #ident: #unpack
-                        }
-                    });
-
-                    let diff_statements = a_idents.iter().zip(b_idents.iter()).enumerate().map(
-                        |(i, (a, b))| {
-                            let i = i as u32;
-                            let ty = a.ty;
-                            let a = &a.unpack_ident;
-                            let b = &b.unpack_ident;
-
-                            quote! {
-                                <#ty as #diff_path::Diff>::diff(#a, #b, path.with(#i), event_queue);
-                            }
-                        },
-                    );
-
-                    arms.push(quote! {
+                    let inner = quote! {
                         (#identifier::#variant_ident{#(#a_unpacked),*}, #identifier::#variant_ident{#(#b_unpacked),*}) => {
                             let path = path.with(#variant_index);
 
                             #(#diff_statements)*
                         }
-                    });
+                    };
+
+                    arms.push(inner);
 
                     let set_items = a_idents.iter().map(|a| {
                         let ty = &a.ty;
@@ -271,14 +181,16 @@ impl DiffOutput {
                         quote! { <#ty as ::core::clone::Clone>::clone(&#a) }
                     });
 
-                    arms.push(quote! {
+                    let outer = quote! {
                         (#identifier::#variant_ident{#(#a_unpacked),*}, _) => {
                             event_queue.push_param(
                                 #firewheel_path::event::ParamData::any((#(#set_items,)*)),
                                 path.with(#variant_index),
                             );
                         }
-                    })
+                    };
+
+                    arms.push(outer);
                 }
             }
         }
@@ -289,15 +201,18 @@ impl DiffOutput {
             }
         };
 
-        Ok(Self {
+        Ok(DiffOutput {
             body,
-            bounds: types
-                .iter()
-                .map(|ty| {
-                    let span = ty.span();
-                    quote_spanned! {span=> #ty: #diff_path::Diff + ::core::clone::Clone + ::core::marker::Send + ::core::marker::Sync + 'static }
-                })
-                .collect(),
+            bounds: types.into_iter().map(move |ty| {
+                let span = ty.span();
+                quote_spanned! {span=>
+                    #ty: #diff_path::Diff
+                        + ::core::clone::Clone
+                        + ::core::marker::Send
+                        + ::core::marker::Sync
+                        + 'static
+                }
+            }),
         })
     }
 }
