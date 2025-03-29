@@ -240,7 +240,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 
-        self.params.patch_list(events);
+        self.params.apply_list(events);
 
         if was_enabled && !self.params.enabled {
             for ch in self.shared_state.peak_gains.iter() {

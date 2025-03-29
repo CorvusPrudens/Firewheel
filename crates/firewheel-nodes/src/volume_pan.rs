@@ -15,7 +15,7 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning?
 
-#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumePanNode {
     /// The overall volume.
@@ -28,27 +28,27 @@ pub struct VolumePanNode {
     pub pan_law: PanLaw,
 }
 
-impl Patch for VolumePanNode {
-    fn patch(
-        &mut self,
-        data: &firewheel_core::event::ParamData,
-        path: &[u32],
-    ) -> Result<(), firewheel_core::diff::PatchError> {
-        match path.first() {
-            Some(0) => {
-                self.volume = data.try_into()?;
-                Ok(())
-            }
-            Some(1) => {
-                let pan: f32 = data.try_into()?;
-                self.pan = pan.clamp(-1.0, 1.0);
-                Ok(())
-            }
-            Some(2) => self.pan_law.patch(data, &path[1..]),
-            _ => Err(firewheel_core::diff::PatchError::InvalidPath),
-        }
-    }
-}
+// impl Patch for VolumePanNode {
+//     fn patch(
+//         &mut self,
+//         data: &firewheel_core::event::ParamData,
+//         path: &[u32],
+//     ) -> Result<(), firewheel_core::diff::PatchError> {
+//         match path.first() {
+//             Some(0) => {
+//                 self.volume = data.try_into()?;
+//                 Ok(())
+//             }
+//             Some(1) => {
+//                 let pan: f32 = data.try_into()?;
+//                 self.pan = pan.clamp(-1.0, 1.0);
+//                 Ok(())
+//             }
+//             Some(2) => self.pan_law.patch(data, &path[1..]),
+//             _ => Err(firewheel_core::diff::PatchError::InvalidPath),
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VolumePanNodeConfig {
@@ -149,7 +149,7 @@ impl AudioNodeProcessor for Processor {
         proc_info: &ProcInfo,
         events: NodeEventList,
     ) -> ProcessStatus {
-        if self.params.patch_list(events) {
+        if self.params.apply_list(events) {
             let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);
