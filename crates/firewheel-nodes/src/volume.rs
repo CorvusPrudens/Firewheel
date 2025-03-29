@@ -64,7 +64,6 @@ impl AudioNode for VolumeNode {
         let gain = self.volume.amp_clamped(config.amp_epsilon);
 
         VolumeProcessor {
-            params: *self,
             gain: SmoothedParam::new(
                 gain,
                 SmootherConfig {
@@ -81,7 +80,6 @@ impl AudioNode for VolumeNode {
 
 struct VolumeProcessor {
     gain: SmoothedParam,
-    params: VolumeNode,
 
     prev_block_was_silent: bool,
     amp_epsilon: f32,
@@ -92,20 +90,22 @@ impl AudioNodeProcessor for VolumeProcessor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
-        if self.params.apply_list(events) {
-            let mut gain = self.params.volume.amp_clamped(self.amp_epsilon);
-            if gain > 0.99999 && gain < 1.00001 {
-                gain = 1.0;
-            }
-            self.gain.set_value(gain);
+        events.for_each(|e| {
+            if let Some(VolumeNodePatch::Volume(v)) = VolumeNode::patch_event(e) {
+                let mut gain = v.amp_clamped(self.amp_epsilon);
+                if gain > 0.99999 && gain < 1.00001 {
+                    gain = 1.0;
+                }
+                self.gain.set_value(gain);
 
-            if self.prev_block_was_silent {
-                // Previous block was silent, so no need to smooth.
-                self.gain.reset();
+                if self.prev_block_was_silent {
+                    // Previous block was silent, so no need to smooth.
+                    self.gain.reset();
+                }
             }
-        }
+        });
 
         self.prev_block_was_silent = false;
 

@@ -192,6 +192,7 @@ mod notify;
 mod update;
 
 pub use memo::Memo;
+pub use notify::Notify;
 
 /// Derive macros for diffing and patching.
 pub use firewheel_macros::{Diff, Patch};
