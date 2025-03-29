@@ -116,6 +116,8 @@ fn snake_to_camel(ident: &syn::Ident) -> syn::Ident {
             to_caps = false;
             let char = char.to_ascii_uppercase();
             output.push(char);
+        } else {
+            output.push(char);
         }
     }
 
@@ -233,7 +235,7 @@ impl PatchOutput {
             Variant(#identifier)
         }];
         let mut patch_arms = Vec::new();
-        // let mut apply_arms = Vec::new();
+        let mut apply_arms = vec![quote! { (#patch_ident::Variant(v), s) => *s = v }];
         let mut types = TypeSet::default();
         for (index, variant) in data.variants.iter().enumerate() {
             let variant_index = index as u32;
@@ -302,15 +304,6 @@ impl PatchOutput {
 
                     patch_arms.push(outer_patch);
 
-                    let destructured: Vec<_> = fields
-                        .iter()
-                        .map(|(i, _)| {
-                            let member = &i.member;
-                            let unpack = &i.unpack_ident;
-                            quote! { #member: #unpack }
-                        })
-                        .collect();
-
                     let inner_patch = fields.iter().enumerate().map(|(i, (a, field_variant))| {
                         let ty = &a.ty;
                         let i = i as u32;
@@ -323,6 +316,28 @@ impl PatchOutput {
                     });
 
                     patch_arms.extend(inner_patch);
+
+                    let destructured: Vec<_> = fields
+                        .iter()
+                        .map(|(i, _)| {
+                            let member = &i.member;
+                            let unpack = &i.unpack_ident;
+                            quote! { #member: #unpack }
+                        })
+                        .collect();
+
+                    let inner_apply = fields.iter().map(|(field, variant)| {
+                        let unpack_ident = &field.unpack_ident;
+                        let ty = &field.ty;
+
+                        quote! {
+                            (#patch_ident::#variant(d), Self::#variant_ident { #(#destructured),* }) => {
+                                <#ty as #diff_path::Patch>::apply(#unpack_ident, d);
+                            }
+                        }
+                    });
+
+                    apply_arms.extend(inner_apply);
                 }
             }
         }
@@ -334,11 +349,18 @@ impl PatchOutput {
             }
         };
 
+        let apply_body = quote! {
+            match (patch, self) {
+                #(#apply_arms),*
+                _ => {}
+            }
+        };
+
         Ok(Self {
             create_update_struct: true,
             fields: patch_variants,
             patch_body,
-            apply_body: quote! {},
+            apply_body,
             bounds: types
                 .iter()
                 .map(|ty| {

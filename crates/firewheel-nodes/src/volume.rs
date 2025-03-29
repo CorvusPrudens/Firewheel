@@ -37,22 +37,10 @@ impl Default for VolumeNodeConfig {
     }
 }
 
-#[derive(Default, Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumeNode {
     pub volume: Volume,
-}
-
-impl Patch for VolumeNode {
-    fn patch(
-        &mut self,
-        data: &firewheel_core::event::ParamData,
-        _path: &[u32],
-    ) -> Result<(), firewheel_core::diff::PatchError> {
-        self.volume = data.try_into()?;
-
-        Ok(())
-    }
 }
 
 impl AudioNode for VolumeNode {
@@ -106,7 +94,7 @@ impl AudioNodeProcessor for VolumeProcessor {
         proc_info: &ProcInfo,
         events: NodeEventList,
     ) -> ProcessStatus {
-        if self.params.patch_list(events) {
+        if self.params.apply_list(events) {
             let mut gain = self.params.volume.amp_clamped(self.amp_epsilon);
             if gain > 0.99999 && gain < 1.00001 {
                 gain = 1.0;
