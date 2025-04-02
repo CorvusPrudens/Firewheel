@@ -59,7 +59,7 @@
 //!
 //! // When we apply this patch to another instance of
 //! // the same type, it will be brought in sync.
-//! baseline.patch_event(&event_queue[0]);
+//! baseline.apply_event(&event_queue[0]);
 //! assert_eq!(params, baseline);
 //!
 //! ```
@@ -68,7 +68,7 @@
 //!
 //! ```
 //! # use firewheel_core::diff::{Diff, Patch, PathBuilder};
-//! #[derive(Diff, Patch)]
+//! #[derive(Diff, Patch, Clone, PartialEq)]
 //! enum MyParams {
 //!     Unit,
 //!     Tuple(f32, f32),
@@ -76,15 +76,14 @@
 //! }
 //! ```
 //!
-//! Changing between tuple or struct fields will incur allocations
-//! in [`Diff`], but changes _within_ a single variant are still fine-grained.
-//!
-//! It's important to note that you can accidentally introduce allocations
+//! However, note that enums will only perform coarse diffing. If a single
+//! field in a variant changes, the entire variant will still be sent.
+//! As a result, you can accidentally introduce allocations
 //! in audio processors by including types that allocate on clone.
 //!
 //! ```
 //! # use firewheel_core::diff::{Diff, Patch, PathBuilder};
-//! #[derive(Diff, Patch)]
+//! #[derive(Diff, Patch, Clone, PartialEq)]
 //! enum MaybeAllocates {
 //!     A(Vec<f32>), // Will cause allocations in `Patch`!
 //!     B(f32),
@@ -99,7 +98,7 @@
 //! use firewheel_core::{collector::ArcGc, sample_resource::SampleResource};
 //!
 //! # use firewheel_core::diff::{Diff, Patch, PathBuilder};
-//! #[derive(Diff, Patch)]
+//! #[derive(Diff, Patch, Clone, PartialEq)]
 //! enum SoundSource {
 //!     Sample(ArcGc<dyn SampleResource>), // Will _not_ cause allocations in `Patch`.
 //!     Frequency(f32),
@@ -112,7 +111,7 @@
 //!
 //! [`Diff`] and [`Patch`] each accept a single attribute, `skip`, on
 //! struct fields. Any field annotated with `skip` will not receive
-//! diffing or patching, which is particularly useful for atomically synchronized
+//! diffing or patching, which is may be useful for atomically synchronized
 //! types.
 //! ```
 //! use firewheel_core::{collector::ArcGc, diff::{Diff, Patch}};
@@ -189,7 +188,6 @@ mod collections;
 mod leaf;
 mod memo;
 mod notify;
-mod update;
 
 pub use memo::Memo;
 pub use notify::Notify;
@@ -344,6 +342,31 @@ pub trait Diff {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E);
 }
 
+/// A path of indices that uniquely describes an arbitrarily nested field.
+#[derive(PartialEq, Eq)]
+pub enum ParamPath {
+    /// A path of one element.
+    ///
+    /// Parameters tend to be shallow structures, so allocations
+    /// can generally be avoided using this variant.
+    Single(u32),
+    /// When paths are more than one element, this variant keeps
+    /// the stack size to two pointers while avoiding double-indirection
+    /// in the range 2..=4.
+    Multi(ArcGc<SmallVec<[u32; 4]>>),
+}
+
+impl core::ops::Deref for ParamPath {
+    type Target = [u32];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Single(single) => core::slice::from_ref(single),
+            Self::Multi(multi) => multi.as_ref(),
+        }
+    }
+}
+
 /// Fine-grained parameter patching.
 ///
 /// This trait allows a type to perform patching on itself,
@@ -371,14 +394,12 @@ pub trait Diff {
 /// impl AudioNodeProcessor for MyProcessor {
 ///     fn process(
 ///         &mut self,
-///         inputs: &[&[f32]],
-///         outputs: &mut [&mut [f32]],
-///         events: NodeEventList,
+///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         scratch_buffers: ScratchBuffers,
+///         events: NodeEventList,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
-///         self.params.patch_list(events);
+///         self.params.apply_list(events);
 ///
 ///         // ...
 ///
@@ -387,7 +408,7 @@ pub trait Diff {
 /// }
 /// ```
 ///
-/// [`Patch::patch_list`] is a convenience trait method
+/// [`Patch::apply_list`] is a convenience trait method
 /// that takes a [`NodeEventList`] by value, applies any
 /// parameter patches that may be present, and returns
 /// a boolean indicating whether any parameters have changed.
@@ -408,26 +429,28 @@ pub trait Diff {
 /// impl AudioNodeProcessor for MyProcessor {
 ///     fn process(
 ///         &mut self,
-///         inputs: &[&[f32]],
-///         outputs: &mut [&mut [f32]],
-///         mut events: NodeEventList,
+///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         scratch_buffers: ScratchBuffers,
+///         mut events: NodeEventList,
 ///     ) -> ProcessStatus {
 ///         events.for_each(|e| {
-///             // You can take the whole event, which may
-///             // or may not actually contain a parameter:
-///             self.params.patch_event(e);
+///             // To make working with patches easy, you
+///             // can first construct a patch from the event.
+///             let Some(mut patch) = MyParams::patch_event(e) else {
+///                 return;
+///             };
 ///
-///             // Or match on the event and provide
-///             // each element directly:
-///             match e {
-///                 NodeEventType::Param { data, path } => {
-///                     // This allows you to handle errors as well.
-///                     let _ = self.params.patch(data, &path);
+///             // You can then match on the patch.
+///             match &mut patch {
+///                 MyParamsPatch::A(a) => {
+///                     // You can massage to values here, if necessary.
+///                     *a = a.clamp(0.0, 1.0);
 ///                 }
-///                 _ => {}
+///                 MyParamsPatch::B(b) => {}
 ///             }
+///
+///             // And / or apply it directly.
+///             self.params.apply(patch);
 ///         });
 ///
 ///         // ...
@@ -440,113 +463,115 @@ pub trait Diff {
 /// # Manual implementation
 ///
 /// Like with [`Diff`], types like parameters should prefer the [`Patch`] derive macro.
-/// Nonetheless, Firewheel provides a few tools to make manual implementations easy.
+/// Nonetheless, Firewheel provides a few tools to make manual implementations straightforward.
 ///
 /// ```
 /// use firewheel_core::{diff::{Patch, PatchError}, event::ParamData};
 ///
 /// struct MyParams {
 ///     a: f32,
-///     b: (bool, bool)
+///     b: bool,
+/// }
+///
+/// enum MyParamsPatch {
+///     A(f32),
+///     B(bool),
 /// }
 ///
 /// impl Patch for MyParams {
-///     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
+///     type Patch = MyParamsPatch;
+///
+///     fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
 ///         match path {
 ///             [0] => {
-///                 // You can defer to `f32`'s `Patch` implementation, or simply
-///                 // apply the data directly like we do here.
-///                 self.a = data.try_into()?;
+///                 // Types that exist in `ParamData`'s variants can use
+///                 // `try_into`.
+///                 let a = data.try_into()?;
 ///
-///                 Ok(())
+///                 Ok(MyParamsPatch::A(a))
 ///             }
-///             // Shortening the path slice one element at a time as we descend the tree
-///             // allows nested types to see the path as they expect it.
-///             [1, tail @ ..] => {
-///                 self.b.patch(data, tail)
+///             [1] => {
+///                 let b = data.try_into()?;
+///
+///                 Ok(MyParamsPatch::B(b))
 ///             }
 ///             _ => Err(PatchError::InvalidPath)
 ///         }
 ///     }
+///
+///     fn apply(&mut self, patch: Self::Patch) {
+///         match patch {
+///             MyParamsPatch::A(a) => self.a = a,
+///             MyParamsPatch::B(b) => self.b = b,
+///         }
+///     }
 /// }
 /// ```
-// pub trait Patch {
-//     /// Patch `self` according to the incoming data.
-//     /// This will generally be called from within
-//     /// the audio thread.
-//     ///
-//     /// `data` is intentionally made a shared reference.
-//     /// This should make accidental syscalls due to
-//     /// additional allocations or drops more difficult.
-//     /// If you find yourself reaching for interior
-//     /// mutability, consider whether you're building
-//     /// realtime-appropriate behavior.
-//     fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError>;
-//
-//     /// Patch a set of parameters with incoming events.
-//     ///
-//     /// Returns `true` if any parameters have changed.
-//     ///
-//     /// This is useful as a convenience method for extracting the path
-//     /// and data components from a [`NodeEventType`]. Errors produced
-//     /// here are ignored.
-//     fn patch_event(&mut self, event: &NodeEventType) -> bool {
-//         if let NodeEventType::Param { data, path } = event {
-//             // NOTE: It may not be ideal to ignore errors.
-//             // Would it be possible to log these in debug mode?
-//             self.patch(data, path).is_ok()
-//         } else {
-//             false
-//         }
-//     }
-//
-//     /// Patch a set of parameters with a list of incoming events.
-//     ///
-//     /// Returns `true` if any parameters have changed.
-//     ///
-//     /// This is useful as a convenience method for patching parameters
-//     /// directly from a [`NodeEventList`]. Errors produced here are ignored.
-//     fn patch_list(&mut self, mut event_list: NodeEventList) -> bool {
-//         let mut changed = false;
-//
-//         event_list.for_each(|e| {
-//             changed |= self.patch_event(e);
-//         });
-//
-//         changed
-//     }
-// }
-
-/// A path of indices that uniquely describes an arbitrarily nested field.
-#[derive(PartialEq, Eq)]
-pub enum ParamPath {
-    Single(u32),
-    Multi(ArcGc<SmallVec<[u32; 4]>>),
-}
-
-impl core::ops::Deref for ParamPath {
-    type Target = [u32];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Single(single) => core::slice::from_ref(single),
-            Self::Multi(multi) => multi.as_ref(),
-        }
-    }
-}
-
-// TODO: actually, let's just force `Patch` to construct an update enum
-// and then use that to mutate itself. This is great for a few reasons,
-// one being that you can easily "mix and match," reacting to some
-// changes directly while simply applying the rest.
-//
-// The main downside being that users have to essentially write
-// type-traversing code twice when manually implementing `Patch`.
-// (But also, who's gonna manually implement it once this is pushed?)
 pub trait Patch {
+    /// A type's _patch_.
+    ///
+    /// This is a value that enumerates all the ways a type can be changed.
+    /// For leaf types (values that represent the smallest diffable unit) like `f32`,
+    /// this is just the type itself. For aggregate types like structs, this should
+    /// be an enum over each field.
+    ///
+    /// ```
+    /// struct FilterParams {
+    ///     frequency: f32,
+    ///     quality: f32,
+    /// }
+    ///
+    /// enum FilterParamsPatch {
+    ///     Frequency(f32),
+    ///     Quality(f32),
+    /// }
+    /// ```
+    ///
+    /// This type is converted from [`NodeEventType::Param`] in the [`patch`][Patch::patch]
+    /// method.
     type Patch;
 
     /// Construct a patch from a parameter event.
+    ///
+    /// This converts the intermediate representation in [`NodeEventType::Param`] into
+    /// a concrete value, making it easy to manipulate the event in audio processors.
+    ///
+    /// ```
+    /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
+    /// # fn patching(mut event_list: NodeEventList) {
+    /// #[derive(Patch, Default)]
+    /// struct FilterParams {
+    ///     frequency: f32,
+    ///     quality: f32,
+    /// }
+    ///
+    /// let mut filter_params = FilterParams::default();
+    ///
+    /// event_list.for_each(|e| {
+    ///     match e {
+    ///         NodeEventType::Param { data, path } => {
+    ///             let Ok(patch) = FilterParams::patch(data, path) else {
+    ///                 return;
+    ///             };
+    ///
+    ///             // You can match on the patch directly
+    ///             match &patch {
+    ///                 FilterParamsPatch::Frequency(f) => {
+    ///                     // Handle frequency event...
+    ///                 }
+    ///                 FilterParamsPatch::Quality(q) => {
+    ///                     // Handle quality event...
+    ///                 }
+    ///             }
+    ///
+    ///             // And/or apply it.
+    ///             filter_params.apply(patch);
+    ///         }
+    ///         _ => {}
+    ///     }
+    /// });
+    /// # }
+    /// ```
     fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
 
     /// Construct a patch from a parameter event.
@@ -558,6 +583,7 @@ pub trait Patch {
     }
 
     /// Apply a patch.
+    ///
     /// This will generally be called from within
     /// the audio thread.
     fn apply(&mut self, patch: Self::Patch);
@@ -566,9 +592,8 @@ pub trait Patch {
     ///
     /// Returns `true` if any parameters have changed.
     ///
-    /// This is useful as a convenience method for extracting the path
-    /// and data components from a [`NodeEventType`]. Errors produced
-    /// here are ignored.
+    /// This combines [`patch_event`][Patch::patch_event] and [`apply`][Patch::apply]
+    /// into a single call. Errors produced here are ignored.
     fn apply_event(&mut self, event: &NodeEventType) -> bool {
         match event {
             NodeEventType::Param { data, path } => match Self::patch(data, path) {
@@ -582,12 +607,12 @@ pub trait Patch {
         }
     }
 
-    /// Patch a set of parameters with a list of incoming events.
+    /// Create and apply patches from a list of incoming events.
     ///
     /// Returns `true` if any parameters have changed.
     ///
-    /// This is useful as a convenience method for patching parameters
-    /// directly from a [`NodeEventList`]. Errors produced here are ignored.
+    /// This combines [`patch_event`][Patch::patch_event] and [`apply`][Patch::apply]
+    /// for each event into a single call. Errors produced here are ignored.
     fn apply_list(&mut self, mut event_list: NodeEventList) -> bool {
         let mut changed = false;
 

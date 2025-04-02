@@ -101,25 +101,3 @@ impl<'a> core::ops::Deref for TypeSet<'a> {
         &self.0
     }
 }
-
-/// A convenience struct for keeping track of a variant's
-/// identifier along with an identifier we can use without causing
-/// name clashing.
-struct EnumField<'a> {
-    /// The type is useful for error spans.
-    ty: &'a syn::Type,
-    /// The struct field's actual name.
-    member: syn::Member,
-    /// An identifier that avoids the possibility of name clashing.
-    unpack_ident: syn::Ident,
-}
-
-impl EnumField<'_> {
-    fn unpack(&self) -> TokenStream2 {
-        let member = &self.member;
-        let unpack = &self.unpack_ident;
-        quote! {
-            #member: #unpack
-        }
-    }
-}
