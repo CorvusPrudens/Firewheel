@@ -159,7 +159,7 @@ impl AudioNodeProcessor for Processor {
         // The list of events for our node to process.
         events: NodeEventList,
     ) -> ProcessStatus {
-        self.params.patch_list(events);
+        self.params.apply_list(events);
 
         if !self.params.enabled {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);

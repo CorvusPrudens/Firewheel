@@ -5,6 +5,8 @@ use std::sync::{
     Arc, Mutex,
 };
 
+use crate::sample_resource::SampleResource;
+
 /// A wrapper around `Arc` that automatically collects resources
 /// from the audio thread and drops them on the main thread.
 ///
@@ -15,6 +17,14 @@ use std::sync::{
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
     collector: C,
+}
+
+// Here, we special-case sample resource `PartialEq`,
+// which opens up some APIs like samples in enums for diffing.
+impl PartialEq for ArcGc<dyn SampleResource> {
+    fn eq(&self, other: &Self) -> bool {
+        Self::ptr_eq(self, other)
+    }
 }
 
 impl<T: Send + Sync + 'static> ArcGc<T> {
@@ -77,9 +87,9 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector> ArcGc<T, C> {
     }
 }
 
-impl<T: ?Sized + Send + Sync + 'static> Into<ArcGc<T>> for Arc<T> {
-    fn into(self) -> ArcGc<T> {
-        ArcGc::new_unsized(|| self)
+impl<T: ?Sized + Send + Sync + 'static> From<Arc<T>> for ArcGc<T> {
+    fn from(value: Arc<T>) -> Self {
+        ArcGc::new_unsized(|| value)
     }
 }
 
