@@ -70,15 +70,26 @@ struct TypeSet<'a>(Vec<&'a syn::Type>);
 
 impl<'a> TypeSet<'a> {
     pub fn insert(&mut self, ty: &'a syn::Type) -> bool {
-        // This is a simple check for the most common types
-        let already_exists = self.0.iter().any(|existing| match (ty, existing) {
-            (syn::Type::Path(a), syn::Type::Path(b)) => a == b,
-            _ => false,
-        });
+        // let already_exists = self.0.iter().any(|existing| match (ty, existing) {
+        //     (syn::Type::Path(a), syn::Type::Path(b)) => {
+        //         // If we want a concise set of type bounds, we'll
+        //         // need additional syn features -- I don't want to write this myself.
+        //         a.qself == b.qself
+        //             && a.path.segments.len() == b.path.segments.len()
+        //             && a.path
+        //                 .segments
+        //                 .iter()
+        //                 .zip(&b.path.segments)
+        //                 .all(|(a, b)| {
+        //                     a.arguments
+        //                 })
+        //     }
+        //     _ => false,
+        // });
 
-        if already_exists {
-            return false;
-        }
+        // if already_exists {
+        //     return false;
+        // }
 
         self.0.push(ty);
         true
