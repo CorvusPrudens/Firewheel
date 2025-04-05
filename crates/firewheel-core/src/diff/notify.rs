@@ -6,6 +6,16 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// A lightweight wrapper that guarantees an event
+/// will be generated every time the inner value is accessed mutably,
+/// even if the value doesn't change.
+///
+/// This is useful for types like a play head
+/// where periodically writing the same value
+/// carries useful information.
+///
+/// [`Notify`] implements [`core::ops::Deref`] and [`core::ops::DerefMut`]
+/// for the inner `T`.
 #[derive(Debug, Clone)]
 pub struct Notify<T> {
     value: T,
@@ -13,6 +23,21 @@ pub struct Notify<T> {
 }
 
 impl<T> Notify<T> {
+    /// Construct a new [`Notify`].
+    ///
+    /// If two instances of [`Notify`] are constructed separately,
+    /// a call to [`Diff::diff`] will produce an event, even if the
+    /// value is the same.
+    ///
+    /// ```
+    /// # use firewheel_core::diff::Notify;
+    /// // Diffing `a` and `b` will produce an event
+    /// let a = Notify::new(1);
+    /// let b = Notify::new(1);
+    ///
+    /// // whereas `b` and `c` will not.
+    /// let c = b.clone();
+    /// ```
     pub fn new(value: T) -> Self {
         Self {
             value,
@@ -61,5 +86,27 @@ impl<T: Clone + Send + Sync + 'static> Patch for Notify<T> {
 
     fn apply(&mut self, patch: Self::Patch) {
         *self = patch;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::diff::PathBuilder;
+
+    use super::*;
+
+    #[test]
+    fn test_identical_write() {
+        let baseline = Notify::new(0.5f32);
+        let mut value = baseline.clone();
+
+        let mut events = Vec::new();
+        value.diff(&baseline, PathBuilder::default(), &mut events);
+        assert_eq!(events.len(), 0);
+
+        *value = 0.5f32;
+
+        value.diff(&baseline, PathBuilder::default(), &mut events);
+        assert_eq!(events.len(), 1);
     }
 }

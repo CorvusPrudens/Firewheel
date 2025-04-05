@@ -59,7 +59,7 @@
 //!
 //! // When we apply this patch to another instance of
 //! // the same type, it will be brought in sync.
-//! baseline.apply_event(&event_queue[0]);
+//! baseline.apply(MyParams::patch_event(&event_queue[0]).unwrap());
 //! assert_eq!(params, baseline);
 //!
 //! ```
@@ -176,10 +176,34 @@
 //! not covered in the concrete variants, you can insert arbitrary
 //! data into [`ParamData::Any`]. Since this only incurs allocations
 //! during [`Diff`], this will still be generally performant.
+//!
+//! # Preserving invariants
+//!
+//! Firewheel's [`Patch`] derive macro cannot make assurances about
+//! your type's invariants. If two types `A` and `B` have similar structures:
+//!
+//! ```
+//! struct A {
+//!     pub field_one: f32,
+//!     pub field_two: f32,
+//! }
+//!
+//! struct B {
+//!     special_field_one: f32,
+//!     special_field_two: f32,
+//! }
+//! ```
+//!
+//! Then events produced for `A` are also valid for `B`.
+//!
+//! Receiving events produced by the wrong type is unlikely. Most
+//! types will not need special handling to preserve invariants.
+//! However, if your invariants are safety-critical, you _must_
+//! implement [`Patch`] manually.
 
 use crate::{
     collector::ArcGc,
-    event::{NodeEventList, NodeEventType, ParamData},
+    event::{NodeEventType, ParamData},
 };
 
 use smallvec::SmallVec;
@@ -396,10 +420,10 @@ impl core::ops::Deref for ParamPath {
 ///         &mut self,
 ///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         events: NodeEventList,
+///         mut events: NodeEventList,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
-///         self.params.apply_list(events);
+///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch));
 ///
 ///         // ...
 ///
@@ -408,13 +432,8 @@ impl core::ops::Deref for ParamPath {
 /// }
 /// ```
 ///
-/// [`Patch::apply_list`] is a convenience trait method
-/// that takes a [`NodeEventList`] by value, applies any
-/// parameter patches that may be present, and returns
-/// a boolean indicating whether any parameters have changed.
-///
-/// If you need finer access to the event list, you can
-/// apply patches more directly.
+/// If you need fine access to each patch, you can
+/// match on the patch type.
 ///
 /// ```
 /// # use firewheel_core::{diff::{Patch}, event::*, node::*};
@@ -433,17 +452,13 @@ impl core::ops::Deref for ParamPath {
 ///         proc_info: &ProcInfo,
 ///         mut events: NodeEventList,
 ///     ) -> ProcessStatus {
-///         events.for_each(|e| {
-///             // To make working with patches easy, you
-///             // can first construct a patch from the event.
-///             let Some(mut patch) = MyParams::patch_event(e) else {
-///                 return;
-///             };
-///
-///             // You can then match on the patch.
+///         events.for_each_patch::<MyParams>(|mut patch| {
+///             // When you derive `Patch`, it creates an enum with variants
+///             // for each field.
 ///             match &mut patch {
 ///                 MyParamsPatch::A(a) => {
-///                     // You can massage to values here, if necessary.
+///                     // You can mutate the patch itself if you want
+///                     // to constrain or modify values.
 ///                     *a = a.clamp(0.0, 1.0);
 ///                 }
 ///                 MyParamsPatch::B(b) => {}
@@ -574,7 +589,10 @@ pub trait Patch {
     /// ```
     fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
 
-    /// Construct a patch from a parameter event.
+    /// Construct a patch from a node event.
+    ///
+    /// This is a convenience wrapper around [`patch`][Patch::patch], discarding
+    /// errors and node events besides [`NodeEventType::Param`].
     fn patch_event(event: &NodeEventType) -> Option<Self::Patch> {
         match event {
             NodeEventType::Param { data, path } => Some(Self::patch(data, path).ok()?),
@@ -585,43 +603,8 @@ pub trait Patch {
     /// Apply a patch.
     ///
     /// This will generally be called from within
-    /// the audio thread.
+    /// the audio thread, so real-time constraints should be respected.
     fn apply(&mut self, patch: Self::Patch);
-
-    /// Patch a set of parameters with incoming events.
-    ///
-    /// Returns `true` if any parameters have changed.
-    ///
-    /// This combines [`patch_event`][Patch::patch_event] and [`apply`][Patch::apply]
-    /// into a single call. Errors produced here are ignored.
-    fn apply_event(&mut self, event: &NodeEventType) -> bool {
-        match event {
-            NodeEventType::Param { data, path } => match Self::patch(data, path) {
-                Ok(patch) => {
-                    self.apply(patch);
-                    true
-                }
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
-    /// Create and apply patches from a list of incoming events.
-    ///
-    /// Returns `true` if any parameters have changed.
-    ///
-    /// This combines [`patch_event`][Patch::patch_event] and [`apply`][Patch::apply]
-    /// for each event into a single call. Errors produced here are ignored.
-    fn apply_list(&mut self, mut event_list: NodeEventList) -> bool {
-        let mut changed = false;
-
-        event_list.for_each(|e| {
-            changed |= self.apply_event(e);
-        });
-
-        changed
-    }
 }
 
 // NOTE: Using a `SmallVec` instead of a `Box<[u32]>` yields
@@ -634,11 +617,29 @@ pub trait Patch {
 // scenario, this seems like a reasonable tradeoff.
 
 /// A simple builder for [`ParamPath`].
+///
+/// When performing top-level diffing, you should provide a default
+/// [`PathBuilder`].
+///
+/// ```
+/// # use firewheel_core::{diff::{Diff, PathBuilder}, event::*, node::*};
+/// #[derive(Diff, Default, Clone)]
+/// struct FilterNode {
+///     frequency: f32,
+///     quality: f32,
+/// }
+///
+/// let baseline = FilterNode::default();
+/// let node = baseline.clone();
+///
+/// let mut events = Vec::new();
+/// node.diff(&baseline, PathBuilder::default(), &mut events);
+/// ```
 #[derive(Debug, Default, Clone)]
 pub struct PathBuilder(SmallVec<[u32; 4]>);
 
 impl PathBuilder {
-    /// Clone the path and append the index.
+    /// Clone the path, appending the index to the returned value.
     pub fn with(&self, index: u32) -> Self {
         let mut new = self.0.clone();
         new.push(index);
@@ -739,7 +740,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        assert!(baseline.apply_event(&messages[0]));
+        baseline.apply(DiffingExample::patch_event(&messages[0]).unwrap());
         assert_eq!(baseline, value);
     }
 
@@ -752,7 +753,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        assert!(baseline.apply_event(&messages[0]));
+        baseline.apply(DiffingExample::patch_event(&messages[0]).unwrap());
         assert_eq!(baseline, value);
     }
 }
