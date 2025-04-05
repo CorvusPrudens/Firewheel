@@ -46,6 +46,24 @@ impl<T> Notify<T> {
     }
 }
 
+impl<T> AsRef<T> for Notify<T> {
+    fn as_ref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> AsMut<T> for Notify<T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.value
+    }
+}
+
+impl<T: Default> Default for Notify<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
 impl<T> core::ops::Deref for Notify<T> {
     type Target = T;
 

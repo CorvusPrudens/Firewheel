@@ -142,3 +142,23 @@ impl Patch for Vec3 {
         *self = patch;
     }
 }
+
+impl<T: Send + Sync + Clone + PartialEq + 'static> Diff for Option<T> {
+    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+        if self != baseline {
+            event_queue.push_param(ParamData::any(self.clone()), path);
+        }
+    }
+}
+
+impl<T: Send + Sync + Clone + PartialEq + 'static> Patch for Option<T> {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+        data.downcast_ref().cloned().ok_or(PatchError::InvalidData)
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        *self = patch;
+    }
+}
