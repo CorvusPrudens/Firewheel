@@ -52,6 +52,7 @@ pub fn derive_diff(input: TokenStream) -> syn::Result<TokenStream2> {
     };
 
     Ok(quote! {
+        #[automatically_derived]
         impl #impl_generics #diff_path::Diff for #identifier #ty_generics #where_generics {
             fn diff<__E: #diff_path::EventQueue>(&self, baseline: &Self, path: #diff_path::PathBuilder, event_queue: &mut __E) {
                 #body

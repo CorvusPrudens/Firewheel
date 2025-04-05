@@ -24,25 +24,8 @@ pub struct Notify<T> {
 
 impl<T> Notify<T> {
     /// Construct a new [`Notify`].
-    ///
-    /// If two instances of [`Notify`] are constructed separately,
-    /// a call to [`Diff::diff`] will produce an event, even if the
-    /// value is the same.
-    ///
-    /// ```
-    /// # use firewheel_core::diff::Notify;
-    /// // Diffing `a` and `b` will produce an event
-    /// let a = Notify::new(1);
-    /// let b = Notify::new(1);
-    ///
-    /// // whereas `b` and `c` will not.
-    /// let c = b.clone();
-    /// ```
-    pub fn new(value: T) -> Self {
-        Self {
-            value,
-            counter: NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
-        }
+    pub const fn new(value: T) -> Self {
+        Self { value, counter: 0 }
     }
 }
 
@@ -80,14 +63,14 @@ impl<T> core::ops::DerefMut for Notify<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Diff for Notify<T> {
+impl<T: Clone + PartialEq + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
         &self,
         baseline: &Self,
         path: super::PathBuilder,
         event_queue: &mut E,
     ) {
-        if self.counter != baseline.counter {
+        if self.counter != baseline.counter || self.value != baseline.value {
             event_queue.push_param(ParamData::any(self.clone()), path);
         }
     }

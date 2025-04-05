@@ -111,7 +111,7 @@
 //!
 //! [`Diff`] and [`Patch`] each accept a single attribute, `skip`, on
 //! struct fields. Any field annotated with `skip` will not receive
-//! diffing or patching, which is may be useful for atomically synchronized
+//! diffing or patching, which may be useful for atomically synchronized
 //! types.
 //! ```
 //! use firewheel_core::{collector::ArcGc, diff::{Diff, Patch}};
@@ -394,7 +394,7 @@ impl core::ops::Deref for ParamPath {
 /// Fine-grained parameter patching.
 ///
 /// This trait allows a type to perform patching on itself,
-/// applying patches generated from another instance.
+/// applying changes generated from another instance.
 ///
 /// For more information, see the [module docs][self].
 ///
@@ -488,6 +488,8 @@ impl core::ops::Deref for ParamPath {
 ///     b: bool,
 /// }
 ///
+/// // To follow the derive macro convention, create an
+/// // enum with variants for each field.
 /// enum MyParamsPatch {
 ///     A(f32),
 ///     B(bool),
@@ -502,12 +504,10 @@ impl core::ops::Deref for ParamPath {
 ///                 // Types that exist in `ParamData`'s variants can use
 ///                 // `try_into`.
 ///                 let a = data.try_into()?;
-///
 ///                 Ok(MyParamsPatch::A(a))
 ///             }
 ///             [1] => {
 ///                 let b = data.try_into()?;
-///
 ///                 Ok(MyParamsPatch::B(b))
 ///             }
 ///             _ => Err(PatchError::InvalidPath)
@@ -604,6 +604,24 @@ pub trait Patch {
     ///
     /// This will generally be called from within
     /// the audio thread, so real-time constraints should be respected.
+    ///
+    /// Typically, you'll call this within [`for_each_patch`].
+    ///
+    /// ```
+    /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
+    /// # fn patching(mut event_list: NodeEventList) {
+    /// #[derive(Patch, Default)]
+    /// struct FilterParams {
+    ///     frequency: f32,
+    ///     quality: f32,
+    /// }
+    ///
+    /// let mut filter_params = FilterParams::default();
+    /// event_list.for_each_patch::<FilterParams>(|patch| filter_params.apply(patch));
+    /// # }
+    /// ```
+    ///
+    /// [`for_each_patch`]: crate::event::NodeEventList::for_each_patch
     fn apply(&mut self, patch: Self::Patch);
 }
 
