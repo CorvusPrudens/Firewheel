@@ -92,18 +92,16 @@ impl AudioNodeProcessor for VolumeProcessor {
         proc_info: &ProcInfo,
         mut events: NodeEventList,
     ) -> ProcessStatus {
-        events.for_each(|e| {
-            if let Some(VolumeNodePatch::Volume(v)) = VolumeNode::patch_event(e) {
-                let mut gain = v.amp_clamped(self.amp_epsilon);
-                if gain > 0.99999 && gain < 1.00001 {
-                    gain = 1.0;
-                }
-                self.gain.set_value(gain);
+        events.for_each_patch::<VolumeNode>(|VolumeNodePatch::Volume(v)| {
+            let mut gain = v.amp_clamped(self.amp_epsilon);
+            if gain > 0.99999 && gain < 1.00001 {
+                gain = 1.0;
+            }
+            self.gain.set_value(gain);
 
-                if self.prev_block_was_silent {
-                    // Previous block was silent, so no need to smooth.
-                    self.gain.reset();
-                }
+            if self.prev_block_was_silent {
+                // Previous block was silent, so no need to smooth.
+                self.gain.reset();
             }
         });
 

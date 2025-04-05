@@ -5,26 +5,21 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use crate::sample_resource::SampleResource;
-
 /// A wrapper around `Arc` that automatically collects resources
 /// from the audio thread and drops them on the main thread.
 ///
 /// The performance characteristics and stack size of [`ArcGc`] are
 /// similar to [`Arc`], except that the default [`GlobalCollector`]
 /// acquires a mutex lock once during construction.
+///
+/// Equality checking between instances of [`ArcGc`] relies _only_ on
+/// pointer equivalence. If you need to evaluate the equality of the
+/// values contained by [`ArcGc`], you'll need to be careful to ensure you
+/// explicitly take references of the inner data.
 #[derive(Debug, Hash)]
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
     collector: C,
-}
-
-// Here, we special-case sample resource `PartialEq`,
-// which opens up some APIs like samples in enums for diffing.
-impl PartialEq for ArcGc<dyn SampleResource> {
-    fn eq(&self, other: &Self) -> bool {
-        Self::ptr_eq(self, other)
-    }
 }
 
 impl<T: Send + Sync + 'static> ArcGc<T> {
