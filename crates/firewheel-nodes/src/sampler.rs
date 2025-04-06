@@ -226,6 +226,16 @@ impl SamplerState {
         self.shared_state.stopped.store(stopped, Ordering::Release);
     }
 
+    /// Returns the state of the "finished" flag.
+    pub fn finished(&self) -> bool {
+        self.shared_state.finished.load(Ordering::Relaxed)
+    }
+
+    /// Clears the "finished" flag.
+    pub fn clear_finished(&self) {
+        self.shared_state.finished.store(false, Ordering::Relaxed);
+    }
+
     /// A score of how suitible this node is to start new work (Play a new sample). The
     /// higher the score, the better the candidate.
     pub fn worker_score(&self, params: &SamplerNode) -> u64 {
@@ -900,6 +910,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     if finished {
                         self.playback_state = PlaybackState::Stop;
                         self.shared_state.stopped.store(true, Ordering::Relaxed);
+                        self.shared_state.finished.store(true, Ordering::Relaxed);
                     }
                 }
                 Some(SequenceType::Sequence {
@@ -989,6 +1000,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.loaded_sample_state = None;
             self.playback_state = PlaybackState::Stop;
             self.shared_state.stopped.store(true, Ordering::Relaxed);
+            self.shared_state.finished.store(false, Ordering::Relaxed);
         }
     }
 }
@@ -996,6 +1008,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 struct SharedState {
     sequence_playhead_frames: AtomicU64,
     stopped: AtomicBool,
+    finished: AtomicBool,
 }
 
 impl Default for SharedState {
@@ -1003,6 +1016,7 @@ impl Default for SharedState {
         Self {
             sequence_playhead_frames: AtomicU64::new(0),
             stopped: AtomicBool::new(true),
+            finished: AtomicBool::new(false),
         }
     }
 }
