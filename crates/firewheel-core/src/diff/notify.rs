@@ -4,7 +4,24 @@ use crate::{
 };
 use core::sync::atomic::{AtomicU64, Ordering};
 
-static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
+// Increment an atomic counter.
+//
+// This is guaranteed to never return zero.
+#[inline(always)]
+fn increment_counter() -> u64 {
+    static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    NOTIFY_COUNTER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current_val| {
+            current_val
+                // Attempt increment
+                .checked_add(1)
+                // If it overflows, return 1 instead
+                .or(Some(1))
+        })
+        // We always return `Some`
+        .unwrap()
+}
 
 /// A lightweight wrapper that guarantees an event
 /// will be generated every time the inner value is accessed mutably,
@@ -41,8 +58,26 @@ impl<T> Notify<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,
-            counter: NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
+            counter: increment_counter(),
         }
+    }
+
+    /// Get this instance's unique ID.
+    ///
+    /// After each mutable dereference, this ID will be replaced
+    /// with a new, unique value. For all practical purposes,
+    /// the ID can be considered unique among all [`Notify`] instances.
+    ///
+    /// [`Notify`] IDs are guaranteed to never be 0, so it can be
+    /// used as a sentinel value.
+    #[inline(always)]
+    pub fn id(&self) -> u64 {
+        self.counter
+    }
+
+    /// Get mutable access to the inner value without updating the ID.
+    pub fn as_mut_unsync(&mut self) -> &mut T {
+        &mut self.value
     }
 }
 
@@ -74,7 +109,7 @@ impl<T> core::ops::Deref for Notify<T> {
 
 impl<T> core::ops::DerefMut for Notify<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.counter = NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.counter = increment_counter();
 
         &mut self.value
     }
