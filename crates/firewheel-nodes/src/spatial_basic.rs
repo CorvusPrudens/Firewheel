@@ -272,11 +272,7 @@ impl AudioNodeProcessor for Processor {
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each(|e| {
-            let Some(mut patch) = SpatialBasicNode::patch_event(e) else {
-                return;
-            };
-
+        events.for_each_patch::<SpatialBasicNode>(|mut patch| {
             match &mut patch {
                 SpatialBasicNodePatch::Offset(offset) => {
                     if !offset.is_finite() {

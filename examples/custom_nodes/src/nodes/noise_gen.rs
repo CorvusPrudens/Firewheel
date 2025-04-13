@@ -120,11 +120,7 @@ impl AudioNodeProcessor for Processor {
         mut events: NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
-        events.for_each(|e| {
-            let Some(patch) = NoiseGenNode::patch_event(e) else {
-                return;
-            };
-
+        events.for_each_patch::<NoiseGenNode>(|patch| {
             // Since we want to clamp the volume event, we can
             // grab it here and perform the processing only when required.
             if let NoiseGenNodePatch::Volume(vol) = &patch {

@@ -136,20 +136,17 @@ impl AudioNodeProcessor for Processor {
         //
         // We don't need to keep around a `FilterNode` instance,
         // so we can just match on each event directly.
-        events.for_each(|e| {
-            match FilterNode::patch_event(e) {
-                Some(FilterNodePatch::CutoffHz(cutoff)) => {
-                    self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
-                }
-                Some(FilterNodePatch::Volume(volume)) => {
-                    self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
-                }
-                Some(FilterNodePatch::Enabled(enabled)) => {
-                    // Tell the declicker to crossfade.
-                    self.enable_declicker
-                        .fade_to_enabled(enabled, proc_info.declick_values);
-                }
-                _ => {}
+        events.for_each_patch::<FilterNode>(|patch| match patch {
+            FilterNodePatch::CutoffHz(cutoff) => {
+                self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
+            }
+            FilterNodePatch::Volume(volume) => {
+                self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
+            }
+            FilterNodePatch::Enabled(enabled) => {
+                // Tell the declicker to crossfade.
+                self.enable_declicker
+                    .fade_to_enabled(enabled, proc_info.declick_values);
             }
         });
 
