@@ -102,7 +102,7 @@ impl AudioSystem {
             volume: old_volume,
             repeat_mode: old_repeat_mode,
             ..
-        }) = &mut sampler.params.sequence
+        }) = sampler.params.sequence.as_mut()
         else {
             todo!();
         };
