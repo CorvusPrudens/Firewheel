@@ -86,7 +86,7 @@ pub enum PlaybackSpeedQuality {
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerNode {
     /// The current sequence loaded into the sampler.
-    pub sequence: Option<SequenceType>,
+    pub sequence: Notify<Option<SequenceType>>,
 
     /// The current playback state.
     pub playback: Notify<PlaybackState>,
@@ -105,7 +105,7 @@ pub struct SamplerNode {
 impl Default for SamplerNode {
     fn default() -> Self {
         Self {
-            sequence: None,
+            sequence: Notify::default(),
             playback: Default::default(),
             playhead: Default::default(),
             //playback_speed: 1.0,
@@ -128,7 +128,7 @@ impl SamplerNode {
         volume: Volume,
         repeat_mode: RepeatMode,
     ) {
-        self.sequence = Some(SequenceType::SingleSample {
+        *self.sequence = Some(SequenceType::SingleSample {
             sample,
             volume,
             repeat_mode,
@@ -226,17 +226,17 @@ impl SamplerState {
         self.shared_state.stopped.store(stopped, Ordering::Release);
     }
 
-    /// Returns the state of the "finished" flag.
-    pub fn finished(&self) -> bool {
+    /// Returns the ID stored in the "finished" flag.
+    pub fn finished(&self) -> u64 {
         self.shared_state.finished.load(Ordering::Relaxed)
     }
 
     /// Clears the "finished" flag.
     pub fn clear_finished(&self) {
-        self.shared_state.finished.store(false, Ordering::Relaxed);
+        self.shared_state.finished.store(0, Ordering::Relaxed);
     }
 
-    /// A score of how suitible this node is to start new work (Play a new sample). The
+    /// A score of how suitable this node is to start new work (Play a new sample). The
     /// higher the score, the better the candidate.
     pub fn worker_score(&self, params: &SamplerNode) -> u64 {
         if params.sequence.is_some() {
@@ -759,7 +759,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
             self.loaded_sample_state = None;
 
-            match &self.params.sequence {
+            match self.params.sequence.as_ref() {
                 None => {
                     self.playback_state = PlaybackState::Stop;
                     self.shared_state.stopped.store(true, Ordering::Relaxed);
@@ -783,7 +783,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         if playhead_changed || self.is_first_process {
             let playhead_frames = self.params.playhead.as_frames(self.sample_rate as u32);
 
-            if let Some(SequenceType::SingleSample { .. }) = &self.params.sequence {
+            if let Some(SequenceType::SingleSample { .. }) = self.params.sequence.as_ref() {
                 let state = self.loaded_sample_state.as_ref().unwrap();
 
                 let playhead_frames = playhead_frames.min(state.sample_len_frames);
@@ -884,7 +884,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         let mut num_filled_channels = 0;
 
         if currently_processing_sample {
-            match &self.params.sequence {
+            match self.params.sequence.as_ref() {
                 None => {}
                 Some(SequenceType::SingleSample { .. }) => {
                     let sample_state = self.loaded_sample_state.as_ref().unwrap();
@@ -910,7 +910,9 @@ impl AudioNodeProcessor for SamplerProcessor {
                     if finished {
                         self.playback_state = PlaybackState::Stop;
                         self.shared_state.stopped.store(true, Ordering::Relaxed);
-                        self.shared_state.finished.store(true, Ordering::Relaxed);
+                        self.shared_state
+                            .finished
+                            .store(self.params.sequence.id(), Ordering::Relaxed);
                     }
                 }
                 Some(SequenceType::Sequence {
@@ -996,11 +998,11 @@ impl AudioNodeProcessor for SamplerProcessor {
 
             // The sample rate has changed, meaning that the sample resources now have
             // the incorrect sample rate and the user must reload them.
-            self.params.sequence = None;
+            *self.params.sequence.as_mut_unsync() = None;
             self.loaded_sample_state = None;
             self.playback_state = PlaybackState::Stop;
             self.shared_state.stopped.store(true, Ordering::Relaxed);
-            self.shared_state.finished.store(false, Ordering::Relaxed);
+            self.shared_state.finished.store(0, Ordering::Relaxed);
         }
     }
 }
@@ -1008,7 +1010,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 struct SharedState {
     sequence_playhead_frames: AtomicU64,
     stopped: AtomicBool,
-    finished: AtomicBool,
+    finished: AtomicU64,
 }
 
 impl Default for SharedState {
@@ -1016,7 +1018,7 @@ impl Default for SharedState {
         Self {
             sequence_playhead_frames: AtomicU64::new(0),
             stopped: AtomicBool::new(true),
-            finished: AtomicBool::new(false),
+            finished: AtomicU64::new(0),
         }
     }
 }
