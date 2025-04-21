@@ -34,7 +34,7 @@ beep_test = []
 # Enables the peak meter node
 peak_meter = ["dep:atomic_float"]
 # Enables the sampler node
-sampler = ["dep:smallvec", "dep:crossbeam-utils"]
+sampler = ["dep:smallvec", "dep:arrayvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
 spatial_basic = []
 # Enables the stream writer/reader nodes for sending/receiving audio
@@ -48,5 +48,6 @@ firewheel-core = { path = "../firewheel-core", version = "0.3.0" }
 atomic_float = { workspace = true, optional = true }
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
+arrayvec = { workspace = true, optional = true }
 fixed-resample = { version = "0.8.0", features = ["fft-resampler", "channel"], optional = true }
 bevy_ecs = { version = "0.15", optional = true }

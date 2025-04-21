@@ -5,7 +5,10 @@ use firewheel::{
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
-        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
+        sampler::{
+            PlaybackState, RepeatMode, SamplerConfig, SamplerNode, SamplerPlaybackSpeedConfig,
+            SequenceType,
+        },
     },
     FirewheelContext,
 };
@@ -62,7 +65,13 @@ impl AudioSystem {
                 let mut params = SamplerNode::default();
                 params.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
 
-                let node_id = cx.add_node(params.clone(), None);
+                let node_id = cx.add_node(
+                    params.clone(),
+                    Some(SamplerConfig {
+                        playback_speed_config: Some(SamplerPlaybackSpeedConfig::default()),
+                        ..Default::default()
+                    }),
+                );
 
                 cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();
@@ -145,6 +154,13 @@ impl AudioSystem {
         sampler
             .params
             .update_memo(&mut self.cx.event_queue(sampler.node_id));
+    }
+
+    pub fn set_speed(&mut self, speed: f64) {
+        for s in self.samplers.iter_mut() {
+            s.params.playback_speed = speed;
+            s.params.update_memo(&mut self.cx.event_queue(s.node_id));
+        }
     }
 
     pub fn playback_state(&self, sampler_i: usize) -> &PlaybackState {
