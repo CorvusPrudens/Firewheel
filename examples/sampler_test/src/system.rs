@@ -83,9 +83,6 @@ impl AudioSystem {
             })
             .collect();
 
-        let peak_meter_normalizer = DbMeterNormalizer::default();
-        dbg!(&peak_meter_normalizer);
-
         Self {
             cx,
             samplers,
@@ -158,7 +155,7 @@ impl AudioSystem {
 
     pub fn set_speed(&mut self, speed: f64) {
         for s in self.samplers.iter_mut() {
-            s.params.playback_speed = speed;
+            s.params.speed = speed;
             s.params.update_memo(&mut self.cx.event_queue(s.node_id));
         }
     }

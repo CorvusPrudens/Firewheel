@@ -110,7 +110,11 @@ impl App for DemoApp {
             ui.separator();
 
             if ui
-                .add(egui::Slider::new(&mut self.playback_speed, 0.125..=8.0).text("speed").logarithmic(true))
+                .add(
+                    egui::Slider::new(&mut self.playback_speed, 0.125..=8.0)
+                        .text("speed")
+                        .logarithmic(true),
+                )
                 .changed()
             {
                 self.audio_system.set_speed(self.playback_speed);

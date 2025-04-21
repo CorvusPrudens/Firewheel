@@ -124,7 +124,7 @@ pub struct SamplerNode {
     /// its original speed, `< 1.0` means to play the sound slower (which will make
     /// it lower-pitched), and `> 1.0` means to play the sound faster (which will
     /// make it higher-pitched).
-    pub playback_speed: f64,
+    pub speed: f64,
 }
 
 impl Default for SamplerNode {
@@ -133,7 +133,7 @@ impl Default for SamplerNode {
             sequence: Notify::default(),
             playback: Default::default(),
             playhead: Default::default(),
-            playback_speed: 1.0,
+            speed: 1.0,
         }
     }
 }
@@ -479,27 +479,15 @@ impl AudioNode for SamplerNode {
             ))
         };
 
-        let resample_buffer = config.playback_speed_config.as_ref().map(|c| {
-            assert!(c.max_speed >= 1.0);
-
-            let max_resample_frames =
-                (cx.stream_info.max_block_frames.get() as f64 * c.max_speed).ceil() as usize + 8;
-
-            ResampleBuffer {
-                buffers: (0..config.channels.get().get())
-                    .map(|_| {
-                        let mut v = Vec::new();
-                        v.reserve_exact(max_resample_frames);
-                        v.resize(max_resample_frames, 0.0);
-                        v
-                    })
-                    .collect(),
-                last_frame: 0,
-                fract_frame: 0.0,
-            }
+        let resampler = config.playback_speed_config.as_ref().map(|c| {
+            Resampler::new(
+                c,
+                config.channels.get().get() as usize,
+                cx.stream_info.max_block_frames.get() as usize,
+            )
         });
 
-        let mut playback_speed = self.playback_speed;
+        let mut playback_speed = self.speed;
         if let Some(c) = &config.playback_speed_config {
             playback_speed = playback_speed.min(c.max_speed);
         }
@@ -513,7 +501,7 @@ impl AudioNode for SamplerNode {
             stop_declicker_buffers,
             stop_declickers: smallvec::smallvec![StopDeclickerState::default(); config.num_declickers as usize],
             num_active_stop_declickers: 0,
-            resample_buffer,
+            resampler,
             speed: playback_speed,
             playback_state: *self.playback,
             playback_start_time_seconds: ClockSeconds::default(),
@@ -543,7 +531,7 @@ pub struct SamplerProcessor {
     stop_declickers: SmallVec<[StopDeclickerState; DEFAULT_NUM_DECLICKERS]>,
     num_active_stop_declickers: usize,
 
-    resample_buffer: Option<ResampleBuffer>,
+    resampler: Option<Resampler>,
     speed: f64,
 
     playback_start_time_seconds: ClockSeconds,
@@ -570,7 +558,7 @@ impl SamplerProcessor {
         declick_values: &DeclickValues,
         start_on_frame: Option<usize>,
     ) -> (bool, usize) {
-        let mut range_in_buffer = if let Some(frame) = start_on_frame {
+        let range_in_buffer = if let Some(frame) = start_on_frame {
             for ch in buffers.iter_mut() {
                 ch[..frame].fill(0.0);
             }
@@ -580,35 +568,19 @@ impl SamplerProcessor {
             0..frames
         };
 
-        if let Some(resampler_buffer) = &mut self.resample_buffer {
-            if self.speed == 1.0 && resampler_buffer.last_frame > 0 {
-                // Copy the last copied frame to the buffer.
-                for (b, rb) in buffers.iter_mut().zip(resampler_buffer.buffers.iter()) {
-                    b[range_in_buffer.start] = rb[resampler_buffer.last_frame];
-                }
-
-                if frames == 1 {
-                    return (false, buffers.len());
-                }
-
-                range_in_buffer.start += 1;
-            }
-        }
-
         let (finished_playing, mut channels_filled) = if self.speed != 1.0 {
             // Get around borrow checker.
-            let mut resample_buffer = self.resample_buffer.take().unwrap();
+            let mut resampler = self.resampler.take().unwrap();
 
             let (finished_playing, channels_filled) =
-                resample_buffer.resample_linear(buffers, range_in_buffer.clone(), self, looping);
+                resampler.resample_linear(buffers, range_in_buffer.clone(), self, looping);
 
-            self.resample_buffer = Some(resample_buffer);
+            self.resampler = Some(resampler);
 
             (finished_playing, channels_filled)
         } else {
-            if let Some(resample_buffer) = &mut self.resample_buffer {
-                resample_buffer.fract_frame = 0.0;
-                resample_buffer.last_frame = 0;
+            if let Some(resampler) = &mut self.resampler {
+                resampler.reset();
             }
 
             self.copy_from_sample(buffers, range_in_buffer, looping)
@@ -680,21 +652,24 @@ impl SamplerProcessor {
 
         if first_copy_frames < block_frames {
             if looping {
-                let mut frames_left = block_frames - first_copy_frames;
+                let mut frames_copied = first_copy_frames;
 
-                while frames_left > 0 {
-                    let copy_frames = (frames_left as u64).min(state.sample_len_frames) as usize;
+                while frames_copied < block_frames {
+                    let copy_frames = ((block_frames - frames_copied) as u64)
+                        .min(state.sample_len_frames)
+                        as usize;
 
                     state.sample.fill_buffers(
                         buffers,
-                        range_in_buffer.start + first_copy_frames..range_in_buffer.end,
+                        range_in_buffer.start + frames_copied
+                            ..range_in_buffer.start + frames_copied + copy_frames,
                         0,
                     );
 
                     state.playhead = copy_frames as u64;
                     state.num_times_looped_back += 1;
 
-                    frames_left -= copy_frames;
+                    frames_copied += copy_frames;
                 }
             } else {
                 let n_channels = buffers.len().min(state.sample_num_channels.get());
@@ -830,7 +805,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 SamplerNodePatch::Sequence(_) => sequence_changed = true,
                 SamplerNodePatch::Playhead(_) => playhead_changed = true,
                 SamplerNodePatch::Playback(_) => playback_changed = true,
-                SamplerNodePatch::PlaybackSpeed(_) => speed_changed = true,
+                SamplerNodePatch::Speed(_) => speed_changed = true,
             }
 
             self.params.apply(patch);
@@ -838,7 +813,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         if speed_changed {
             if let Some(c) = &self.config.playback_speed_config {
-                self.speed = self.params.playback_speed.clamp(0.00001, c.max_speed);
+                self.speed = self.params.speed.clamp(0.00001, c.max_speed);
 
                 if self.speed > 0.99999 && self.speed < 1.00001 {
                     self.speed = 1.0;
@@ -1134,13 +1109,36 @@ struct StopDeclickerState {
     channels: usize,
 }
 
-struct ResampleBuffer {
+struct Resampler {
     buffers: Vec<Vec<f32>>,
-    last_frame: usize,
     fract_frame: f64,
+    is_first_process: bool,
 }
 
-impl ResampleBuffer {
+impl Resampler {
+    pub fn new(
+        config: &SamplerPlaybackSpeedConfig,
+        channels: usize,
+        max_block_frames: usize,
+    ) -> Self {
+        assert!(config.max_speed >= 1.0);
+
+        let max_resample_frames = (max_block_frames as f64 * config.max_speed).ceil() as usize + 8;
+
+        Self {
+            buffers: (0..channels)
+                .map(|_| {
+                    let mut v = Vec::new();
+                    v.reserve_exact(max_resample_frames);
+                    v.resize(max_resample_frames, 0.0);
+                    v
+                })
+                .collect(),
+            fract_frame: 0.0,
+            is_first_process: true,
+        }
+    }
+
     pub fn resample_linear(
         &mut self,
         out_buffers: &mut [&mut [f32]],
@@ -1150,32 +1148,26 @@ impl ResampleBuffer {
     ) -> (bool, usize) {
         let out_frames = out_buffer_range.end - out_buffer_range.start;
 
-        // Wrap the last two copied frames to the beginning.
-        if self.last_frame > 1 {
-            for ch in self.buffers.iter_mut() {
-                ch[0] = ch[self.last_frame - 1];
-                ch[1] = ch[self.last_frame];
-            }
-        }
-
-        let resampled_playhead_start = self.fract_frame;
+        let resampled_playhead_start = self.fract_frame + processor.speed;
         let resampled_playhead_end =
-            resampled_playhead_start + (out_frames as f64 * processor.speed);
+            resampled_playhead_start + ((out_frames - 1) as f64 * processor.speed);
 
-        let input_frames_needed = resampled_playhead_end.ceil() as usize;
+        let input_frames_needed = resampled_playhead_end.trunc() as usize + 2;
 
-        let (finished_playing, channels_filled) = if input_frames_needed > 2 {
+        let copy_start = if self.is_first_process { 0 } else { 2 };
+
+        let (finished_playing, channels_filled) = if input_frames_needed > copy_start {
             let mut buffer_list: ArrayVec<&mut [f32], MAX_OUT_CHANNELS> =
                 self.buffers.iter_mut().map(|s| s.as_mut_slice()).collect();
 
-            processor.copy_from_sample(&mut buffer_list, 2..input_frames_needed - 2, looping)
+            processor.copy_from_sample(&mut buffer_list, copy_start..input_frames_needed, looping)
         } else {
             (false, processor.num_channels_filled(out_buffers.len()))
         };
 
         for (out_ch, r_ch) in out_buffers[..channels_filled]
             .iter_mut()
-            .zip(self.buffers[..channels_filled].iter())
+            .zip(self.buffers[..channels_filled].iter_mut())
         {
             for (i, out_s) in out_ch[out_buffer_range.clone()].iter_mut().enumerate() {
                 let f = resampled_playhead_start + (i as f64 * processor.speed);
@@ -1189,11 +1181,23 @@ impl ResampleBuffer {
 
                 *out_s = s0 + ((s1 - s0) * f_fract);
             }
+
+            let f_floor = resampled_playhead_end.trunc() as usize;
+            let f_fract = resampled_playhead_end.fract();
+
+            r_ch[0] = r_ch[f_floor];
+            r_ch[1] = r_ch[f_floor + 1];
+
+            self.fract_frame = f_fract;
         }
 
-        self.last_frame = input_frames_needed;
-        self.fract_frame = resampled_playhead_end.fract();
+        self.is_first_process = false;
 
         (finished_playing, channels_filled)
+    }
+
+    pub fn reset(&mut self) {
+        self.fract_frame = 0.0;
+        self.is_first_process = true;
     }
 }
