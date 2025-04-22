@@ -1,5 +1,5 @@
 use firewheel::{
-    diff::{Memo, Notify},
+    diff::Memo,
     dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
     error::UpdateError,
     node::NodeID,
@@ -7,7 +7,7 @@ use firewheel::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
         sampler::{
             PlaybackState, RepeatMode, SamplerConfig, SamplerNode, SamplerPlaybackSpeedConfig,
-            SequenceEventType, SequenceType,
+            SequenceType,
         },
     },
     FirewheelContext,
