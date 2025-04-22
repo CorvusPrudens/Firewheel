@@ -1113,6 +1113,7 @@ struct Resampler {
     buffers: Vec<Vec<f32>>,
     fract_frame: f64,
     is_first_process: bool,
+    prev_speed: f64,
 }
 
 impl Resampler {
@@ -1136,6 +1137,7 @@ impl Resampler {
                 .collect(),
             fract_frame: 0.0,
             is_first_process: true,
+            prev_speed: 1.0,
         }
     }
 
@@ -1148,9 +1150,27 @@ impl Resampler {
     ) -> (bool, usize) {
         let out_frames = out_buffer_range.end - out_buffer_range.start;
 
-        let resampled_playhead_start = self.fract_frame + processor.speed;
-        let resampled_playhead_end =
-            resampled_playhead_start + ((out_frames - 1) as f64 * processor.speed);
+        assert_ne!(out_frames, 0);
+
+        let resampled_playhead_start = if self.is_first_process {
+            self.prev_speed = processor.speed;
+
+            0.0
+        } else {
+            self.fract_frame + processor.speed
+        };
+
+        let last_frame_f64 = (out_frames - 1) as f64;
+
+        let half_speed_accel = if self.prev_speed == processor.speed {
+            0.0
+        } else {
+            0.5 * (processor.speed - self.prev_speed) / out_frames as f64
+        };
+
+        let resampled_playhead_end = resampled_playhead_start
+            + (last_frame_f64 * self.prev_speed)
+            + (last_frame_f64 * last_frame_f64 * half_speed_accel);
 
         let input_frames_needed = resampled_playhead_end.trunc() as usize + 2;
 
@@ -1170,7 +1190,11 @@ impl Resampler {
             .zip(self.buffers[..channels_filled].iter_mut())
         {
             for (i, out_s) in out_ch[out_buffer_range.clone()].iter_mut().enumerate() {
-                let f = resampled_playhead_start + (i as f64 * processor.speed);
+                let i_64 = i as f64;
+                let f = resampled_playhead_start
+                    + (i_64 * self.prev_speed)
+                    + (i_64 * i_64 * half_speed_accel);
+
                 let f_floor = f.trunc() as usize;
                 let f_fract = f.fract() as f32;
 
@@ -1191,6 +1215,7 @@ impl Resampler {
             self.fract_frame = f_fract;
         }
 
+        self.prev_speed = processor.speed;
         self.is_first_process = false;
 
         (finished_playing, channels_filled)
