@@ -113,11 +113,8 @@ impl AudioSystem {
             todo!();
         };
 
-        if *old_volume != Volume::Linear(linear_volume) || *old_repeat_mode != repeat_mode {
-            *old_volume = Volume::Linear(linear_volume);
-            *old_repeat_mode = repeat_mode;
-            sampler.params.sequence.notify();
-        }
+        *old_volume = Volume::Linear(linear_volume);
+        *old_repeat_mode = repeat_mode;
 
         sampler.params.start_or_restart(None);
 
