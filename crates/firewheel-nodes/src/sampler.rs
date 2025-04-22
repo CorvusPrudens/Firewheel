@@ -825,8 +825,6 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if sequence_changed || self.is_first_process {
-            println!("sequence changed");
-
             self.stop(proc_info.declick_values, buffers.outputs.len());
 
             self.loaded_sample_state = None;
