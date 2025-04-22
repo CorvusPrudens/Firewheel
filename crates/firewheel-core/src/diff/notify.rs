@@ -79,6 +79,11 @@ impl<T> Notify<T> {
     pub fn as_mut_unsync(&mut self) -> &mut T {
         &mut self.value
     }
+
+    /// Manually update the internal ID without modifying the internals.
+    pub fn notify(&mut self) {
+        self.counter = increment_counter();
+    }
 }
 
 impl<T> AsRef<T> for Notify<T> {

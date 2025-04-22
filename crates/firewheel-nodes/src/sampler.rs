@@ -106,6 +106,7 @@ pub enum PlaybackSpeedQuality {
     /// More specifically, this uses a linear resampling algorithm with no
     /// antialiasing filter.
     Linear,
+    // TODO: more quality options
 }
 
 #[derive(Clone, Diff, Patch)]
@@ -824,6 +825,8 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if sequence_changed || self.is_first_process {
+            println!("sequence changed");
+
             self.stop(proc_info.declick_values, buffers.outputs.len());
 
             self.loaded_sample_state = None;

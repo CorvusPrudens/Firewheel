@@ -1,5 +1,5 @@
 use firewheel::{
-    diff::Memo,
+    diff::{Memo, Notify},
     dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
     error::UpdateError,
     node::NodeID,
@@ -7,7 +7,7 @@ use firewheel::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
         sampler::{
             PlaybackState, RepeatMode, SamplerConfig, SamplerNode, SamplerPlaybackSpeedConfig,
-            SequenceType,
+            SequenceEventType, SequenceType,
         },
     },
     FirewheelContext,
@@ -113,8 +113,11 @@ impl AudioSystem {
             todo!();
         };
 
-        *old_volume = Volume::Linear(linear_volume);
-        *old_repeat_mode = repeat_mode;
+        if *old_volume != Volume::Linear(linear_volume) || *old_repeat_mode != repeat_mode {
+            *old_volume = Volume::Linear(linear_volume);
+            *old_repeat_mode = repeat_mode;
+            sampler.params.sequence.notify();
+        }
 
         sampler.params.start_or_restart(None);
 
