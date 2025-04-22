@@ -756,6 +756,10 @@ impl SamplerProcessor {
 
         self.declicker.reset_to_1();
         self.start_delay = None;
+
+        if let Some(resampler) = &mut self.resampler {
+            resampler.reset();
+        }
     }
 
     fn load_sample(
