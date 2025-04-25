@@ -5,10 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
-        sampler::{
-            PlaybackState, RepeatMode, SamplerConfig, SamplerNode, SamplerPlaybackSpeedConfig,
-            SequenceType,
-        },
+        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
     },
     FirewheelContext,
 };
@@ -65,13 +62,7 @@ impl AudioSystem {
                 let mut params = SamplerNode::default();
                 params.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
 
-                let node_id = cx.add_node(
-                    params.clone(),
-                    Some(SamplerConfig {
-                        playback_speed_config: Some(SamplerPlaybackSpeedConfig::default()),
-                        ..Default::default()
-                    }),
-                );
+                let node_id = cx.add_node(params.clone(), None);
 
                 cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();

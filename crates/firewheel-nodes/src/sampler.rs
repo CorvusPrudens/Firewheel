@@ -1,4 +1,3 @@
-use arrayvec::ArrayVec;
 use smallvec::SmallVec;
 use std::{
     num::{NonZeroU32, NonZeroUsize},
@@ -19,7 +18,7 @@ use firewheel_core::{
     event::{NodeEventList, NodeEventType, ParamData},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcInfo, ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
@@ -27,6 +26,7 @@ use firewheel_core::{
 
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
+pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
@@ -52,12 +52,9 @@ pub struct SamplerConfig {
     /// If the resutling amplitude of the volume is less than or equal to this
     /// value, then the amplitude will be clamped to `0.0` (silence).
     pub amp_epsilon: f32,
-    /// The configuration of the playback speed algorithm.
-    ///
-    /// Set this to `None` to disable changing the playback speed.
-    ///
-    /// By default this is set to `None`.
-    pub playback_speed_config: Option<SamplerPlaybackSpeedConfig>,
+    /// The quality of the resampling algorithm used when changing the playback
+    /// speed.
+    pub speed_quality: PlaybackSpeedQuality,
 }
 
 impl Default for SamplerConfig {
@@ -68,29 +65,7 @@ impl Default for SamplerConfig {
             num_declickers: DEFAULT_NUM_DECLICKERS as u32,
             crossfade_on_restart: true,
             amp_epsilon: DEFAULT_AMP_EPSILON,
-            playback_speed_config: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct SamplerPlaybackSpeedConfig {
-    /// The quality of the resampling algorithm used for changing the playback
-    /// speed.
-    pub quality: PlaybackSpeedQuality,
-
-    /// The maximum supported playback speed. Must be `>= 1.0`.
-    ///
-    /// By default this is set to `8.0`.
-    pub max_speed: f64,
-}
-
-impl Default for SamplerPlaybackSpeedConfig {
-    fn default() -> Self {
-        Self {
-            quality: PlaybackSpeedQuality::default(),
-            max_speed: 8.0,
+            speed_quality: PlaybackSpeedQuality::default(),
         }
     }
 }
@@ -105,7 +80,7 @@ pub enum PlaybackSpeedQuality {
     ///
     /// More specifically, this uses a linear resampling algorithm with no
     /// antialiasing filter.
-    Linear,
+    LinearFast,
     // TODO: more quality options
 }
 
@@ -480,19 +455,6 @@ impl AudioNode for SamplerNode {
             ))
         };
 
-        let resampler = config.playback_speed_config.as_ref().map(|c| {
-            Resampler::new(
-                c,
-                config.channels.get().get() as usize,
-                cx.stream_info.max_block_frames.get() as usize,
-            )
-        });
-
-        let mut playback_speed = self.speed;
-        if let Some(c) = &config.playback_speed_config {
-            playback_speed = playback_speed.min(c.max_speed);
-        }
-
         SamplerProcessor {
             config: config.clone(),
             params: self.clone(),
@@ -502,8 +464,8 @@ impl AudioNode for SamplerNode {
             stop_declicker_buffers,
             stop_declickers: smallvec::smallvec![StopDeclickerState::default(); config.num_declickers as usize],
             num_active_stop_declickers: 0,
-            resampler,
-            speed: playback_speed,
+            resampler: Some(Resampler::new(config.speed_quality)),
+            speed: self.speed.max(MIN_PLAYBACK_SPEED),
             playback_state: *self.playback,
             playback_start_time_seconds: ClockSeconds::default(),
             playback_pause_time_seconds: ClockSeconds::default(),
@@ -513,6 +475,7 @@ impl AudioNode for SamplerNode {
             sample_rate: cx.stream_info.sample_rate.get() as f64,
             amp_epsilon: config.amp_epsilon,
             is_first_process: true,
+            max_block_frames: cx.stream_info.max_block_frames.get() as usize,
         }
     }
 }
@@ -546,6 +509,7 @@ pub struct SamplerProcessor {
     amp_epsilon: f32,
 
     is_first_process: bool,
+    max_block_frames: usize,
 }
 
 impl SamplerProcessor {
@@ -558,6 +522,7 @@ impl SamplerProcessor {
         looping: bool,
         declick_values: &DeclickValues,
         start_on_frame: Option<usize>,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
     ) -> (bool, usize) {
         let range_in_buffer = if let Some(frame) = start_on_frame {
             for ch in buffers.iter_mut() {
@@ -573,16 +538,19 @@ impl SamplerProcessor {
             // Get around borrow checker.
             let mut resampler = self.resampler.take().unwrap();
 
-            let (finished_playing, channels_filled) =
-                resampler.resample_linear(buffers, range_in_buffer.clone(), self, looping);
+            let (finished_playing, channels_filled) = resampler.resample_linear(
+                buffers,
+                range_in_buffer.clone(),
+                scratch_buffers,
+                self,
+                looping,
+            );
 
             self.resampler = Some(resampler);
 
             (finished_playing, channels_filled)
         } else {
-            if let Some(resampler) = &mut self.resampler {
-                resampler.reset();
-            }
+            self.resampler.as_mut().unwrap().reset();
 
             self.copy_from_sample(buffers, range_in_buffer, looping)
         };
@@ -706,7 +674,12 @@ impl SamplerProcessor {
         }
     }
 
-    fn stop(&mut self, declick_values: &DeclickValues, num_out_channels: usize) {
+    fn stop(
+        &mut self,
+        declick_values: &DeclickValues,
+        num_out_channels: usize,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+    ) {
         if self.currently_processing_sample() {
             // Fade out the sample into a temporary look-ahead
             // buffer to declick.
@@ -740,6 +713,7 @@ impl SamplerProcessor {
                         false,
                         declick_values,
                         None,
+                        scratch_buffers,
                     );
 
                     self.num_active_stop_declickers += 1;
@@ -817,19 +791,19 @@ impl AudioNodeProcessor for SamplerProcessor {
         });
 
         if speed_changed {
-            if let Some(c) = &self.config.playback_speed_config {
-                self.speed = self.params.speed.clamp(0.00001, c.max_speed);
+            self.speed = self.params.speed.max(MIN_PLAYBACK_SPEED);
 
-                if self.speed > 0.99999 && self.speed < 1.00001 {
-                    self.speed = 1.0;
-                }
-            } else {
+            if self.speed > 0.99999 && self.speed < 1.00001 {
                 self.speed = 1.0;
-            };
+            }
         }
 
         if sequence_changed || self.is_first_process {
-            self.stop(proc_info.declick_values, buffers.outputs.len());
+            self.stop(
+                proc_info.declick_values,
+                buffers.outputs.len(),
+                buffers.scratch_buffers,
+            );
 
             self.loaded_sample_state = None;
 
@@ -865,7 +839,11 @@ impl AudioNodeProcessor for SamplerProcessor {
                 if state.playhead != playhead_frames {
                     let playback_state = self.playback_state;
 
-                    self.stop(proc_info.declick_values, buffers.outputs.len());
+                    self.stop(
+                        proc_info.declick_values,
+                        buffers.outputs.len(),
+                        buffers.scratch_buffers,
+                    );
 
                     let state = self.loaded_sample_state.as_mut().unwrap();
 
@@ -894,7 +872,11 @@ impl AudioNodeProcessor for SamplerProcessor {
         if playback_changed || self.is_first_process {
             match *self.params.playback {
                 PlaybackState::Stop => {
-                    self.stop(proc_info.declick_values, buffers.outputs.len());
+                    self.stop(
+                        proc_info.declick_values,
+                        buffers.outputs.len(),
+                        buffers.scratch_buffers,
+                    );
 
                     self.playback_state = PlaybackState::Stop;
                 }
@@ -972,6 +954,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         looping,
                         proc_info.declick_values,
                         start_on_frame,
+                        buffers.scratch_buffers,
                     );
 
                     num_filled_channels = n_channels;
@@ -1115,34 +1098,21 @@ struct StopDeclickerState {
 }
 
 struct Resampler {
-    buffers: Vec<Vec<f32>>,
-    fract_frame: f64,
+    fract_in_frame: f64,
     is_first_process: bool,
     prev_speed: f64,
+    _quality: PlaybackSpeedQuality,
+    wraparound_buffer: [[f32; 2]; MAX_OUT_CHANNELS],
 }
 
 impl Resampler {
-    pub fn new(
-        config: &SamplerPlaybackSpeedConfig,
-        channels: usize,
-        max_block_frames: usize,
-    ) -> Self {
-        assert!(config.max_speed >= 1.0);
-
-        let max_resample_frames = (max_block_frames as f64 * config.max_speed).ceil() as usize + 8;
-
+    pub fn new(quality: PlaybackSpeedQuality) -> Self {
         Self {
-            buffers: (0..channels)
-                .map(|_| {
-                    let mut v = Vec::new();
-                    v.reserve_exact(max_resample_frames);
-                    v.resize(max_resample_frames, 0.0);
-                    v
-                })
-                .collect(),
-            fract_frame: 0.0,
+            fract_in_frame: 0.0,
             is_first_process: true,
             prev_speed: 1.0,
+            _quality: quality,
+            wraparound_buffer: [[0.0; 2]; MAX_OUT_CHANNELS],
         }
     }
 
@@ -1150,84 +1120,244 @@ impl Resampler {
         &mut self,
         out_buffers: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
         processor: &mut SamplerProcessor,
         looping: bool,
     ) -> (bool, usize) {
-        let out_frames = out_buffer_range.end - out_buffer_range.start;
+        let total_out_frames = out_buffer_range.end - out_buffer_range.start;
 
-        assert_ne!(out_frames, 0);
+        assert_ne!(total_out_frames, 0);
 
-        let resampled_playhead_start = if self.is_first_process {
+        let in_frame_start = if self.is_first_process {
             self.prev_speed = processor.speed;
+            self.fract_in_frame = 0.0;
 
             0.0
         } else {
-            self.fract_frame + processor.speed
+            self.fract_in_frame + processor.speed
         };
 
-        let last_frame_f64 = (out_frames - 1) as f64;
-
-        let half_speed_accel = if self.prev_speed == processor.speed {
-            0.0
-        } else {
-            0.5 * (processor.speed - self.prev_speed) / out_frames as f64
+        let out_frame_to_in_frame = |out_frame: f64, in_frame_start: f64, speed: f64| -> f64 {
+            in_frame_start + (out_frame * speed)
         };
 
-        let resampled_playhead_end = resampled_playhead_start
-            + (last_frame_f64 * self.prev_speed)
-            + (last_frame_f64 * last_frame_f64 * half_speed_accel);
+        // The function which maps the output frame to the input frame is given by
+        // the kinematic equation:
+        //
+        // in_frame = in_frame_start + (out_frame * start_speed) + (0.5 * accel * out_frame^2)
+        //      where: accel = (end_speed - start_speed)
+        let out_frame_to_in_frame_with_accel =
+            |out_frame: f64, in_frame_start: f64, start_speed: f64, half_accel: f64| -> f64 {
+                in_frame_start + (out_frame * start_speed) + (out_frame * out_frame * half_accel)
+            };
 
-        let input_frames_needed = resampled_playhead_end.trunc() as usize + 2;
-
+        let num_channels = processor.num_channels_filled(out_buffers.len());
         let copy_start = if self.is_first_process { 0 } else { 2 };
+        let mut finished_playing = false;
 
-        let (finished_playing, channels_filled) = if input_frames_needed > copy_start {
-            let mut buffer_list: ArrayVec<&mut [f32], MAX_OUT_CHANNELS> =
-                self.buffers.iter_mut().map(|s| s.as_mut_slice()).collect();
-
-            processor.copy_from_sample(&mut buffer_list, copy_start..input_frames_needed, looping)
+        if self.prev_speed == processor.speed {
+            self.resample_linear_inner(
+                out_frame_to_in_frame,
+                in_frame_start,
+                self.prev_speed,
+                out_buffer_range.clone(),
+                processor,
+                scratch_buffers,
+                looping,
+                copy_start,
+                num_channels,
+                out_buffers,
+                out_buffer_range.start,
+                &mut finished_playing,
+            );
         } else {
-            (false, processor.num_channels_filled(out_buffers.len()))
-        };
+            let half_accel = 0.5 * (processor.speed - self.prev_speed) / total_out_frames as f64;
 
-        for (out_ch, r_ch) in out_buffers[..channels_filled]
-            .iter_mut()
-            .zip(self.buffers[..channels_filled].iter_mut())
-        {
-            for (i, out_s) in out_ch[out_buffer_range.clone()].iter_mut().enumerate() {
-                let i_64 = i as f64;
-                let f = resampled_playhead_start
-                    + (i_64 * self.prev_speed)
-                    + (i_64 * i_64 * half_speed_accel);
-
-                let f_floor = f.trunc() as usize;
-                let f_fract = f.fract() as f32;
-
-                debug_assert!(f_floor + 1 < r_ch.len());
-
-                let s0 = r_ch[f_floor];
-                let s1 = r_ch[f_floor + 1];
-
-                *out_s = s0 + ((s1 - s0) * f_fract);
-            }
-
-            let f_floor = resampled_playhead_end.trunc() as usize;
-            let f_fract = resampled_playhead_end.fract();
-
-            r_ch[0] = r_ch[f_floor];
-            r_ch[1] = r_ch[f_floor + 1];
-
-            self.fract_frame = f_fract;
+            self.resample_linear_inner(
+                |out_frame: f64, in_frame_start: f64, speed: f64| {
+                    out_frame_to_in_frame_with_accel(out_frame, in_frame_start, speed, half_accel)
+                },
+                in_frame_start,
+                self.prev_speed,
+                out_buffer_range.clone(),
+                processor,
+                scratch_buffers,
+                looping,
+                copy_start,
+                num_channels,
+                out_buffers,
+                out_buffer_range.start,
+                &mut finished_playing,
+            );
         }
 
         self.prev_speed = processor.speed;
         self.is_first_process = false;
 
-        (finished_playing, channels_filled)
+        (finished_playing, num_channels)
+    }
+
+    fn resample_linear_inner<OutToInFrame>(
+        &mut self,
+        out_to_in_frame: OutToInFrame,
+        in_frame_start: f64,
+        speed: f64,
+        out_buffer_range: Range<usize>,
+        processor: &mut SamplerProcessor,
+        scratch_buffers: &mut [&mut [f32]; NUM_SCRATCH_BUFFERS],
+        looping: bool,
+        mut copy_start: usize,
+        num_channels: usize,
+        out_buffers: &mut [&mut [f32]],
+        out_buffer_start: usize,
+        finished_playing: &mut bool,
+    ) where
+        OutToInFrame: Fn(f64, f64, f64) -> f64,
+    {
+        let total_out_frames = out_buffer_range.end - out_buffer_range.start;
+        let output_frame_end = (total_out_frames - 1) as f64;
+
+        let input_frame_end = out_to_in_frame(output_frame_end, in_frame_start, speed);
+        let input_frames_needed = input_frame_end.trunc() as usize + 2;
+
+        let mut input_frames_processed = 0;
+        let mut output_frames_processed = 0;
+        while output_frames_processed < total_out_frames {
+            let input_frames =
+                (input_frames_needed - input_frames_processed).min(processor.max_block_frames);
+
+            if input_frames > copy_start {
+                let (finished, _) = processor.copy_from_sample(
+                    &mut scratch_buffers[..num_channels],
+                    copy_start..input_frames,
+                    looping,
+                );
+                if finished {
+                    *finished_playing = true;
+                }
+            }
+
+            let max_block_frames_minus_1 = processor.max_block_frames - 1;
+            let out_ch_start = out_buffer_start + output_frames_processed;
+
+            let mut out_frames_count = 0;
+
+            // Have an optimized loop for stereo audio.
+            if num_channels == 2 {
+                let mut last_in_frame = 0;
+                let mut last_fract_frame = 0.0;
+
+                let (out_ch_0, out_ch_1) = out_buffers.split_first_mut().unwrap();
+                let (r_ch_0, r_ch_1) = scratch_buffers.split_first_mut().unwrap();
+
+                let out_ch_0 = &mut out_ch_0[out_ch_start..out_buffer_range.end];
+                let out_ch_1 = &mut out_ch_1[0][out_ch_start..out_buffer_range.end];
+
+                let r_ch_0 = &mut r_ch_0[..processor.max_block_frames];
+                let r_ch_1 = &mut r_ch_1[0][..processor.max_block_frames];
+
+                if copy_start > 0 {
+                    r_ch_0[0] = self.wraparound_buffer[0][0];
+                    r_ch_1[0] = self.wraparound_buffer[1][0];
+
+                    r_ch_0[1] = self.wraparound_buffer[0][1];
+                    r_ch_1[1] = self.wraparound_buffer[1][1];
+                }
+
+                for (i, (out_s_0, out_s_1)) in
+                    out_ch_0.iter_mut().zip(out_ch_1.iter_mut()).enumerate()
+                {
+                    let out_frame = (i + output_frames_processed) as f64;
+
+                    let in_frame_f64 = out_to_in_frame(out_frame, in_frame_start, speed);
+
+                    let in_frame_usize = in_frame_f64.trunc() as usize - input_frames_processed;
+                    let fract_frame = in_frame_f64.fract();
+
+                    if in_frame_usize >= max_block_frames_minus_1 {
+                        break;
+                    }
+
+                    let s0_0 = r_ch_0[in_frame_usize];
+                    let s0_1 = r_ch_1[in_frame_usize];
+
+                    let s1_0 = r_ch_0[in_frame_usize + 1];
+                    let s1_1 = r_ch_1[in_frame_usize + 1];
+
+                    *out_s_0 = s0_0 + ((s1_0 - s0_0) * fract_frame as f32);
+                    *out_s_1 = s0_1 + ((s1_1 - s0_1) * fract_frame as f32);
+
+                    last_in_frame = in_frame_usize;
+                    last_fract_frame = fract_frame;
+
+                    out_frames_count += 1;
+                }
+
+                self.wraparound_buffer[0][0] = r_ch_0[last_in_frame];
+                self.wraparound_buffer[1][0] = r_ch_1[last_in_frame];
+
+                self.wraparound_buffer[0][1] = r_ch_0[last_in_frame + 1];
+                self.wraparound_buffer[1][1] = r_ch_1[last_in_frame + 1];
+
+                self.fract_in_frame = last_fract_frame;
+            } else {
+                for ((out_ch, r_ch), w_ch) in out_buffers[..num_channels]
+                    .iter_mut()
+                    .zip(scratch_buffers[..num_channels].iter_mut())
+                    .zip(self.wraparound_buffer[..num_channels].iter_mut())
+                {
+                    // Hint to compiler to optimize loop.
+                    assert_eq!(r_ch.len(), processor.max_block_frames);
+
+                    if copy_start > 0 {
+                        r_ch[0] = w_ch[0];
+                        r_ch[1] = w_ch[1];
+                    }
+
+                    let mut last_in_frame = 0;
+                    let mut last_fract_frame = 0.0;
+                    let mut out_frames_ch_count = 0;
+                    for (i, out_s) in out_ch[out_ch_start..out_buffer_range.end]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        let out_frame = (i + output_frames_processed) as f64;
+
+                        let in_frame_f64 = out_to_in_frame(out_frame, in_frame_start, speed);
+
+                        let in_frame_usize = in_frame_f64.trunc() as usize - input_frames_processed;
+                        last_fract_frame = in_frame_f64.fract();
+
+                        if in_frame_usize >= max_block_frames_minus_1 {
+                            break;
+                        }
+
+                        let s0 = r_ch[in_frame_usize];
+                        let s1 = r_ch[in_frame_usize + 1];
+
+                        *out_s = s0 + ((s1 - s0) * last_fract_frame as f32);
+
+                        last_in_frame = in_frame_usize;
+                        out_frames_ch_count += 1;
+                    }
+
+                    w_ch[0] = r_ch[last_in_frame];
+                    w_ch[1] = r_ch[last_in_frame + 1];
+
+                    self.fract_in_frame = last_fract_frame;
+                    out_frames_count = out_frames_ch_count;
+                }
+            }
+
+            output_frames_processed += out_frames_count;
+            input_frames_processed += input_frames - 2;
+
+            copy_start = 2;
+        }
     }
 
     pub fn reset(&mut self) {
-        self.fract_frame = 0.0;
+        self.fract_in_frame = 0.0;
         self.is_first_process = true;
     }
 }
