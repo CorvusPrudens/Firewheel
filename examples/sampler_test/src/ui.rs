@@ -10,6 +10,7 @@ pub struct DemoApp {
     audio_system: AudioSystem,
     sampler_views: Vec<SamplerUIState>,
     prev_frame_instant: Instant,
+    playback_speed: f64,
 }
 
 impl DemoApp {
@@ -29,6 +30,7 @@ impl DemoApp {
                 })
                 .collect(),
             prev_frame_instant: Instant::now(),
+            playback_speed: 1.0,
         }
     }
 }
@@ -104,6 +106,21 @@ impl App for DemoApp {
             }
 
             ui.label("Note, \"repeat\" and \"volume\" are only applied when started/restarted.");
+
+            ui.separator();
+
+            if ui
+                .add(
+                    egui::Slider::new(&mut self.playback_speed, 0.125..=8.0)
+                        .text("speed")
+                        .logarithmic(true),
+                )
+                .changed()
+            {
+                self.audio_system.set_speed(self.playback_speed);
+            };
+
+            ui.separator();
 
             let peak_values = self.audio_system.peak_meter_values();
             let peak_has_clipped = self.audio_system.peak_meter_has_clipped();

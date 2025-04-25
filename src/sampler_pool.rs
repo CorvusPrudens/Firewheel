@@ -92,7 +92,7 @@ impl<FX: FxChain> SamplerPool<FX> {
                 .map(|_| {
                     let sampler_node = SamplerNode::default();
 
-                    let sampler_id = cx.add_node(sampler_node.clone(), Some(config));
+                    let sampler_id = cx.add_node(sampler_node.clone(), Some(config.clone()));
 
                     let mut fx_chain = FX::default();
 
