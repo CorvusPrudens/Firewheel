@@ -13,6 +13,7 @@ use firewheel_core::{
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy", component(immutable))]
 pub struct VolumeNodeConfig {
     /// The time in seconds of the internal smoothing filter.
     ///

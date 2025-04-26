@@ -25,6 +25,7 @@ const CALC_FILTER_COEFF_INTERVAL: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy", component(immutable))]
 pub struct SpatialBasicConfig {
     /// The time in seconds of the internal smoothing filter.
     ///

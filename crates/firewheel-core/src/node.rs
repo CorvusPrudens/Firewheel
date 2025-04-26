@@ -297,6 +297,7 @@ impl<'a> UpdateContext<'a> {
 /// [`AudioNode`] implementor trivially Bevy-compatible.
 #[derive(Debug, Default, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy", component(immutable))]
 pub struct EmptyConfig;
 
 /// A type-erased dyn-compatible [`AudioNode`].

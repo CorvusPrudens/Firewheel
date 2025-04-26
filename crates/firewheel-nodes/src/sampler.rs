@@ -30,6 +30,7 @@ pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy", component(immutable))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
     pub channels: NonZeroChannelCount,

@@ -27,6 +27,7 @@ pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy", component(immutable))]
 pub struct StreamWriterConfig {
     /// The number of channels.
     pub channels: NonZeroChannelCount,
