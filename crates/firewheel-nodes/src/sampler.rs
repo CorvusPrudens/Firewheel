@@ -655,7 +655,7 @@ impl SamplerProcessor {
     }
 
     fn currently_processing_sample(&self) -> bool {
-        if self.params.sequence.is_none() || self.start_delay.is_some() {
+        if self.is_first_process || self.params.sequence.is_none() || self.start_delay.is_some() {
             false
         } else {
             self.playback_state.is_playing()
