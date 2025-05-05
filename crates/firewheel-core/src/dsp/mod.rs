@@ -1,3 +1,4 @@
+pub mod algo;
 pub mod buffer;
 pub mod declick;
 pub mod filter;
