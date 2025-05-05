@@ -261,10 +261,26 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
             if proc_info.in_silence_mask.is_channel_silent(i) {
                 peak_shared.store(0.0, Ordering::Relaxed);
             } else {
-                let mut max_peak: f32 = 0.0;
-                for &s in in_ch.iter() {
-                    max_peak = max_peak.max(s.abs());
-                }
+                #[cfg(all(
+                    any(target_arch = "x86", target_arch = "x86_64"),
+                    target_feature = "sse"
+                ))]
+                let max_peak = max_peak_sse(in_ch);
+
+                #[cfg(not(all(
+                    any(target_arch = "x86", target_arch = "x86_64"),
+                    target_feature = "sse"
+                )))]
+                let max_peak = {
+                    let mut max_peak: f32 = 0.0;
+                    for &s in in_ch.iter() {
+                        let abs = s.abs();
+                        if abs > res {
+                            res = abs;
+                        }
+                    }
+                    max_peak
+                };
 
                 peak_shared.store(max_peak, Ordering::Relaxed);
             }
@@ -273,3 +289,44 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         ProcessStatus::Bypass
     }
 }
+
+// In x86, Rust doesn't optimally auto-vectorize float comparisons. This function
+// uses manual intrinsics to get the optimal performance.
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    target_feature = "sse"
+))]
+fn max_peak_sse(data: &[f32]) -> f32 {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::*;
+
+    // Safety: This function is only active if the CPU has SSE
+    let mut res = unsafe {
+        let mut res_v = _mm_set1_ps(0.0);
+        let abs_mask = _mm_set1_ps(f32::from_ne_bytes(0x7fffffffu32.to_ne_bytes()));
+
+        for chunk in data.chunks_exact(4) {
+            let chunk_v = _mm_loadu_ps(chunk.as_ptr());
+
+            // Get absolute value by setting the sign bit to zero.
+            let chunk_abs_v = _mm_and_ps(chunk_v, abs_mask);
+
+            res_v = _mm_max_ps(res_v, chunk_abs_v);
+        }
+
+        _mm_cvtss_f32(res_v)
+    };
+
+    for &s in &data[data.len() - (data.len() % 4)..] {
+        let abs = s.abs();
+        if abs > res {
+            res = abs;
+        }
+    }
+
+    res
+}
+
+// TODO: Check if float comparisons are optimally auto-vectorized for ARM architectures.
