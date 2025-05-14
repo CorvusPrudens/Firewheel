@@ -7,9 +7,10 @@ pub fn max_peak(data: &[f32]) -> f32 {
     // Processing in chunks like this breaks the dependency chain which allows
     // the compiler to properly autovectorize this loop.
     let mut tmp = [0.0; CHUNK];
-    for x in data.chunks_exact(CHUNK) {
+    let mut iter = data.chunks_exact(CHUNK);
+    for chunk in iter.by_ref() {
         for i in 0..CHUNK {
-            let abs = x[i].abs();
+            let abs = chunk[i].abs();
             if abs > tmp[i] {
                 tmp[i] = abs;
             }
@@ -22,11 +23,13 @@ pub fn max_peak(data: &[f32]) -> f32 {
             res = s;
         }
     }
-    for &s in &data[(data.len() / CHUNK) * CHUNK..] {
+
+    for &s in iter.remainder() {
         let abs = s.abs();
         if abs > res {
             res = abs;
         }
     }
+
     res
 }
