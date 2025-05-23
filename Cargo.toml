@@ -84,10 +84,10 @@ bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.3.0" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.3.0" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.3.0", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.3.0", default-features = false }
+firewheel-core = { path = "crates/firewheel-core", version = "0.3.1" }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.3.1" }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.3.1", default-features = false, optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.3.1", default-features = false }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thiserror.workspace = true
@@ -99,18 +99,18 @@ thiserror = "2"
 smallvec = "1"
 arrayvec = "0.7"
 atomic_float = "1"
-bitflags = "2.6"
+bitflags = "2"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
 fast-interleave = "0.1"
-firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.0" }
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.1" }
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.6"
 
 [[bench]]
 name = "core"

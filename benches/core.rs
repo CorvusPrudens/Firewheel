@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use firewheel::diff::{Diff, Patch, PathBuilder};
+use std::hint::black_box;
 
 /// A simple XOR-based RNG.
 pub struct XorRng {
