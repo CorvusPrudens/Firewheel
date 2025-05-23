@@ -417,27 +417,12 @@ impl AudioBackend for CpalBackend {
         let (to_stream_tx, from_cx_rx) =
             ringbuf::HeapRb::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY).split();
 
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ))]
-        let is_alsa = cpal::HostId::name(&host.id()) == "ALSA";
-
         let mut data_callback = DataCallback::new(
             num_out_channels,
             actual_max_block_frames,
             from_cx_rx,
             out_stream_config.sample_rate.0,
             input_stream_cons,
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ))]
-            is_alsa,
         );
 
         log::info!(
@@ -705,20 +690,12 @@ struct DataCallback {
     from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
     sample_rate_recip: f64,
-    first_internal_clock_instant: Option<cpal::StreamInstant>,
-    prev_stream_instant: Option<cpal::StreamInstant>,
+    _first_internal_clock_instant: Option<cpal::StreamInstant>,
+    _prev_stream_instant: Option<cpal::StreamInstant>,
     first_fallback_clock_instant: Option<std::time::Instant>,
     predicted_stream_secs: Option<f64>,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd"
-    ))]
-    is_alsa: bool,
 }
 
 impl DataCallback {
@@ -728,13 +705,6 @@ impl DataCallback {
         from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ))]
-        is_alsa: bool,
     ) -> Self {
         let input_buffer = if let Some(cons) = &input_stream_cons {
             let mut v = Vec::new();
@@ -750,23 +720,16 @@ impl DataCallback {
             from_cx_rx,
             processor: None,
             sample_rate_recip: f64::from(sample_rate).recip(),
-            first_internal_clock_instant: None,
-            prev_stream_instant: None,
+            _first_internal_clock_instant: None,
+            _prev_stream_instant: None,
             predicted_stream_secs: None,
             first_fallback_clock_instant: None,
             input_stream_cons,
             input_buffer,
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ))]
-            is_alsa,
         }
     }
 
-    fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
+    fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
         for msg in self.from_cx_rx.pop_iter() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
@@ -774,26 +737,7 @@ impl DataCallback {
 
         let frames = output.len() / self.num_out_channels;
 
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ))]
-        let is_alsa = self.is_alsa;
-
-        #[cfg(not(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        )))]
-        let is_alsa = false;
-
-        let (internal_clock_secs, underflow) = if is_alsa {
-            // There seems to be a bug in ALSA causing the stream timestamps to be
-            // unreliable. Fall back to using the system's regular clock instead.
-
+        let (internal_clock_secs, underflow) =
             if let Some(instant) = self.first_fallback_clock_instant {
                 let now = std::time::Instant::now();
 
@@ -818,52 +762,60 @@ impl DataCallback {
             } else {
                 self.first_fallback_clock_instant = Some(std::time::Instant::now());
                 (ClockSeconds(0.0), false)
-            }
-        } else {
-            if let Some(instant) = &self.first_internal_clock_instant {
-                if let Some(prev_stream_instant) = &self.prev_stream_instant {
-                    if info
-                        .timestamp()
-                        .playback
-                        .duration_since(prev_stream_instant)
-                        .is_none()
-                    {
-                        // If this occurs in other APIs as well, then either CPAL is doing
-                        // something wrong, or I'm doing something wrong.
-                        log::error!("CPAL and/or the system audio API returned invalid timestamp. Please notify the Firewheel developers of this bug.");
-                    }
-                }
+            };
 
-                let internal_clock_secs = info
-                    .timestamp()
-                    .playback
-                    .duration_since(instant)
-                    .map(|s| s.as_secs_f64())
-                    .unwrap_or_else(|| self.predicted_stream_secs.unwrap_or(0.0));
-
-                let underflow = if let Some(predicted_stream_secs) = self.predicted_stream_secs {
-                    // If the stream time is significantly greater than the predicted stream
-                    // time, it means an output underflow has occurred.
-                    internal_clock_secs > predicted_stream_secs
-                } else {
-                    false
-                };
-
-                // Calculate the next predicted stream time to detect underflows.
-                //
-                // Add a little bit of wiggle room to account for tiny clock
-                // innacuracies and rounding errors.
-                self.predicted_stream_secs =
-                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
-
-                self.prev_stream_instant = Some(info.timestamp().playback);
-
-                (ClockSeconds(internal_clock_secs), underflow)
-            } else {
-                self.first_internal_clock_instant = Some(info.timestamp().playback);
-                (ClockSeconds(0.0), false)
-            }
-        };
+        // TODO: PLEASE FIX ME:
+        //
+        // It appears that for some reason, both Windows and Linux will sometimes return a timestamp which
+        // has a value less than the previous timestamp. I am unsure if this is a bug with the APIs, a bug
+        // with CPAL, or I'm just misunderstaning how the timestamps are supposed to be used. Either way,
+        // it is disabled for now and `std::time::Instance::now()` is being used as a workaround above.
+        //
+        // let (internal_clock_secs, underflow) = if let Some(instant) =
+        //     &self.first_internal_clock_instant
+        // {
+        //     if let Some(prev_stream_instant) = &self.prev_stream_instant {
+        //         if info
+        //             .timestamp()
+        //             .playback
+        //             .duration_since(prev_stream_instant)
+        //             .is_none()
+        //         {
+        //             // If this occurs in other APIs as well, then either CPAL is doing
+        //             // something wrong, or I'm doing something wrong.
+        //             log::error!("CPAL and/or the system audio API returned invalid timestamp. Please notify the Firewheel developers of this bug.");
+        //         }
+        //     }
+        //
+        //     let internal_clock_secs = info
+        //         .timestamp()
+        //         .playback
+        //         .duration_since(instant)
+        //         .map(|s| s.as_secs_f64())
+        //         .unwrap_or_else(|| self.predicted_stream_secs.unwrap_or(0.0));
+        //
+        //     let underflow = if let Some(predicted_stream_secs) = self.predicted_stream_secs {
+        //         // If the stream time is significantly greater than the predicted stream
+        //         // time, it means an output underflow has occurred.
+        //         internal_clock_secs > predicted_stream_secs
+        //     } else {
+        //         false
+        //     };
+        //
+        //     // Calculate the next predicted stream time to detect underflows.
+        //     //
+        //     // Add a little bit of wiggle room to account for tiny clock
+        //     // innacuracies and rounding errors.
+        //     self.predicted_stream_secs =
+        //         Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
+        //
+        //     self.prev_stream_instant = Some(info.timestamp().playback);
+        //
+        //     (ClockSeconds(internal_clock_secs), underflow)
+        // } else {
+        //     self.first_internal_clock_instant = Some(info.timestamp().playback);
+        //     (ClockSeconds(0.0), false)
+        // };
 
         let num_in_chanenls = if let Some(cons) = &mut self.input_stream_cons {
             let num_in_channels = cons.num_channels().get();
