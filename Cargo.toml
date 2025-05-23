@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.3.0"
+version = "0.3.1"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
 repository = "https://github.com/BillyDM/firewheel"
 edition.workspace = true
