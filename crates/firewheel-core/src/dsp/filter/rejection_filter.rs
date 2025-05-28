@@ -1,37 +1,34 @@
-use std::f32::consts::TAU;
-
 use super::{
+    cascade::{Cascade, CascadeCoeff, ChainedCascade, ChainedCascadeCoeff},
     filter_trait::Filter,
-    spec::{OddOrderSteepness, Steepness},
 };
 
-// TODO: can be made more concise using generic const expressions once they are stable
+#[derive(Default)]
+pub struct Lowpass<const N: usize> {
+    cascade: Cascade<N>,
+}
+type LowpassCoeffs<const N: usize> = CascadeCoeff<N>;
 
-pub trait Type {}
+#[derive(Default)]
+pub struct Highpass<const N: usize> {
+    cascade: Cascade<N>,
+}
+type HighpassCoeffs<const N: usize> = CascadeCoeff<N>;
 
 #[derive(Default)]
-pub struct Lowpass<S: Steepness> {
-    cascade: S::ConcreteFilter,
+pub struct Bandpass<const N: usize> {
+    cascades: ChainedCascade<2, N>,
 }
-#[derive(Default)]
-pub struct Highpass<S: Steepness> {
-    cascade: S::ConcreteFilter,
-}
-#[derive(Default)]
-pub struct Bandpass<S: Steepness> {
-    cascades: [S::ConcreteFilter; 2],
-}
-#[derive(Default)]
-pub struct Bandstop<S: Steepness> {
-    cascades: [S::ConcreteFilter; 2],
-}
-impl<S: Steepness> Type for Lowpass<S> {}
-impl<S: Steepness> Type for Highpass<S> {}
-impl<S: Steepness> Type for Bandpass<S> {}
-impl<S: Steepness> Type for Bandstop<S> {}
+type BandpassCoeffs<const N: usize> = ChainedCascadeCoeff<2, N>;
 
-impl<S: Steepness> Filter for Lowpass<S> {
-    type Coeff = <S::ConcreteFilter as Filter>::Coeff;
+#[derive(Default)]
+pub struct Bandstop<const N: usize> {
+    cascades: ChainedCascade<2, N>,
+}
+type BandstopCoeffs<const N: usize> = ChainedCascadeCoeff<2, N>;
+
+impl<const N: usize> Filter for Lowpass<N> {
+    type Coeff = LowpassCoeffs<N>;
 
     fn reset(&mut self) {
         self.cascade.reset();
@@ -43,8 +40,8 @@ impl<S: Steepness> Filter for Lowpass<S> {
         self.cascade.process(x, coeffs)
     }
 }
-impl<S: Steepness> Filter for Highpass<S> {
-    type Coeff = <S::ConcreteFilter as Filter>::Coeff;
+impl<const N: usize> Filter for Highpass<N> {
+    type Coeff = HighpassCoeffs<N>;
 
     fn reset(&mut self) {
         self.cascade.reset();
@@ -56,39 +53,29 @@ impl<S: Steepness> Filter for Highpass<S> {
         self.cascade.process(x, coeffs)
     }
 }
-impl<S: Steepness> Filter for Bandpass<S> {
-    type Coeff = [<S::ConcreteFilter as Filter>::Coeff; 2];
+impl<const N: usize> Filter for Bandpass<N> {
+    type Coeff = BandpassCoeffs<N>;
 
     fn reset(&mut self) {
-        for cascade in self.cascades.iter_mut() {
-            cascade.reset();
-        }
+        self.cascades.reset();
     }
 
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
     fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
-        coeffs
-            .into_iter()
-            .zip(self.cascades.iter_mut())
-            .fold(x, |acc, (coeff, cascade)| cascade.process(acc, coeff))
+        self.cascades.process(x, coeffs)
     }
 }
-impl<S: Steepness> Filter for Bandstop<S> {
-    type Coeff = [<S::ConcreteFilter as Filter>::Coeff; 2];
+impl<const N: usize> Filter for Bandstop<N> {
+    type Coeff = BandstopCoeffs<N>;
 
     fn reset(&mut self) {
-        for cascade in self.cascades.iter_mut() {
-            cascade.reset();
-        }
+        self.cascades.reset();
     }
 
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
     fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
-        coeffs
-            .into_iter()
-            .zip(self.cascades.iter_mut())
-            .fold(x, |acc, (coeff, cascade)| cascade.process(acc, coeff))
+        self.cascades.process(x, coeffs)
     }
 }

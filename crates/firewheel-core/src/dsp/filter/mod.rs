@@ -1,3 +1,4 @@
+pub mod butterworth;
 pub mod cascade;
 pub mod filter_trait;
 pub mod primitives;
