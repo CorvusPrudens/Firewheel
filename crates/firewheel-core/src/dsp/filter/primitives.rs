@@ -9,11 +9,11 @@ pub struct FirstOrderCoeff {
 }
 
 #[derive(Default, Clone, Copy)]
-pub struct FirstOrder {
+pub struct FirstOrderFilter {
     m: f32,
 }
 
-impl Filter for FirstOrder {
+impl Filter for FirstOrderFilter {
     type Coeff = FirstOrderCoeff;
 
     fn reset(&mut self) {
