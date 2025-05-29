@@ -40,19 +40,9 @@ impl<const ORDER: FilterOrder> Filter for FilterCascade<ORDER> {
 /// Supports redesigning of filters with different steepness up to `N` but also uses space for `N` filters regardless of current design
 #[derive(Clone, Copy)]
 pub struct FilterCascadeUpTo<const ORDER: FilterOrder> {
-    first_order: Option<FirstOrderFilter>,
-    num_biquads: usize,
-    biquads: [Biquad; ORDER],
-}
-
-impl<const ORDER: FilterOrder> FilterCascadeUpTo<ORDER> {
-    fn new(first_order: Option<FirstOrderFilter>, biquads: [Biquad; ORDER]) -> Self {
-        Self {
-            first_order,
-            num_biquads: ORDER,
-            biquads,
-        }
-    }
+    pub first_order: Option<FirstOrderFilter>,
+    pub biquads: [Biquad; ORDER],
+    pub num_biquads: usize,
 }
 
 impl<const ORDER: FilterOrder> Default for FilterCascadeUpTo<ORDER> {
@@ -119,7 +109,7 @@ impl<const ORDER: FilterOrder, const M: FilterOrder> Filter for ChainedCascade<O
 /// Useful for filters that chain multiple filters together, like bandpass or bandstop
 /// Supports redesigning of filters with different steepness up to `N` but also uses space for `M * N` filters regardless of current design
 pub struct ChainedCascadeUpTo<const ORDER: FilterOrder, const M: usize> {
-    cascades: [FilterCascadeUpTo<ORDER>; M],
+    pub cascades: [FilterCascadeUpTo<ORDER>; M],
 }
 
 impl<const ORDER: FilterOrder, const M: usize> Default for ChainedCascadeUpTo<ORDER, M> {

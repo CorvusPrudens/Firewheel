@@ -1,5 +1,7 @@
 use std::f32;
 
+use crate::dsp::filter::primitives::{prewarp_k, BiquadCoeffs, FirstOrderCoeffs, FirstOrderFilter};
+
 use super::{
     cascade::{ChainedCascadeUpTo, FilterCascadeUpTo},
     spec::{CompositeResponseType, FilterOrder, ResponseType},
@@ -40,7 +42,39 @@ impl<const MAX_ORDER: FilterOrder> Butterworth<MAX_ORDER> for FilterCascadeUpTo<
         sample_rate: f32,
         new_order: FilterOrder,
     ) {
-        todo!()
+        assert!(new_order <= MAX_ORDER);
+        // TODO: when should we reset filter memory? we would need to store the current response type for that which is annoying
+
+        let k = prewarp_k(frequency, sample_rate);
+
+        // Odd-order butterworth filters have an additional real pole
+        if new_order % 2 != 0 {
+            let new_coeffs = FirstOrderCoeffs::from_real_pole(1., k);
+            self.first_order
+                .get_or_insert_with(|| FirstOrderFilter::with_coeffs(new_coeffs))
+                .coeffs = new_coeffs;
+        } else {
+            self.first_order = None;
+        }
+
+        let analog_coeffs = get_analog_coeffs(new_order);
+        for (&coeff, biquad) in analog_coeffs.iter().zip(self.biquads.iter_mut()) {
+            biquad.coeffs = BiquadCoeffs::from_conjugate_pole(coeff, 1., k);
+        }
+    }
+}
+
+impl<const MAX_ORDER: FilterOrder, const M: usize> Butterworth<MAX_ORDER>
+    for ChainedCascadeUpTo<MAX_ORDER, M>
+{
+    fn design_butterworth(
+        &mut self,
+        response_type: ResponseType,
+        frequency: f32,
+        sample_rate: f32,
+        new_order: FilterOrder,
+    ) {
+        self.cascades[0].design_butterworth(response_type, frequency, sample_rate, new_order);
     }
 }
 
@@ -48,7 +82,7 @@ trait ButterworthComposite<const MAX_ORDER: FilterOrder> {
     fn design_butterworth_composite(
         &mut self,
         response_type: CompositeResponseType,
-        frequency: f32,
+        frequency_range: (f32, f32),
         sample_rate: f32,
         new_order: FilterOrder,
     );
@@ -60,10 +94,25 @@ impl<const MAX_ORDER: FilterOrder> ButterworthComposite<MAX_ORDER>
     fn design_butterworth_composite(
         &mut self,
         response_type: CompositeResponseType,
-        frequency: f32,
+        frequency_range: (f32, f32),
         sample_rate: f32,
         new_order: FilterOrder,
     ) {
-        todo!()
+        assert!(new_order <= MAX_ORDER);
+
+        let response_types = response_type.into_response_types();
+
+        self.cascades[0].design_butterworth(
+            response_types[0],
+            frequency_range.0,
+            sample_rate,
+            new_order,
+        );
+        self.cascades[1].design_butterworth(
+            response_types[1],
+            frequency_range.1,
+            sample_rate,
+            new_order,
+        );
     }
 }

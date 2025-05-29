@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use super::filter_trait::Filter;
 
 /// The coefficients for a generic first-order filter.
@@ -9,12 +11,35 @@ pub struct FirstOrderCoeffs {
     pub a1: f32,
 }
 
+impl FirstOrderCoeffs {
+    /// Computes the digital first-order filter from a real analog pole.
+    ///       s + a
+    /// `k` is the prewarp factor, use `prewarp_k` to compute it.
+    // TODO: discuss whether inlining always a good idea, compiler could do optimizations if it knows the value of a at compile time
+    #[inline(always)]
+    pub fn from_real_pole(a: f32, k: f32) -> Self {
+        let norm = a + k;
+        let norm_recip = 1. / norm;
+        Self {
+            b0: norm_recip,
+            b1: norm_recip,
+            a1: (a - k) * norm_recip,
+        }
+    }
+}
+
 /// A first-order filter
 /// This filter has the form: `y[n] = b0 x[n] + b1 x[n-1] - a1 y[n-1]`
 #[derive(Default, Clone, Copy)]
 pub struct FirstOrderFilter {
     m: f32,
     pub coeffs: FirstOrderCoeffs,
+}
+
+impl FirstOrderFilter {
+    pub fn with_coeffs(coeffs: FirstOrderCoeffs) -> Self {
+        Self { m: 0., coeffs }
+    }
 }
 
 impl Filter for FirstOrderFilter {
@@ -40,6 +65,26 @@ pub struct BiquadCoeffs {
     pub b0: f32,
     pub b1: f32,
     pub b2: f32,
+}
+
+impl BiquadCoeffs {
+    /// Computes the digital biquad from a pair of conjugate analog poles.
+    ///       s^2 + a1 * s + a2
+    /// `k` is the prewarp factor, use `prewarp_k` to compute it.
+    // TODO: discuss whether inlining always a good idea, compiler could do optimizations if it knows the values of a1 or a2 at compile time
+    #[inline(always)]
+    pub fn from_conjugate_pole(a1: f32, a2: f32, k: f32) -> Self {
+        let k2 = k * k;
+        let norm = k * a1 + k2 * a2;
+        let norm_recip = 1. / norm;
+        Self {
+            a1: -2. * k2 * a2 * norm_recip,
+            a2: (1. - k * a1 + k2 * a2) * norm_recip,
+            b0: norm_recip,
+            b1: 2. * norm_recip,
+            b2: norm_recip,
+        }
+    }
 }
 
 // A biquad filter
@@ -78,4 +123,9 @@ impl<const N: usize> Filter for [Biquad; N] {
     fn process(&mut self, x: f32) -> f32 {
         self.iter_mut().fold(x, |acc, biquad| biquad.process(acc))
     }
+}
+
+/// Computes the prewarp factor `K` needed for the bilinear transform.
+pub fn prewarp_k(frequency: f32, sample_rate: f32) -> f32 {
+    (2.0 * sample_rate) * (PI * frequency / sample_rate).tan()
 }
