@@ -1,13 +1,13 @@
-use super::{filter_trait::Filter, primitives::*};
+use super::{filter_trait::Filter, primitives::*, spec::FilterOrder};
 
 /// A cascade of `N` biquads + an optional first order filter
 #[derive(Clone, Copy)]
-pub struct FilterCascade<const N: usize> {
+pub struct FilterCascade<const ORDER: FilterOrder> {
     first_order: Option<FirstOrderFilter>,
-    biquads: [Biquad; N],
+    biquads: [Biquad; ORDER],
 }
 
-impl<const ORDER: usize> Default for FilterCascade<ORDER> {
+impl<const ORDER: FilterOrder> Default for FilterCascade<ORDER> {
     fn default() -> Self {
         Self {
             first_order: Default::default(),
@@ -16,14 +16,7 @@ impl<const ORDER: usize> Default for FilterCascade<ORDER> {
     }
 }
 
-pub struct CascadeCoeff<const ORDER: usize> {
-    first_order_coeff: FirstOrderCoeff,
-    biquad_coeffs: [BiquadCoeff; ORDER],
-}
-
-impl<const ORDER: usize> Filter for FilterCascade<ORDER> {
-    type Coeff = CascadeCoeff<ORDER>;
-
+impl<const ORDER: FilterOrder> Filter for FilterCascade<ORDER> {
     fn reset(&mut self) {
         if let Some(first_order) = &mut self.first_order {
             first_order.reset();
@@ -34,26 +27,35 @@ impl<const ORDER: usize> Filter for FilterCascade<ORDER> {
     }
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
-    fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
+    fn process(&mut self, x: f32) -> f32 {
         self.biquads.process(
             self.first_order
-                .map(|mut first_order| first_order.process(x, coeffs.first_order_coeff))
+                .map(|mut first_order| first_order.process(x))
                 .unwrap_or(x),
-            coeffs.biquad_coeffs,
         )
     }
 }
 
 /// A cascade of up to `N` biquads + an optional first order filter
-/// Supports redesigning of filters with different steepness up to `2N + 1` but also uses space for `M * N` filters regardless of current design
+/// Supports redesigning of filters with different steepness up to `N` but also uses space for `N` filters regardless of current design
 #[derive(Clone, Copy)]
-pub struct FilterCascadeUpTo<const N: usize> {
+pub struct FilterCascadeUpTo<const ORDER: FilterOrder> {
     first_order: Option<FirstOrderFilter>,
     num_biquads: usize,
-    biquads: [Biquad; N],
+    biquads: [Biquad; ORDER],
 }
 
-impl<const ORDER: usize> Default for FilterCascadeUpTo<ORDER> {
+impl<const ORDER: FilterOrder> FilterCascadeUpTo<ORDER> {
+    fn new(first_order: Option<FirstOrderFilter>, biquads: [Biquad; ORDER]) -> Self {
+        Self {
+            first_order,
+            num_biquads: ORDER,
+            biquads,
+        }
+    }
+}
+
+impl<const ORDER: FilterOrder> Default for FilterCascadeUpTo<ORDER> {
     fn default() -> Self {
         Self {
             first_order: Default::default(),
@@ -63,9 +65,7 @@ impl<const ORDER: usize> Default for FilterCascadeUpTo<ORDER> {
     }
 }
 
-impl<const ORDER: usize> Filter for FilterCascadeUpTo<ORDER> {
-    type Coeff = CascadeCoeff<ORDER>;
-
+impl<const ORDER: FilterOrder> Filter for FilterCascadeUpTo<ORDER> {
     fn reset(&mut self) {
         if let Some(first_order) = &mut self.first_order {
             first_order.reset();
@@ -76,31 +76,23 @@ impl<const ORDER: usize> Filter for FilterCascadeUpTo<ORDER> {
     }
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
-    fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
-        coeffs
-            .biquad_coeffs
-            .into_iter()
-            .zip(self.biquads.iter_mut())
-            .take(self.num_biquads)
-            .fold(
-                self.first_order
-                    .map(|mut first_order| first_order.process(x, coeffs.first_order_coeff))
-                    .unwrap_or(x),
-                |acc, (coeff, biquad)| biquad.process(acc, coeff),
-            )
+    fn process(&mut self, x: f32) -> f32 {
+        self.biquads.iter_mut().take(self.num_biquads).fold(
+            self.first_order
+                .map(|mut first_order| first_order.process(x))
+                .unwrap_or(x),
+            |acc, biquad| biquad.process(acc),
+        )
     }
 }
 
 /// Cascades for `M` filters of order `N` each
 /// Useful for filters that chain multiple filters together, like bandpass or bandstop
-pub struct ChainedCascade<const M: usize, const ORDER: usize> {
+pub struct ChainedCascade<const ORDER: FilterOrder, const M: usize> {
     cascades: [FilterCascade<ORDER>; M],
 }
 
-pub type ChainedCascadeCoeff<const M: usize, const ORDER: usize> =
-    [<FilterCascade<ORDER> as Filter>::Coeff; M];
-
-impl<const M: usize, const N: usize> Default for ChainedCascade<M, N> {
+impl<const ORDER: FilterOrder, const M: usize> Default for ChainedCascade<ORDER, M> {
     fn default() -> Self {
         Self {
             cascades: [Default::default(); M],
@@ -108,9 +100,7 @@ impl<const M: usize, const N: usize> Default for ChainedCascade<M, N> {
     }
 }
 
-impl<const M: usize, const ORDER: usize> Filter for ChainedCascade<M, ORDER> {
-    type Coeff = ChainedCascadeCoeff<M, ORDER>;
-
+impl<const ORDER: FilterOrder, const M: FilterOrder> Filter for ChainedCascade<ORDER, M> {
     fn reset(&mut self) {
         for cascade in self.cascades.iter_mut() {
             cascade.reset();
@@ -118,25 +108,21 @@ impl<const M: usize, const ORDER: usize> Filter for ChainedCascade<M, ORDER> {
     }
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
-    fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
-        coeffs
-            .into_iter()
-            .zip(self.cascades.iter_mut())
-            .fold(x, |acc, (coeff, cascade)| cascade.process(acc, coeff))
+    fn process(&mut self, x: f32) -> f32 {
+        self.cascades
+            .iter_mut()
+            .fold(x, |acc, cascade| cascade.process(acc))
     }
 }
 
 /// Cascades for `M` filters of up to order `N` each
 /// Useful for filters that chain multiple filters together, like bandpass or bandstop
 /// Supports redesigning of filters with different steepness up to `N` but also uses space for `M * N` filters regardless of current design
-pub struct ChainedCascadeUpTo<const M: usize, const ORDER: usize> {
+pub struct ChainedCascadeUpTo<const ORDER: FilterOrder, const M: usize> {
     cascades: [FilterCascadeUpTo<ORDER>; M],
 }
 
-pub type ChainedCascadeUpToCoeff<const M: usize, const ORDER: usize> =
-    [<FilterCascadeUpTo<ORDER> as Filter>::Coeff; M];
-
-impl<const M: usize, const ORDER: usize> Default for ChainedCascadeUpTo<M, ORDER> {
+impl<const ORDER: FilterOrder, const M: usize> Default for ChainedCascadeUpTo<ORDER, M> {
     fn default() -> Self {
         Self {
             cascades: [Default::default(); M],
@@ -144,9 +130,7 @@ impl<const M: usize, const ORDER: usize> Default for ChainedCascadeUpTo<M, ORDER
     }
 }
 
-impl<const M: usize, const ORDER: usize> Filter for ChainedCascadeUpTo<M, ORDER> {
-    type Coeff = ChainedCascadeUpToCoeff<M, ORDER>;
-
+impl<const ORDER: FilterOrder, const M: usize> Filter for ChainedCascadeUpTo<ORDER, M> {
     fn reset(&mut self) {
         for cascade in self.cascades.iter_mut() {
             cascade.reset();
@@ -154,10 +138,9 @@ impl<const M: usize, const ORDER: usize> Filter for ChainedCascadeUpTo<M, ORDER>
     }
     // TODO: discuss whether inlining always a good idea
     #[inline(always)]
-    fn process(&mut self, x: f32, coeffs: Self::Coeff) -> f32 {
-        coeffs
-            .into_iter()
-            .zip(self.cascades.iter_mut())
-            .fold(x, |acc, (coeff, cascade)| cascade.process(acc, coeff))
+    fn process(&mut self, x: f32) -> f32 {
+        self.cascades
+            .iter_mut()
+            .fold(x, |acc, cascade| cascade.process(acc))
     }
 }
