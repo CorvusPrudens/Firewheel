@@ -1,5 +1,8 @@
 use std::f32;
 use std::f32::consts::SQRT_2;
+use std::num::NonZero;
+
+use crate::dsp::filter::spec::ResponseType;
 
 use super::filter_trait::FilterBank;
 use super::primitives::{prewarp_k, BiquadCoeffs, FirstOrderCoeffs};
@@ -8,8 +11,8 @@ use super::spec::{
     DB_OCT_12, DB_OCT_18, DB_OCT_24, DB_OCT_36, DB_OCT_48, DB_OCT_6, DB_OCT_72, DB_OCT_96,
 };
 use super::{
-    cascade::{ChainedCascadeUpTo, FilterCascadeUpTo},
-    spec::{CompositeResponseType, FilterOrder, SimpleResponseType},
+    cascade::FilterCascadeUpTo,
+    spec::{FilterOrder, SimpleResponseType},
 };
 
 /// Returns the coefficients for the analog prototype of a Butterworth filter.
@@ -42,16 +45,16 @@ fn get_analog_coeffs(order: FilterOrder) -> &'static [f32] {
             -1.913_880_7,
             -1.990_369_4,
         ],
-        _ => panic!("Unsupported filter order"),
+        _ => panic!("Unsupported filter order {}", order),
     }
 }
 
-trait Butterworth<const MAX_ORDER: FilterOrder> {
+pub trait Butterworth<const MAX_ORDER: FilterOrder> {
     fn design_butterworth(
         &mut self,
         response_type: SimpleResponseType,
         frequency: f32,
-        sample_rate: f32,
+        sample_rate: NonZero<u32>,
         new_order: FilterOrder,
     );
 }
@@ -62,14 +65,18 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: FilterOrder> Butterworth<MAX_OR
     fn design_butterworth(
         &mut self,
         response_type: SimpleResponseType,
-        frequency: f32,
-        sample_rate: f32,
+        cutoff_hz: f32,
+        sample_rate: NonZero<u32>,
         new_order: FilterOrder,
     ) {
         assert!(new_order <= MAX_ORDER);
         // TODO: what to do with smoothing and filter memory? we should definitely reset it when the response type changes
+        self.sample_rate = sample_rate;
+        self.cutoff_hz = cutoff_hz;
+        self.order = new_order;
+        self.response_type = ResponseType::Simple(response_type);
 
-        let k = prewarp_k(frequency, sample_rate);
+        let k = prewarp_k(cutoff_hz, sample_rate);
 
         // Odd-order butterworth filters have an additional real pole
         if new_order % 2 != 0 {
@@ -95,7 +102,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: FilterOrder, const M: usize> Bu
         &mut self,
         response_type: SimpleResponseType,
         frequency: f32,
-        sample_rate: f32,
+        sample_rate: NonZero<u32>,
         new_order: FilterOrder,
     ) {
         self.cascades[0].design_butterworth(response_type, frequency, sample_rate, new_order);
@@ -107,7 +114,7 @@ trait ButterworthComposite<const MAX_ORDER: FilterOrder> {
         &mut self,
         response_type: CompositeResponseType,
         frequency_range: (f32, f32),
-        sample_rate: f32,
+        sample_rate: NonZero<u32>,
         new_order: FilterOrder,
     );
 }
@@ -119,7 +126,7 @@ impl<const MAX_ORDER: FilterOrder> ButterworthComposite<MAX_ORDER>
         &mut self,
         response_type: CompositeResponseType,
         frequency_range: (f32, f32),
-        sample_rate: f32,
+        sample_rate: NonZero<u32>,
         new_order: FilterOrder,
     ) {
         assert!(new_order <= MAX_ORDER);

@@ -6,7 +6,10 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
-    nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
+    nodes::{
+        beep_test::BeepTestNode, rejection_filter::RejectionFilterNode, volume::VolumeNode,
+        volume_pan::VolumePanNode,
+    },
     Volume,
 };
 
@@ -37,6 +40,10 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<VolumePanNode>,
     },
+    RejectionFilter {
+        id: firewheel::node::NodeID,
+        params: Memo<RejectionFilterNode<2>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -49,6 +56,7 @@ impl GuiAudioNode {
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
             &Self::VolumePan { id, .. } => id,
+            &Self::RejectionFilter { id, .. } => id,
         }
     }
 
@@ -61,6 +69,7 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
             &Self::VolumePan { .. } => "Volume & Pan",
+            &Self::RejectionFilter { .. } => "Rejection Filter",
         }
         .into()
     }
@@ -74,6 +83,7 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::RejectionFilter { .. } => 2,
         }
     }
 
@@ -86,6 +96,7 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::RejectionFilter { .. } => 2,
         }
     }
 }
@@ -221,6 +232,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("Rejection Filter").clicked() {
+            let node = self.audio_system.add_node(NodeType::RejectionFilter);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
     }
 
     fn has_dropped_wire_menu(
@@ -268,7 +284,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             GuiAudioNode::VolumeMono { .. }
             | GuiAudioNode::VolumeStereo { .. }
             | GuiAudioNode::VolumePan { .. }
-            | GuiAudioNode::BeepTest { .. } => true,
+            | GuiAudioNode::BeepTest { .. }
+            | GuiAudioNode::RejectionFilter { .. } => true,
             _ => false,
         }
     }
@@ -335,6 +352,17 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     }
 
                     ui.add(egui::Slider::new(&mut params.pan, -1.0..=1.0).text("pan"));
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::RejectionFilter { id, params } => {
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::Slider::new(&mut params.cutoff, 20.0..=20_000.0)
+                            .logarithmic(true)
+                            .text("frequency"),
+                    );
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });

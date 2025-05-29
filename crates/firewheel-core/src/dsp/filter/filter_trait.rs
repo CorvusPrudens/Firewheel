@@ -1,4 +1,6 @@
-use super::spec::ResponseType;
+use std::num::NonZero;
+
+use super::spec::{ResponseType, SimpleResponseType, DB_OCT_24};
 
 pub trait Filter {
     /// The type of coefficients needed for the Filter to process samples
@@ -18,29 +20,42 @@ pub struct FilterBank<const NUM_CHANNELS: usize, F: Filter> {
     pub filters: [F; NUM_CHANNELS],
     pub coeffs: <F as Filter>::Coeffs,
     pub response_type: ResponseType,
+    pub cutoff_hz: f32,
+    pub sample_rate: NonZero<u32>,
+    pub order: usize,
+}
+
+impl<const NUM_CHANNELS: usize, F> Default for FilterBank<NUM_CHANNELS, F>
+where
+    F: Filter + Default + Copy,
+    F::Coeffs: Default,
+{
+    fn default() -> Self {
+        Self {
+            filters: [Default::default(); NUM_CHANNELS],
+            coeffs: Default::default(),
+            response_type: ResponseType::Simple(SimpleResponseType::Lowpass),
+            cutoff_hz: Default::default(),
+            sample_rate: NonZero::new(44100).unwrap(),
+            order: DB_OCT_24,
+        }
+    }
 }
 
 impl<const NUM_CHANNELS: usize, F: Filter> FilterBank<NUM_CHANNELS, F> {
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         for filter in self.filters.iter_mut() {
             filter.reset();
         }
     }
 
-    // TODO: change function once I know how this is actually called
-    fn process(&mut self, xs: [f32; NUM_CHANNELS]) -> [f32; NUM_CHANNELS] {
-        let mut result = [0.; NUM_CHANNELS];
-        for (filter, (inp, out)) in self
-            .filters
-            .iter_mut()
-            .zip(xs.into_iter().zip(result.iter_mut()))
-        {
-            *out = filter.process(inp, &self.coeffs);
-        }
-        result
+    #[inline(always)]
+    pub fn process(&mut self, x: f32, channel_index: usize) -> f32 {
+        // TODO: need to assert that channel_index <= NUM_CHANNELS?
+        self.filters[channel_index].process(x, &self.coeffs)
     }
 
-    fn is_silent(&self, eps: f32) -> bool {
+    pub fn is_silent(&self, eps: f32) -> bool {
         self.filters.iter().all(|filter| filter.is_silent(eps))
     }
 }

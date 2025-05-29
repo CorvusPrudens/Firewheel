@@ -5,6 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        rejection_filter::RejectionFilterNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
@@ -21,6 +22,7 @@ pub enum NodeType {
     VolumeMono,
     VolumeStereo,
     VolumePan,
+    RejectionFilter,
 }
 
 pub struct AudioSystem {
@@ -60,6 +62,9 @@ impl AudioSystem {
                 }),
             ),
             NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
+            NodeType::RejectionFilter => {
+                self.cx.add_node(RejectionFilterNode::<2>::default(), None)
+            }
         };
 
         match node_type {
@@ -77,6 +82,10 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::VolumePan => GuiAudioNode::VolumePan {
+                id,
+                params: Default::default(),
+            },
+            NodeType::RejectionFilter => GuiAudioNode::RejectionFilter {
                 id,
                 params: Default::default(),
             },

@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, num::NonZero};
 
 use super::filter_trait::Filter;
 
@@ -129,7 +129,7 @@ impl<const N: usize> Filter for [Biquad; N] {
 
     fn process(&mut self, x: f32, coeffs: &Self::Coeffs) -> f32 {
         self.iter_mut()
-            .zip(coeffs.into_iter())
+            .zip(coeffs)
             .fold(x, |acc, (biquad, coeffs)| biquad.process(acc, coeffs))
     }
 
@@ -139,6 +139,7 @@ impl<const N: usize> Filter for [Biquad; N] {
 }
 
 /// Computes the prewarp factor `K` needed for the bilinear transform.
-pub fn prewarp_k(frequency: f32, sample_rate: f32) -> f32 {
+pub fn prewarp_k(frequency: f32, sample_rate: NonZero<u32>) -> f32 {
+    let sample_rate = sample_rate.get() as f32;
     (2.0 * sample_rate) * (PI * frequency / sample_rate).tan()
 }

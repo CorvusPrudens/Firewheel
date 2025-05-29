@@ -12,6 +12,15 @@ pub struct FilterCascadeCoeffs<const ORDER: FilterOrder> {
     pub biquads: [BiquadCoeffs; ORDER],
 }
 
+impl<const ORDER: FilterOrder> Default for FilterCascadeCoeffs<ORDER> {
+    fn default() -> Self {
+        Self {
+            first_order: None,
+            biquads: [Default::default(); ORDER],
+        }
+    }
+}
+
 impl<const ORDER: FilterOrder> Default for FilterCascade<ORDER> {
     fn default() -> Self {
         Self {

@@ -18,4 +18,5 @@ pub use stereo_to_mono::StereoToMonoNode;
 
 pub mod volume_pan;
 
+pub mod rejection_filter;
 pub mod volume;
