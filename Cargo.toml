@@ -104,6 +104,7 @@ thunderdome = "0.6"
 crossbeam-utils = "0.8"
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.1" }
+bevy_platform = "0.16.0"
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

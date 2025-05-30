@@ -23,4 +23,4 @@ arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
 atomic_float.workspace = true
-ahash = "0.8.11"
+bevy_platform.workspace = true

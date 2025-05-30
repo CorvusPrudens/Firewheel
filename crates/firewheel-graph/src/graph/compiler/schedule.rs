@@ -597,7 +597,7 @@ fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 
 #[cfg(test)]
 mod tests {
-    use ahash::AHashSet;
+    use bevy_platform::collections::HashSet;
     use firewheel_core::{
         channel_config::{ChannelConfig, ChannelCount},
         node::dummy::{DummyNode, DummyNodeConfig},
@@ -861,7 +861,7 @@ mod tests {
             assert_eq!(buffer.should_clear, *should_clear);
         }
 
-        let mut buffer_alias_check: AHashSet<usize> = AHashSet::default();
+        let mut buffer_alias_check: HashSet<usize> = HashSet::default();
 
         for inserted_sum in scheduled_node.sum_inputs.iter() {
             buffer_alias_check.insert(inserted_sum.output_buffer.buffer_index);
