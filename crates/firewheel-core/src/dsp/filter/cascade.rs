@@ -3,6 +3,7 @@ use super::{filter_trait::Filter, primitives::*, spec::FilterOrder};
 /// A cascade of `N` biquads + an optional first order filter
 #[derive(Clone, Copy)]
 pub struct FilterCascade<const ORDER: FilterOrder> {
+    // TODO: think about whether Option is even needed. It could just be used depending on whether the coeffs are supplied or not
     first_order: Option<FirstOrderFilter>,
     biquads: [Biquad; ORDER],
 }
@@ -46,12 +47,11 @@ impl<const ORDER: FilterOrder> Filter for FilterCascade<ORDER> {
     fn process(&mut self, x: f32, coeffs: &Self::Coeffs) -> f32 {
         // Unwrapping coeffs.first_order_coeffs is okay because it is the caller's responsibility
         // to ensure that FirstOrderCoeffs are available if the filter needs them
-        self.biquads.process(
-            self.first_order
-                .map(|mut first_order| first_order.process(x, &coeffs.first_order.unwrap()))
-                .unwrap_or(x),
-            &coeffs.biquads,
-        )
+        let y1 = self
+            .first_order
+            .map(|mut first_order| first_order.process(x, &coeffs.first_order.unwrap()))
+            .unwrap_or(x);
+        self.biquads.process(y1, &coeffs.biquads)
     }
 
     fn is_silent(&self, eps: f32) -> bool {
@@ -73,7 +73,11 @@ pub struct FilterCascadeUpTo<const ORDER: FilterOrder> {
 impl<const ORDER: FilterOrder> Default for FilterCascadeUpTo<ORDER> {
     fn default() -> Self {
         Self {
-            first_order: Default::default(),
+            first_order: if ORDER % 2 == 0 {
+                None
+            } else {
+                Some(Default::default())
+            },
             num_biquads: Default::default(),
             biquads: [Biquad::default(); ORDER],
         }
@@ -96,16 +100,15 @@ impl<const ORDER: FilterOrder> Filter for FilterCascadeUpTo<ORDER> {
     fn process(&mut self, x: f32, coeffs: &Self::Coeffs) -> f32 {
         // Unwrapping coeffs.first_order_coeffs is okay because it is the caller's responsibility
         // to ensure that FirstOrderCoeffs are available if the filter needs them
+        let y1 = self
+            .first_order
+            .map(|mut first_order| first_order.process(x, &coeffs.first_order.unwrap()))
+            .unwrap_or(x);
         self.biquads
             .iter_mut()
             .zip(coeffs.biquads.iter())
             .take(self.num_biquads)
-            .fold(
-                self.first_order
-                    .map(|mut first_order| first_order.process(x, &coeffs.first_order.unwrap()))
-                    .unwrap_or(x),
-                |acc, (biquad, coeffs)| biquad.process(acc, coeffs),
-            )
+            .fold(y1, |acc, (biquad, coeffs)| biquad.process(acc, coeffs))
     }
 
     fn is_silent(&self, eps: f32) -> bool {

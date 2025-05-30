@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use super::spec::{ResponseType, SimpleResponseType, DB_OCT_24};
+use super::spec::{ResponseType, SimpleResponseType, DB_OCT_12, DB_OCT_24, DB_OCT_6};
 
 pub trait Filter {
     /// The type of coefficients needed for the Filter to process samples
@@ -16,6 +16,8 @@ pub trait Filter {
     fn is_silent(&self, eps: f32) -> bool;
 }
 
+/// A collection of `NUM_CHANNELS` filters `F` that share coefficients.
+/// Use the constants `DB_OCT_*` in `spec.rs` to choose your order based on desired steepness.
 pub struct FilterBank<const NUM_CHANNELS: usize, F: Filter> {
     pub filters: [F; NUM_CHANNELS],
     pub coeffs: <F as Filter>::Coeffs,
@@ -37,7 +39,7 @@ where
             response_type: ResponseType::Simple(SimpleResponseType::Lowpass),
             cutoff_hz: Default::default(),
             sample_rate: NonZero::new(44100).unwrap(),
-            order: DB_OCT_24,
+            order: DB_OCT_12,
         }
     }
 }

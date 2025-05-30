@@ -71,26 +71,53 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: FilterOrder> Butterworth<MAX_OR
     ) {
         assert!(new_order <= MAX_ORDER);
         // TODO: what to do with smoothing and filter memory? we should definitely reset it when the response type changes
-        self.sample_rate = sample_rate;
-        self.cutoff_hz = cutoff_hz;
-        self.order = new_order;
-        self.response_type = ResponseType::Simple(response_type);
 
         let k = prewarp_k(cutoff_hz, sample_rate);
 
         // Odd-order butterworth filters have an additional real pole
         if new_order % 2 != 0 {
-            self.coeffs.first_order = Some(FirstOrderCoeffs::from_real_pole(1., k));
+            self.coeffs.first_order = Some(match response_type {
+                SimpleResponseType::Lowpass => FirstOrderCoeffs::from_real_pole_lp,
+                SimpleResponseType::Highpass => FirstOrderCoeffs::from_real_pole_hp,
+            }(1., k));
+            // TODO: only replace first-order filter if we didn't have one before
+            for filter in self.filters.iter_mut() {
+                filter.first_order = Some(Default::default());
+            }
         } else {
             self.coeffs.first_order = None;
+            // TODO: only remove first-order filter if we had one
+            for filter in self.filters.iter_mut() {
+                filter.first_order = None;
+            }
         }
 
         let analog_coeffs = get_analog_coeffs(new_order);
+        let transform_fun = match response_type {
+            SimpleResponseType::Lowpass => BiquadCoeffs::from_conjugate_poles_lp,
+            SimpleResponseType::Highpass => BiquadCoeffs::from_conjugate_poles_hp,
+        };
         for (&coeff, biquad) in analog_coeffs.iter().zip(self.coeffs.biquads.iter_mut()) {
-            *biquad = BiquadCoeffs::from_conjugate_pole(coeff, 1., k);
+            *biquad = transform_fun(coeff, 1., k);
         }
 
-        // TODO: handle highpass case
+        self.sample_rate = sample_rate;
+        self.cutoff_hz = cutoff_hz;
+        self.order = new_order;
+        self.response_type = ResponseType::Simple(response_type);
+        for filter in self.filters.iter_mut() {
+            filter.num_biquads = analog_coeffs.len();
+        }
+
+        // TODO: remove debug code
+        dbg!(self.coeffs.biquads[0]);
+        /*
+        println!(
+            "DC gain: {}",
+            (self.coeffs.biquads[0].b0 + self.coeffs.biquads[0].b1 + self.coeffs.biquads[0].b2)
+                / (1. + self.coeffs.biquads[0].a1 + self.coeffs.biquads[0].a2)
+        );
+         */
     }
 }
 
