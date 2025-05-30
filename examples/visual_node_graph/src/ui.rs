@@ -7,8 +7,8 @@ use egui_snarl::{
 use firewheel::{
     diff::Memo,
     nodes::{
-        beep_test::BeepTestNode, rejection_filter::RejectionFilterNode, volume::VolumeNode,
-        volume_pan::VolumePanNode,
+        beep_saw_test::BeepSawTestNode, beep_test::BeepTestNode,
+        rejection_filter::RejectionFilterNode, volume::VolumeNode, volume_pan::VolumePanNode,
     },
     Volume,
 };
@@ -24,6 +24,10 @@ pub enum GuiAudioNode {
     BeepTest {
         id: firewheel::node::NodeID,
         params: Memo<BeepTestNode>,
+    },
+    BeepSawTest {
+        id: firewheel::node::NodeID,
+        params: Memo<BeepSawTestNode>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
@@ -52,6 +56,7 @@ impl GuiAudioNode {
             &Self::SystemIn => audio_system.graph_in_node_id(),
             &Self::SystemOut => audio_system.graph_out_node_id(),
             &Self::BeepTest { id, .. } => id,
+            &Self::BeepSawTest { id, .. } => id,
             &Self::StereoToMono { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
@@ -65,6 +70,7 @@ impl GuiAudioNode {
             &Self::SystemIn => "System In",
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
+            &Self::BeepSawTest { .. } => "Beep Saw Test",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
@@ -79,6 +85,7 @@ impl GuiAudioNode {
             &Self::SystemIn => 0,
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
+            &Self::BeepSawTest { .. } => 0,
             &Self::StereoToMono { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
@@ -92,6 +99,7 @@ impl GuiAudioNode {
             &Self::SystemIn => 1,
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
+            &Self::BeepSawTest { .. } => 1,
             &Self::StereoToMono { .. } => 1,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
@@ -212,6 +220,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("Beep Saw Test").clicked() {
+            let node = self.audio_system.add_node(NodeType::BeepSawTest);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
             snarl.insert_node(pos, node);
@@ -285,6 +298,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             | GuiAudioNode::VolumeStereo { .. }
             | GuiAudioNode::VolumePan { .. }
             | GuiAudioNode::BeepTest { .. }
+            | GuiAudioNode::BeepSawTest { .. }
             | GuiAudioNode::RejectionFilter { .. } => true,
             _ => false,
         }
@@ -301,6 +315,27 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
     ) {
         match snarl.get_node_mut(node).unwrap() {
             GuiAudioNode::BeepTest { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
+
+                    ui.add(
+                        egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
+                            .logarithmic(true)
+                            .text("frequency"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::BeepSawTest { id, params } => {
                 ui.vertical(|ui| {
                     let mut linear_volume = params.volume.linear();
                     if ui

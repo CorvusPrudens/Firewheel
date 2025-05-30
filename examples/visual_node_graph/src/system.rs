@@ -4,6 +4,7 @@ use firewheel::{
     event::{NodeEvent, NodeEventType},
     node::NodeID,
     nodes::{
+        beep_saw_test::BeepSawTestNode,
         beep_test::BeepTestNode,
         rejection_filter::RejectionFilterNode,
         volume::{VolumeNode, VolumeNodeConfig},
@@ -18,6 +19,7 @@ use crate::ui::GuiAudioNode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
     BeepTest,
+    BeepSawTest,
     StereoToMono,
     VolumeMono,
     VolumeStereo,
@@ -46,6 +48,7 @@ impl AudioSystem {
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let id = match node_type {
             NodeType::BeepTest => self.cx.add_node(BeepTestNode::default(), None),
+            NodeType::BeepSawTest => self.cx.add_node(BeepSawTestNode::default(), None),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode, None),
             NodeType::VolumeMono => self.cx.add_node(
                 VolumeNode::default(),
@@ -69,6 +72,10 @@ impl AudioSystem {
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {
+                id,
+                params: Default::default(),
+            },
+            NodeType::BeepSawTest => GuiAudioNode::BeepSawTest {
                 id,
                 params: Default::default(),
             },
