@@ -29,3 +29,4 @@ fast-interleave.workspace = true
 fixed-resample = { version = "0.8.0", default-features = false, features = [
   "channel",
 ] }
+bevy_platform.workspace = true
