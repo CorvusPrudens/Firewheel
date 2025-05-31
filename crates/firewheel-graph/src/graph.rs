@@ -1,8 +1,8 @@
 mod compiler;
 
 use core::any::Any;
-use std::fmt::Debug;
-use std::hash::Hash;
+use core::fmt::Debug;
+use core::hash::Hash;
 
 use bevy_platform::collections::HashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
@@ -571,7 +571,7 @@ impl AudioGraph {
         }
 
         let mut nodes_to_remove = Vec::new();
-        std::mem::swap(
+        core::mem::swap(
             &mut self.nodes_to_remove_from_schedule,
             &mut nodes_to_remove,
         );

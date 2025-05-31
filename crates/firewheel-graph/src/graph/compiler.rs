@@ -1,6 +1,6 @@
+use alloc::{collections::VecDeque, rc::Rc};
 use firewheel_core::node::{AudioNodeInfoInner, DynAudioNode, NodeID};
 use smallvec::SmallVec;
-use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
 
 use crate::error::CompileGraphError;

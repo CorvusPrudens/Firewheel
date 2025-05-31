@@ -104,7 +104,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         for s in out.iter_mut() {
-            *s = (self.phasor * std::f32::consts::TAU).sin() * self.gain;
+            *s = (self.phasor * core::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }
 

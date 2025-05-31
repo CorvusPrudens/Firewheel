@@ -1,4 +1,4 @@
-use std::f32::consts::TAU;
+use core::f32::consts::TAU;
 
 /// The coefficients to a very basic single-pole IIR lowpass filter for
 /// generic tasks. This filter is very computationally efficient.

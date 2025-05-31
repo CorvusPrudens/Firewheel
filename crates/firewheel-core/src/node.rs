@@ -1,4 +1,4 @@
-use std::{any::Any, fmt::Debug, hash::Hash, ops::Range};
+use core::{any::Any, fmt::Debug, hash::Hash, ops::Range};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},

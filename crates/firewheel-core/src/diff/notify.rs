@@ -2,7 +2,7 @@ use crate::{
     diff::{Diff, Patch},
     event::ParamData,
 };
-use core::sync::atomic::{AtomicU64, Ordering};
+use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 
 // Increment an atomic counter.
 //

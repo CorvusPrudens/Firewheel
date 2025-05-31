@@ -1,6 +1,11 @@
-use atomic_float::AtomicF64;
+use bevy_platform::sync::{
+    atomic::{AtomicI64, Ordering},
+    Arc,
+};
 use core::any::Any;
+use core::num::NonZeroU32;
 use firewheel_core::{
+    atomic_float::AtomicF64,
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
     collector::Collector,
@@ -11,13 +16,6 @@ use firewheel_core::{
 };
 use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
-use std::{
-    num::NonZeroU32,
-    sync::{
-        atomic::{AtomicI64, Ordering},
-        Arc,
-    },
-};
 
 use crate::{
     backend::{AudioBackend, DeviceInfo},
@@ -445,7 +443,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     .event_group_pool
                     .pop()
                     .unwrap_or_else(|| Vec::with_capacity(self.initial_event_group_capacity));
-                std::mem::swap(&mut next_event_group, &mut self.event_group);
+                core::mem::swap(&mut next_event_group, &mut self.event_group);
 
                 if let Err((msg, e)) = self
                     .send_message_to_processor(ContextToProcessorMsg::EventGroup(next_event_group))
@@ -454,7 +452,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                         unreachable!();
                     };
 
-                    std::mem::swap(&mut event_group, &mut self.event_group);
+                    core::mem::swap(&mut event_group, &mut self.event_group);
                     self.event_group_pool.push(event_group);
 
                     return Err(e);
@@ -660,14 +658,14 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
         // the audio thread.
         #[cfg(not(target_family = "wasm"))]
         if let Some(drop_rx) = self.processor_drop_rx.take() {
-            let now = std::time::Instant::now();
+            let now = bevy_platform::time::Instant::now();
 
             while drop_rx.try_peek().is_none() {
-                if now.elapsed() > std::time::Duration::from_secs(2) {
+                if now.elapsed() > core::time::Duration::from_secs(2) {
                     break;
                 }
 
-                std::thread::sleep(std::time::Duration::from_millis(2));
+                bevy_platform::thread::sleep(core::time::Duration::from_millis(2));
             }
         }
 

@@ -1,9 +1,9 @@
-use smallvec::SmallVec;
-use std::{
+use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use smallvec::SmallVec;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},

@@ -22,5 +22,4 @@ smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
-atomic_float.workspace = true
 bevy_platform.workspace = true

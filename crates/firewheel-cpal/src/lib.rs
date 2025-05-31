@@ -1,10 +1,10 @@
-use std::{
+use core::{
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
-    sync::mpsc,
     time::Duration,
     u32,
 };
+use std::sync::mpsc;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};

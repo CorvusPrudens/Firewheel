@@ -1,3 +1,4 @@
+pub mod atomic_float;
 pub mod channel_config;
 pub mod clock;
 pub mod collector;
@@ -7,10 +8,11 @@ pub mod event;
 pub mod node;
 pub mod param;
 pub mod sample_resource;
-mod silence_mask;
 pub mod sync_wrapper;
 
-use std::num::NonZeroU32;
+mod silence_mask;
+
+use core::num::NonZeroU32;
 
 pub use silence_mask::SilenceMask;
 

@@ -1,8 +1,5 @@
-use std::{
-    num::NonZeroU32,
-    ops::Range,
-    sync::{atomic::Ordering, Arc},
-};
+use bevy_platform::sync::{atomic::Ordering, Arc};
+use core::{num::NonZeroU32, ops::Range};
 
 use ringbuf::traits::{Consumer, Producer};
 use thunderdome::Arena;
@@ -35,6 +32,8 @@ impl Drop for FirewheelProcessor {
 
         inner.stream_stopped();
 
+        // TODO: Either wait for `bevy_platform` to implement this method, or
+        // hide this behind a "std" feature flag.
         if std::thread::panicking() {
             inner.poisoned = true;
         }
@@ -309,7 +308,7 @@ impl FirewheelProcessorInner {
 
         if self.event_buffer.capacity() > 0 {
             let mut event_group = Vec::new();
-            std::mem::swap(&mut self.event_buffer, &mut event_group);
+            core::mem::swap(&mut self.event_buffer, &mut event_group);
 
             let _ = self
                 .to_graph_tx
@@ -324,7 +323,7 @@ impl FirewheelProcessorInner {
                     let num_existing_events = self.event_buffer.len();
 
                     if self.event_buffer.capacity() == 0 {
-                        std::mem::swap(&mut self.event_buffer, &mut event_group);
+                        core::mem::swap(&mut self.event_buffer, &mut event_group);
                     } else {
                         self.event_buffer.append(&mut event_group);
 
@@ -348,7 +347,7 @@ impl FirewheelProcessorInner {
                     );
 
                     if let Some(mut old_schedule_data) = self.schedule_data.take() {
-                        std::mem::swap(
+                        core::mem::swap(
                             &mut old_schedule_data.removed_nodes,
                             &mut new_schedule_data.removed_nodes,
                         );
