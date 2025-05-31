@@ -692,7 +692,7 @@ struct DataCallback {
     sample_rate_recip: f64,
     _first_internal_clock_instant: Option<cpal::StreamInstant>,
     _prev_stream_instant: Option<cpal::StreamInstant>,
-    first_fallback_clock_instant: Option<std::time::Instant>,
+    first_fallback_clock_instant: Option<bevy_platform::time::Instant>,
     predicted_stream_secs: Option<f64>,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
@@ -739,7 +739,7 @@ impl DataCallback {
 
         let (internal_clock_secs, underflow) =
             if let Some(instant) = self.first_fallback_clock_instant {
-                let now = std::time::Instant::now();
+                let now = bevy_platform::time::Instant::now();
 
                 let internal_clock_secs = (now - instant).as_secs_f64();
 
@@ -760,7 +760,7 @@ impl DataCallback {
 
                 (ClockSeconds(internal_clock_secs), underflow)
             } else {
-                self.first_fallback_clock_instant = Some(std::time::Instant::now());
+                self.first_fallback_clock_instant = Some(bevy_platform::time::Instant::now());
                 (ClockSeconds(0.0), false)
             };
 
@@ -769,7 +769,7 @@ impl DataCallback {
         // It appears that for some reason, both Windows and Linux will sometimes return a timestamp which
         // has a value less than the previous timestamp. I am unsure if this is a bug with the APIs, a bug
         // with CPAL, or I'm just misunderstaning how the timestamps are supposed to be used. Either way,
-        // it is disabled for now and `std::time::Instance::now()` is being used as a workaround above.
+        // it is disabled for now and `bevy_platform::time::Instance::now()` is being used as a workaround above.
         //
         // let (internal_clock_secs, underflow) = if let Some(instant) =
         //     &self.first_internal_clock_instant
