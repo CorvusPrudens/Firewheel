@@ -4,6 +4,7 @@ use crate::node::ProcInfo;
 
 /// When a particular audio event should occur.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum EventDelay {
     /// The event should happen when the clock reaches the given time in
     /// seconds.
@@ -124,6 +125,7 @@ impl EventDelay {
 /// An absolute clock time in units of seconds.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct ClockSeconds(pub f64);
 
 impl Add for ClockSeconds {
@@ -167,6 +169,7 @@ impl Into<f64> for ClockSeconds {
 /// An absolute clock time in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct ClockSamples(pub i64);
 
 impl ClockSamples {
@@ -249,6 +252,7 @@ impl Into<i64> for ClockSamples {
 
 /// Musical time in units of beats.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct MusicalTime(pub f64);
 
 impl MusicalTime {

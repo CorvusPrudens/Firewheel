@@ -34,6 +34,8 @@ fn increment_counter() -> u64 {
 /// [`Notify`] implements [`core::ops::Deref`] and [`core::ops::DerefMut`]
 /// for the inner `T`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque, where T: Clone))]
 pub struct Notify<T> {
     value: T,
     counter: u64,

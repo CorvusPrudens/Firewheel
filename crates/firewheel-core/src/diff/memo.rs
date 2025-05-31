@@ -5,8 +5,11 @@ use super::{Diff, EventQueue, PathBuilder};
 /// This type simplifies diffing management for
 /// standalone parameters.
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(where T: Default))]
 pub struct Memo<T> {
     value: T,
+    #[cfg_attr(feature = "bevy_reflect", reflect(ignore))]
     baseline: T,
 }
 

@@ -8,11 +8,35 @@ use crate::{
 
 /// A value representing a volume (gain) applied to an audio signal.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum Volume {
     /// Volume in a linear scale, where `0.0` is silence and `1.0` is unity gain.
     Linear(f32),
     /// Volume in decibels, where `0.0` is unity gain and `f32::NEG_INFINITY` is silence.
     Decibels(f32),
+}
+
+#[cfg(feature = "bevy_reflect")]
+impl bevy_math::curve::Ease for Volume {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl bevy_math::curve::Curve<Self> {
+        bevy_math::curve::FunctionCurve::new(
+            bevy_math::curve::Interval::EVERYWHERE,
+            move |t| match (start, end) {
+                (Volume::Linear(a), Volume::Linear(b)) => {
+                    Volume::Linear(<f32 as bevy_math::VectorSpace>::lerp(a, b, t))
+                }
+                (Volume::Decibels(a), Volume::Decibels(b)) => {
+                    Volume::Decibels(<f32 as bevy_math::VectorSpace>::lerp(a, b, t))
+                }
+                _ => {
+                    let start = start.decibels();
+                    let end = end.decibels();
+
+                    Volume::Decibels(<f32 as bevy_math::VectorSpace>::lerp(start, end, t))
+                }
+            },
+        )
+    }
 }
 
 impl Volume {

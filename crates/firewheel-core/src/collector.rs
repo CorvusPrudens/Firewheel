@@ -17,6 +17,8 @@ use std::sync::{
 /// values contained by [`ArcGc`], you'll need to be careful to ensure you
 /// explicitly take references of the inner data.
 #[derive(Debug, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque, where C: Clone))]
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
     collector: C,
@@ -135,6 +137,7 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> Eq for ArcGc<T, C>
 /// GlobalCollector.collect();
 /// ```
 #[derive(Default, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct GlobalCollector;
 
 static REGISTRY: Mutex<Vec<Box<dyn StrongCount + 'static>>> = Mutex::new(Vec::new());

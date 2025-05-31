@@ -24,29 +24,29 @@ exclude = ["assets/"]
 
 [workspace]
 members = [
-    "crates/firewheel-core",
-    "crates/firewheel-cpal",
-    "crates/firewheel-graph",
-    "crates/firewheel-nodes",
-    "crates/firewheel-macros",
-    "examples/beep_test",
-    "examples/cpal_input",
-    "examples/custom_nodes",
-    "examples/play_sample",
-    "examples/sampler_pool",
-    "examples/sampler_test",
-    "examples/spatial_basic",
-    "examples/stream_nodes",
-    "examples/visual_node_graph",
+  "crates/firewheel-core",
+  "crates/firewheel-cpal",
+  "crates/firewheel-graph",
+  "crates/firewheel-nodes",
+  "crates/firewheel-macros",
+  "examples/beep_test",
+  "examples/cpal_input",
+  "examples/custom_nodes",
+  "examples/play_sample",
+  "examples/sampler_pool",
+  "examples/sampler_test",
+  "examples/spatial_basic",
+  "examples/stream_nodes",
+  "examples/visual_node_graph",
 ]
 
 [features]
 default = [
-    "cpal",
-    "symphonium",
-    "symphonium_resample",
-    "peak_meter_node",
-    "sampler_node",
+  "cpal",
+  "symphonium",
+  "symphonium_resample",
+  "peak_meter_node",
+  "sampler_node",
 ]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]
@@ -61,11 +61,11 @@ symphonium_resample = ["firewheel-core/resampler"]
 sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]
 # Enables all built-in factory nodes
 all_nodes = [
-    "beep_test_node",
-    "peak_meter_node",
-    "sampler_node",
-    "spatial_basic_node",
-    "stream_nodes",
+  "beep_test_node",
+  "peak_meter_node",
+  "sampler_node",
+  "spatial_basic_node",
+  "stream_nodes",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
@@ -80,6 +80,8 @@ spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 stream_nodes = ["firewheel-nodes/stream"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
+# Enables `Reflect` derive macros for node parameters
+bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 

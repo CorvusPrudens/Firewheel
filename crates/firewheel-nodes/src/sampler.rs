@@ -30,6 +30,7 @@ pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
     pub channels: NonZeroChannelCount,
@@ -74,6 +75,7 @@ impl Default for SamplerConfig {
 /// speed of a sampler node.
 #[non_exhaustive]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum PlaybackSpeedQuality {
     #[default]
     /// Low quality, fast performance. Recommended for most use cases.
@@ -86,6 +88,7 @@ pub enum PlaybackSpeedQuality {
 
 #[derive(Clone, Diff, Patch)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+// #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct SamplerNode {
     /// The current sequence loaded into the sampler.
     pub sequence: Notify<Option<SequenceType>>,
@@ -278,6 +281,7 @@ impl SamplerState {
 
 /// A parameter representing the current playback state of a sequence.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum PlaybackState {
     /// Stop the sequence.
     ///
@@ -310,6 +314,7 @@ impl PlaybackState {
 
 /// The playhead of a sequence.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum Playhead {
     /// The playhead in units of seconds.
     Seconds(f64),
@@ -341,6 +346,7 @@ impl Default for Playhead {
 
 /// The current sequence loaded into the sampler.
 #[derive(Clone, PartialEq)]
+// #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum SequenceType {
     SingleSample {
         /// The sample resource to use.
@@ -362,6 +368,7 @@ pub enum SequenceType {
 
 /// The method of timing to use for a sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum SequenceTiming {
     /// Use time in units of seconds.
     Seconds,
@@ -370,6 +377,7 @@ pub enum SequenceTiming {
 }
 
 #[derive(Clone, PartialEq)]
+// #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct SequenceEvent {
     pub event: SequenceEventType,
     /// The amount of time from the start of the sequence that this event should occur.
@@ -381,6 +389,7 @@ pub struct SequenceEvent {
 }
 
 #[derive(Clone, PartialEq)]
+// #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum SequenceEventType {
     PlaySample {
         /// The sample resource to use.
@@ -404,6 +413,7 @@ pub enum SequenceEventType {
 
 /// How many times a sample/sequence should be repeated for each `StartOrRestart` command.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum RepeatMode {
     /// Play the sample/sequence once and then stop.
     #[default]

@@ -63,6 +63,8 @@ impl Into<usize> for ChannelCount {
 /// This number cannot be `0` or greater than `64`.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
 pub struct NonZeroChannelCount(NonZeroU32);
 
 impl NonZeroChannelCount {

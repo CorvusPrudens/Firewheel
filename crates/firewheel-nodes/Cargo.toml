@@ -42,6 +42,8 @@ spatial_basic = []
 stream = ["dep:fixed-resample"]
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs"]
+# Enables `Reflect` derive macros
+bevy_reflect = ["dep:bevy_reflect"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.3.0" }
@@ -50,3 +52,4 @@ crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 fixed-resample = { version = "0.8.0", features = ["fft-resampler", "channel"], optional = true }
 bevy_ecs = { version = "0.15", optional = true }
+bevy_reflect = { version = "0.15", optional = true }
