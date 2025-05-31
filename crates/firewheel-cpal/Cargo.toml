@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-cpal"
-version = "0.4.1"
+version = "0.4.2"
 description = "cpal backend for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-cpal"
 edition.workspace = true

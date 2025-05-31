@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.4.1"
+version = "0.4.2"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
 repository = "https://github.com/BillyDM/firewheel"
 edition.workspace = true
@@ -86,7 +86,7 @@ wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.4.1" }
 firewheel-graph = { path = "crates/firewheel-graph", version = "0.4.1" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.4.1", default-features = false, optional = true }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.4.2", default-features = false, optional = true }
 firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.4.1", default-features = false }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
