@@ -2,10 +2,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::filter::{
-        butterworth::Butterworth,
-        cascade::FilterCascadeUpTo,
-        filter_trait::{Filter, FilterBank},
-        spec::SimpleResponseType,
+        cascade::FilterCascadeUpTo, filter_trait::Filter, multi_channel_filter::MultiChannelFilter,
     },
     event::NodeEventList,
     node::{
@@ -56,7 +53,7 @@ impl<const NUM_CHANNELS: usize> AudioNode for RejectionFilterNode<NUM_CHANNELS> 
 }
 
 struct RejectionFilterProcessor<const NUM_CHANNELS: usize> {
-    filter: FilterBank<NUM_CHANNELS, FilterCascadeUpTo<16>>,
+    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<8>>,
     prev_block_was_silent: bool,
 }
 
@@ -69,12 +66,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
     ) -> ProcessStatus {
         events.for_each_patch::<RejectionFilterNode<NUM_CHANNELS>>(
             |RejectionFilterNodePatch::Cutoff(c)| {
-                self.filter.design_butterworth(
-                    SimpleResponseType::Lowpass,
-                    c,
-                    self.filter.sample_rate,
-                    self.filter.order,
-                );
+                self.filter.lowpass_ord4(c, 1.);
             },
         );
 
@@ -120,12 +112,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
         // TODO: make this more ergonomic. filters should automatically redesign themselves when a relevant parameter changes
-        self.filter.sample_rate = stream_info.sample_rate;
-        self.filter.design_butterworth(
-            SimpleResponseType::Lowpass,
-            self.filter.cutoff_hz,
-            self.filter.sample_rate,
-            self.filter.order,
-        );
+        self.filter.sample_rate_recip = stream_info.sample_rate_recip as f32;
+        self.filter.lowpass_ord4(440., 1.);
     }
 }
