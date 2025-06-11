@@ -61,8 +61,10 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             }
         }
         if new_order > self.current_order {
-            for filter in self.filters[new_order..].iter_mut() {
-                filter.reset();
+            for filter in self.filters.iter_mut() {
+                for svf in filter.svfs[new_order..].iter_mut() {
+                    svf.reset();
+                }
             }
         }
         self.current_order = new_order;
