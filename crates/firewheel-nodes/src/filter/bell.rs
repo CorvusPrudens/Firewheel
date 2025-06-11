@@ -21,15 +21,18 @@ pub struct BellFilterNodeConfig<const NUM_CHANNELS: usize>;
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct BellFilterNode<const NUM_CHANNELS: usize> {
-    pub cutoff_hz: f32,
+    /// The center frequency in Hz, experiencing a gain change of gain_db
+    pub center_hz: f32,
+    /// The q factor
     pub q: f32,
+    /// The gain in decibels
     pub gain_db: f32,
 }
 
 impl<const NUM_CHANNELS: usize> Default for BellFilterNode<NUM_CHANNELS> {
     fn default() -> Self {
         Self {
-            cutoff_hz: 440.,
+            center_hz: 440.,
             q: FRAC_1_SQRT_2,
             gain_db: 0.,
         }
@@ -87,7 +90,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for BellFilterProcessor<NUM_C
         });
         if updated {
             self.filter
-                .bell(self.params.cutoff_hz, self.params.q, self.params.gain_db);
+                .bell(self.params.center_hz, self.params.q, self.params.gain_db);
         }
 
         self.prev_block_was_silent = false;

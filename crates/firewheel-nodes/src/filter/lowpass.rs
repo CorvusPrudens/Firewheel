@@ -21,8 +21,11 @@ pub struct LowpassFilterNodeConfig<const NUM_CHANNELS: usize>;
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct LowpassFilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
+    /// The filter order. The steepness is equal to 6 * order dB/oct
     pub order: u32,
+    /// The cutoff frequency. If q is set to 1/sqrt(2) then this will be the -3 dB point
     pub cutoff_hz: f32,
+    /// The q factor. Choose q=1/sqrt(2) for a Butterworth filter, higher values will result in a resonant peak
     pub q: f32,
 }
 

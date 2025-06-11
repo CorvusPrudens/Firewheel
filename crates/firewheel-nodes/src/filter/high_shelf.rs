@@ -21,8 +21,11 @@ pub struct HighShelfFilterNodeConfig<const NUM_CHANNELS: usize>;
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct HighShelfFilterNode<const NUM_CHANNELS: usize> {
+    /// The cut/boost frequency
     pub cutoff_hz: f32,
+    /// The q factor
     pub q: f32,
+    /// The gain in decibels
     pub gain_db: f32,
 }
 

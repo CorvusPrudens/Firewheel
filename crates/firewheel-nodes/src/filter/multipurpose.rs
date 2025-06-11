@@ -115,9 +115,9 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
                 ),
                 FilterType::Notch => self
                     .filter
-                    .notch(self.params.notch.cutoff_hz, self.params.notch.q),
+                    .notch(self.params.notch.center_hz, self.params.notch.q),
                 FilterType::Bell => self.filter.bell(
-                    self.params.bell.cutoff_hz,
+                    self.params.bell.center_hz,
                     self.params.bell.q,
                     self.params.bell.gain_db,
                 ),

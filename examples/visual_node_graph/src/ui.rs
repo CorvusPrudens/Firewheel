@@ -463,7 +463,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         );
                         ui.add(egui::Separator::default());
                         ui.add(
-                            egui::Slider::new(&mut params.notch.cutoff_hz, 20.0..=20_000.0)
+                            egui::Slider::new(&mut params.notch.center_hz, 20.0..=20_000.0)
                                 .logarithmic(true)
                                 .text("Frequency"),
                         );
@@ -489,7 +489,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         );
                         ui.add(egui::Separator::default());
                         ui.add(
-                            egui::Slider::new(&mut params.bell.cutoff_hz, 20.0..=20_000.0)
+                            egui::Slider::new(&mut params.bell.center_hz, 20.0..=20_000.0)
                                 .logarithmic(true)
                                 .text("Frequency"),
                         );

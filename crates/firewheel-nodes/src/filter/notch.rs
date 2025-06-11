@@ -21,14 +21,16 @@ pub struct NotchFilterNodeConfig<const NUM_CHANNELS: usize>;
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct NotchFilterNode<const NUM_CHANNELS: usize> {
-    pub cutoff_hz: f32,
+    /// The center frequency in Hz
+    pub center_hz: f32,
+    /// The q factor
     pub q: f32,
 }
 
 impl<const NUM_CHANNELS: usize> Default for NotchFilterNode<NUM_CHANNELS> {
     fn default() -> Self {
         Self {
-            cutoff_hz: 440.,
+            center_hz: 440.,
             q: FRAC_1_SQRT_2,
         }
     }
@@ -84,7 +86,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for NotchFilterProcessor<NUM_
             updated = true;
         });
         if updated {
-            self.filter.notch(self.params.cutoff_hz, self.params.q);
+            self.filter.notch(self.params.center_hz, self.params.q);
         }
 
         self.prev_block_was_silent = false;
