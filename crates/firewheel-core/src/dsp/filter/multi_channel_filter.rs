@@ -1,7 +1,10 @@
 use crate::dsp::filter::{
     cascade::FilterCascadeUpTo,
     filter_trait::Filter,
-    primitives::{one_pole_iir::OnePoleIirCoeff, svf::SvfCoeff},
+    primitives::{
+        one_pole_iir::OnePoleIirCoeff,
+        svf::{SvfCoeff, SvfState},
+    },
     spec::FilterOrder,
 };
 
@@ -162,5 +165,35 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         }
 
         self.process_order_change(1);
+    }
+}
+
+/// Implementation using exactly 1 SVF for more space efficient basic filters that don't need the single pole filter
+impl<const NUM_CHANNELS: usize> MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]> {
+    pub fn lowpass(&mut self, cutoff_hz: f32, q: f32) {
+        SvfCoeff::lowpass(1, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
+    }
+    pub fn highpass(&mut self, cutoff_hz: f32, q: f32) {
+        SvfCoeff::highpass(1, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
+    }
+
+    pub fn notch(&mut self, cutoff_hz: f32, q: f32) {
+        self.coeffs[0] = SvfCoeff::notch(cutoff_hz, q, self.sample_rate_recip);
+    }
+
+    pub fn bell(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
+        self.coeffs[0] = SvfCoeff::bell(cutoff_hz, q, gain_db, self.sample_rate_recip);
+    }
+
+    pub fn low_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
+        self.coeffs[0] = SvfCoeff::low_shelf(cutoff_hz, q, gain_db, self.sample_rate_recip);
+    }
+
+    pub fn high_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
+        self.coeffs[0] = SvfCoeff::high_shelf(cutoff_hz, q, gain_db, self.sample_rate_recip);
+    }
+
+    pub fn allpass(&mut self, cutoff_hz: f32, q: f32) {
+        self.coeffs[0] = SvfCoeff::allpass(cutoff_hz, q, self.sample_rate_recip);
     }
 }

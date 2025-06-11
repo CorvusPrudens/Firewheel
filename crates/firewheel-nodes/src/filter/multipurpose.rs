@@ -38,13 +38,13 @@ pub enum FilterType {
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct MultipurposeFilterNode<const NUM_CHANNELS: usize> {
     pub filter_type: FilterType,
-    pub lowpass: LowpassFilterNode,
-    pub highpass: HighpassFilterNode,
-    pub notch: NotchFilterNode,
-    pub bell: BellFilterNode,
-    pub low_shelf: LowShelfFilterNode,
-    pub high_shelf: HighShelfFilterNode,
-    pub allpass: AllpassFilterNode,
+    pub lowpass: LowpassFilterNode<NUM_CHANNELS>,
+    pub highpass: HighpassFilterNode<NUM_CHANNELS>,
+    pub notch: NotchFilterNode<NUM_CHANNELS>,
+    pub bell: BellFilterNode<NUM_CHANNELS>,
+    pub low_shelf: LowShelfFilterNode<NUM_CHANNELS>,
+    pub high_shelf: HighShelfFilterNode<NUM_CHANNELS>,
+    pub allpass: AllpassFilterNode<NUM_CHANNELS>,
 }
 
 impl<const NUM_CHANNELS: usize> AudioNode for MultipurposeFilterNode<NUM_CHANNELS> {
@@ -172,8 +172,6 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for MultipurposeFilterProcess
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
-        // TODO: make this more ergonomic. filters should automatically redesign themselves when a relevant parameter changes
         self.filter.sample_rate_recip = stream_info.sample_rate_recip as f32;
-        self.filter.lowpass(4, 440., 1.);
     }
 }
