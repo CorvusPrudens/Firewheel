@@ -6,3 +6,4 @@ pub mod low_shelf;
 pub mod lowpass;
 pub mod multipurpose;
 pub mod notch;
+pub mod rejection_filter;
