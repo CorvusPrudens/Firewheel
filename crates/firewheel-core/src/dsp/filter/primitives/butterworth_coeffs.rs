@@ -1,9 +1,9 @@
 use std::f64::consts::FRAC_1_SQRT_2;
 
-use crate::dsp::filter::primitives::spec::FilterSpec;
+use crate::dsp::filter::spec::FilterOrder;
 
-pub fn butterworth_coeffs<SPEC: FilterSpec>() -> &'static [f64] {
-    match SPEC::ORDER {
+pub fn butterworth_coeffs(order: FilterOrder) -> &'static [f64] {
+    match order {
         1 => &[],
         2 => &[FRAC_1_SQRT_2],
         3 => &[1.0],

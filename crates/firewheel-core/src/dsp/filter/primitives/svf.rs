@@ -2,8 +2,7 @@
 use std::f32::consts::PI;
 
 use crate::dsp::filter::{
-    filter_trait::Filter,
-    primitives::{butterworth_coeffs::butterworth_coeffs, spec::FilterSpec},
+    filter_trait::Filter, primitives::butterworth_coeffs::butterworth_coeffs, spec::FilterOrder,
 };
 
 /// The coefficients for an SVF (state variable filter) model.
@@ -28,18 +27,20 @@ impl SvfCoeff {
         m2: 0.0,
     };
 
-    pub fn lowpass<S: FilterSpec>(
+    pub fn lowpass(
+        order: FilterOrder,
         cutoff_hz: f32,
         q: f32,
         sample_rate_recip: f32,
         out: &mut [Self],
     ) {
+        let num_svf = order / 2;
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = q.powf(1. / (S::NUM_SVF as f32));
+        let q_norm = q.powf(1. / (num_svf as f32));
 
-        let constants = butterworth_coeffs::<S>();
+        let constants = butterworth_coeffs(order);
 
-        for i in 0..S::NUM_SVF {
+        for i in 0..num_svf {
             let q = q_norm * (constants[i] as f32);
             let k = 1.0 / q;
 
@@ -47,18 +48,20 @@ impl SvfCoeff {
         }
     }
 
-    pub fn highpass<S: FilterSpec>(
+    pub fn highpass(
+        order: FilterOrder,
         cutoff_hz: f32,
         q: f32,
         sample_rate_recip: f32,
         out: &mut [Self],
     ) {
+        let num_svf = order / 2;
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = q.powf(1. / (S::NUM_SVF as f32));
+        let q_norm = q.powf(1. / (num_svf as f32));
 
-        let constants = butterworth_coeffs::<S>();
+        let constants = butterworth_coeffs(order);
 
-        for i in 0..S::NUM_SVF {
+        for i in 0..num_svf {
             let q = q_norm * (constants[i] as f32);
             let k = 1.0 / q;
 
@@ -66,57 +69,45 @@ impl SvfCoeff {
         }
     }
 
-    pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32, out: &mut [Self]) {
+    pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / q;
 
-        out[0] = Self::from_g_and_k(g, k, 1.0, -k, 0.0);
+        Self::from_g_and_k(g, k, 1.0, -k, 0.0)
     }
 
-    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32, out: &mut [Self]) {
+    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
         let a = gain_db_to_a(gain_db);
 
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / (q * a);
 
-        out[0] = Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0);
+        Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0)
     }
 
-    pub fn low_shelf(
-        cutoff_hz: f32,
-        q: f32,
-        gain_db: f32,
-        sample_rate_recip: f32,
-        out: &mut [Self],
-    ) {
+    pub fn low_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
         let a = gain_db_to_a(gain_db);
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
 
-        out[0] = Self::from_g_and_k(g, k, 1.0, k * (a - 1.0), a * a - 1.0);
+        Self::from_g_and_k(g, k, 1.0, k * (a - 1.0), a * a - 1.0)
     }
 
-    pub fn high_shelf(
-        cutoff_hz: f32,
-        q: f32,
-        gain_db: f32,
-        sample_rate_recip: f32,
-        out: &mut [Self],
-    ) {
+    pub fn high_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
         let a = gain_db_to_a(gain_db);
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
 
-        out[0] = Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a);
+        Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a)
     }
 
-    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32, out: &mut [Self]) {
+    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / q;
 
-        out[0] = Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0);
+        Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0)
     }
 
     pub fn from_g_and_k(g: f32, k: f32, m0: f32, m1: f32, m2: f32) -> Self {
