@@ -1,0 +1,295 @@
+use firewheel_core::{
+    channel_config::{ChannelConfig, ChannelCount},
+    diff::{Diff, Patch},
+    dsp::filter::{
+        cascade::FilterCascadeUpTo, filter_trait::Filter, multi_channel_filter::MultiChannelFilter,
+    },
+    event::NodeEventList,
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
+    SilenceMask,
+};
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct FilterNodeConfig<const NUM_CHANNELS: usize>;
+
+#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
+pub enum FilterType {
+    Lowpass,
+    #[default]
+    Highpass,
+    Notch,
+    Bell,
+    LowShelf,
+    HighShelf,
+    Allpass,
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct LowpassFilterNode {
+    pub order: u32,
+    pub cutoff_hz: f32,
+    pub q: f32,
+}
+
+impl Default for LowpassFilterNode {
+    fn default() -> Self {
+        Self {
+            order: 2,
+            cutoff_hz: 1.,
+            q: 1.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct HighpassFilterNode {
+    pub order: u32,
+    pub cutoff_hz: f32,
+    pub q: f32,
+}
+
+impl Default for HighpassFilterNode {
+    fn default() -> Self {
+        Self {
+            order: 2,
+            cutoff_hz: 1.,
+            q: 1.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct NotchFilterNode {
+    pub cutoff_hz: f32,
+    pub q: f32,
+}
+
+impl Default for NotchFilterNode {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 1.,
+            q: 1.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct BellFilterNode {
+    pub cutoff_hz: f32,
+    pub q: f32,
+    pub gain_db: f32,
+}
+
+impl Default for BellFilterNode {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 1.,
+            q: 1.,
+            gain_db: 0.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct LowShelfFilterNode {
+    pub cutoff_hz: f32,
+    pub q: f32,
+    pub gain_db: f32,
+}
+
+impl Default for LowShelfFilterNode {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 1.,
+            q: 1.,
+            gain_db: 0.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct HighShelfFilterNode {
+    pub cutoff_hz: f32,
+    pub q: f32,
+    pub gain_db: f32,
+}
+
+impl Default for HighShelfFilterNode {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 1.,
+            q: 1.,
+            gain_db: 0.,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct AllpassFilterNode {
+    pub cutoff_hz: f32,
+    pub q: f32,
+}
+
+impl Default for AllpassFilterNode {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 1.,
+            q: 1.,
+        }
+    }
+}
+
+#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub struct FilterNode<const NUM_CHANNELS: usize> {
+    pub filter_type: FilterType,
+    pub lowpass: LowpassFilterNode,
+    pub highpass: HighpassFilterNode,
+    pub notch: NotchFilterNode,
+    pub bell: BellFilterNode,
+    pub low_shelf: LowShelfFilterNode,
+    pub high_shelf: HighShelfFilterNode,
+    pub allpass: AllpassFilterNode,
+}
+
+impl<const NUM_CHANNELS: usize> AudioNode for FilterNode<NUM_CHANNELS> {
+    type Configuration = FilterNodeConfig<NUM_CHANNELS>;
+
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+        // TODO: manage channel count better, this whole file is kind of a mess just to prototype
+        let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
+        let num_outputs = num_inputs;
+        AudioNodeInfo::new()
+            .debug_name("volume")
+            .channel_config(ChannelConfig {
+                num_inputs,
+                num_outputs,
+            })
+            .uses_events(true)
+    }
+
+    fn construct_processor(
+        &self,
+        _config: &Self::Configuration,
+        cx: ConstructProcessorContext,
+    ) -> impl AudioNodeProcessor {
+        assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
+
+        let result: FilterProcessor<NUM_CHANNELS> = FilterProcessor {
+            filter: Default::default(),
+            params: Default::default(),
+            prev_block_was_silent: true,
+        };
+        result
+    }
+}
+
+struct FilterProcessor<const NUM_CHANNELS: usize> {
+    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
+    params: FilterNode<NUM_CHANNELS>,
+    prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> AudioNodeProcessor for FilterProcessor<NUM_CHANNELS> {
+    fn process(
+        &mut self,
+        buffers: ProcBuffers,
+        proc_info: &ProcInfo,
+        mut events: NodeEventList,
+    ) -> ProcessStatus {
+        let mut updated = false;
+        events.for_each_patch::<FilterNode<NUM_CHANNELS>>(|patch| {
+            self.params.apply(patch);
+            updated = true;
+        });
+        if updated {
+            match self.params.filter_type {
+                FilterType::Lowpass => self.filter.lowpass(
+                    self.params.lowpass.order as usize,
+                    self.params.lowpass.cutoff_hz,
+                    self.params.lowpass.q,
+                ),
+                FilterType::Highpass => self.filter.highpass(
+                    self.params.highpass.order as usize,
+                    self.params.highpass.cutoff_hz,
+                    self.params.highpass.q,
+                ),
+                FilterType::Notch => self
+                    .filter
+                    .notch(self.params.notch.cutoff_hz, self.params.notch.q),
+                FilterType::Bell => self.filter.bell(
+                    self.params.bell.cutoff_hz,
+                    self.params.bell.q,
+                    self.params.bell.gain_db,
+                ),
+                FilterType::LowShelf => self.filter.low_shelf(
+                    self.params.low_shelf.cutoff_hz,
+                    self.params.low_shelf.q,
+                    self.params.low_shelf.gain_db,
+                ),
+                FilterType::HighShelf => self.filter.high_shelf(
+                    self.params.high_shelf.cutoff_hz,
+                    self.params.high_shelf.q,
+                    self.params.high_shelf.gain_db,
+                ),
+                FilterType::Allpass => self
+                    .filter
+                    .allpass(self.params.allpass.cutoff_hz, self.params.allpass.q),
+            }
+        }
+
+        self.prev_block_was_silent = false;
+
+        if proc_info
+            .in_silence_mask
+            .all_channels_silent(buffers.inputs.len())
+            && self.filter.is_silent()
+        {
+            self.prev_block_was_silent = true;
+
+            return ProcessStatus::ClearAllOutputs;
+        }
+
+        let mut output_silence_mask = SilenceMask::new_all_silent(buffers.inputs.len());
+        for (ch_i, (out_ch, in_ch)) in buffers
+            .outputs
+            .iter_mut()
+            .zip(buffers.inputs.iter())
+            .enumerate()
+        {
+            if proc_info.in_silence_mask.is_channel_silent(ch_i)
+                && self.filter.filters[ch_i].is_silent()
+            {
+                if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
+                    out_ch.fill(0.0);
+                }
+            } else {
+                output_silence_mask.set_channel(ch_i, false);
+                for (os, &is) in out_ch.iter_mut().zip(in_ch.iter()) {
+                    *os = self.filter.process(is, ch_i);
+                }
+            }
+        }
+
+        return ProcessStatus::OutputsModified {
+            out_silence_mask: output_silence_mask,
+        };
+    }
+
+    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+        // TODO: make this more ergonomic. filters should automatically redesign themselves when a relevant parameter changes
+        self.filter.sample_rate_recip = stream_info.sample_rate_recip as f32;
+        self.filter.lowpass(4, 440., 1.);
+    }
+}
