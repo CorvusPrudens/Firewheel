@@ -1,30 +1,13 @@
 //! Based on https://github.com/MeadowlarkDAW/meadow-dsp/tree/main/meadow-dsp-mit with permission
 use std::f32::consts::PI;
 
-use std::f64::consts::FRAC_1_SQRT_2;
-
-use crate::dsp::filter::filter_trait::Filter;
-
-pub const Q_BUTTERWORTH_ORD2: f64 = FRAC_1_SQRT_2;
-pub const Q_BUTTERWORTH_ORD4: [f64; 2] = [0.541_196_100_146_197, 1.306_562_964_876_376_6];
-pub const Q_BUTTERWORTH_ORD6: [f64; 3] = [
-    0.517_638_090_205_041_5,
-    FRAC_1_SQRT_2,
-    1.931_851_652_578_136_6,
-];
-pub const Q_BUTTERWORTH_ORD8: [f64; 4] = [
-    0.509_795_579_104_159_2,
-    0.601_344_886_935_045_3,
-    0.899_976_223_136_415_7,
-    2.562_915_447_741_506_4,
-];
-
-pub const ORD4_Q_SCALE: f64 = 0.35;
-pub const ORD6_Q_SCALE: f64 = 0.2;
-pub const ORD8_Q_SCALE: f64 = 0.14;
+use crate::dsp::filter::{
+    filter_trait::Filter,
+    primitives::{butterworth_coeffs::butterworth_coeffs, spec::FilterSpec},
+};
 
 /// The coefficients for an SVF (state variable filter) model.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct SvfCoeff {
     pub a1: f32,
     pub a2: f32,
@@ -45,131 +28,95 @@ impl SvfCoeff {
         m2: 0.0,
     };
 
-    pub fn lowpass_ord2(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
+    pub fn lowpass<S: FilterSpec>(
+        cutoff_hz: f32,
+        q: f32,
+        sample_rate_recip: f32,
+        out: &mut [Self],
+    ) {
+        let g = g(cutoff_hz, sample_rate_recip);
+        let q_norm = q.powf(1. / (S::NUM_SVF as f32));
+
+        let constants = butterworth_coeffs::<S>();
+
+        for i in 0..S::NUM_SVF {
+            let q = q_norm * (constants[i] as f32);
+            let k = 1.0 / q;
+
+            out[i] = Self::from_g_and_k(g, k, 0.0, 0.0, 1.0);
+        }
+    }
+
+    pub fn highpass<S: FilterSpec>(
+        cutoff_hz: f32,
+        q: f32,
+        sample_rate_recip: f32,
+        out: &mut [Self],
+    ) {
+        let g = g(cutoff_hz, sample_rate_recip);
+        let q_norm = q.powf(1. / (S::NUM_SVF as f32));
+
+        let constants = butterworth_coeffs::<S>();
+
+        for i in 0..S::NUM_SVF {
+            let q = q_norm * (constants[i] as f32);
+            let k = 1.0 / q;
+
+            out[i] = Self::from_g_and_k(g, k, 1.0, -k, -1.0);
+        }
+    }
+
+    pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32, out: &mut [Self]) {
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / q;
 
-        Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
+        out[0] = Self::from_g_and_k(g, k, 1.0, -k, 0.0);
     }
 
-    pub fn lowpass_ord4(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 2] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD4[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
-        })
-    }
-
-    pub fn lowpass_ord6(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 3] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD6[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
-        })
-    }
-
-    pub fn lowpass_ord8(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 4] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD8[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
-        })
-    }
-
-    pub fn highpass_ord2(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let k = 1.0 / q;
-
-        Self::from_g_and_k(g, k, 1.0, -k, -1.0)
-    }
-
-    pub fn highpass_ord4(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 2] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD4[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 1.0, -k, -1.0)
-        })
-    }
-
-    pub fn highpass_ord6(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 3] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD6_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD6[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 1.0, -k, -1.0)
-        })
-    }
-
-    pub fn highpass_ord8(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 4] {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE as f32);
-
-        std::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD8[i] as f32;
-            let k = 1.0 / q;
-
-            Self::from_g_and_k(g, k, 1.0, -k, -1.0)
-        })
-    }
-
-    pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let k = 1.0 / q;
-
-        Self::from_g_and_k(g, k, 1.0, -k, 0.0)
-    }
-
-    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
+    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32, out: &mut [Self]) {
         let a = gain_db_to_a(gain_db);
 
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / (q * a);
 
-        Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0)
+        out[0] = Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0);
     }
 
-    pub fn low_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
+    pub fn low_shelf(
+        cutoff_hz: f32,
+        q: f32,
+        gain_db: f32,
+        sample_rate_recip: f32,
+        out: &mut [Self],
+    ) {
         let a = gain_db_to_a(gain_db);
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
 
-        Self::from_g_and_k(g, k, 1.0, k * (a - 1.0), a * a - 1.0)
+        out[0] = Self::from_g_and_k(g, k, 1.0, k * (a - 1.0), a * a - 1.0);
     }
 
-    pub fn high_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
+    pub fn high_shelf(
+        cutoff_hz: f32,
+        q: f32,
+        gain_db: f32,
+        sample_rate_recip: f32,
+        out: &mut [Self],
+    ) {
         let a = gain_db_to_a(gain_db);
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
 
-        Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a)
+        out[0] = Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a);
     }
 
-    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
+    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32, out: &mut [Self]) {
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / q;
 
-        Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0)
+        out[0] = Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0);
     }
 
     pub fn from_g_and_k(g: f32, k: f32, m0: f32, m1: f32, m2: f32) -> Self {
@@ -188,7 +135,6 @@ impl SvfCoeff {
     }
 }
 
-/// The state of an SVF (state variable filter) model.
 #[derive(Default, Clone, Copy)]
 pub struct SvfState {
     pub ic1eq: f32,
@@ -244,24 +190,35 @@ impl<const N: usize> Filter for [SvfState; N] {
     }
 }
 
+impl<'a> Filter for &'a mut [SvfState] {
+    type Coeffs = &'a [SvfCoeff];
+
+    #[inline(always)]
+    fn process(&mut self, input: f32, coeff: &Self::Coeffs) -> f32 {
+        self.iter_mut()
+            .zip(coeff.iter())
+            .fold(input, |acc, (state, coeff)| state.process(acc, coeff))
+    }
+
+    #[inline(always)]
+    fn reset(&mut self) {
+        for state in self.iter_mut() {
+            state.reset();
+        }
+    }
+
+    #[inline(always)]
+    fn is_silent(&self, eps: f32) -> bool {
+        self.iter().all(|state| state.is_silent(eps))
+    }
+}
+
 fn g(cutoff_hz: f32, sample_rate_recip: f32) -> f32 {
     (PI * cutoff_hz * sample_rate_recip).tan()
 }
 
-fn q_norm(q: f32) -> f32 {
-    q * (1.0 / Q_BUTTERWORTH_ORD2 as f32)
-}
-
 fn gain_db_to_a(gain_db: f32) -> f32 {
     10.0f32.powf(gain_db * (1.0 / 40.0))
-}
-
-fn scale_q_norm_for_order(q_norm: f32, scale: f32) -> f32 {
-    if q_norm > 1.0 {
-        1.0 + ((q_norm - 1.0) * scale)
-    } else {
-        q_norm
-    }
 }
 
 #[cfg(feature = "portable-simd")]

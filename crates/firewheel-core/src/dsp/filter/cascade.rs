@@ -1,9 +1,11 @@
 use crate::dsp::filter::{
-    primitives::one_pole_iir::{OnePoleIirCoeff, OnePoleIirState},
-    primitives::svf::{SvfCoeff, SvfState},
+    filter_trait::Filter,
+    primitives::{
+        one_pole_iir::{OnePoleIirCoeff, OnePoleIirState},
+        svf::{SvfCoeff, SvfState},
+    },
+    spec::FilterOrder,
 };
-
-use super::{filter_trait::Filter, spec::FilterOrder};
 
 /// A cascade of `N` biquads + an optional first order filter
 #[derive(Clone, Copy)]
