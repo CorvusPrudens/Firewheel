@@ -58,11 +58,12 @@ impl<const NUM_CHANNELS: usize> AudioNode for NotchFilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: NotchFilterProcessor<NUM_CHANNELS> = NotchFilterProcessor {
+        let mut result: NotchFilterProcessor<NUM_CHANNELS> = NotchFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -71,6 +72,12 @@ struct NotchFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]>,
     params: NotchFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> NotchFilterProcessor<NUM_CHANNELS> {
+    fn design(&mut self) {
+        self.filter.notch(self.params.center_hz, self.params.q);
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for NotchFilterProcessor<NUM_CHANNELS> {
@@ -86,7 +93,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for NotchFilterProcessor<NUM_
             updated = true;
         });
         if updated {
-            self.filter.notch(self.params.center_hz, self.params.q);
+            self.design();
         }
 
         self.prev_block_was_silent = false;

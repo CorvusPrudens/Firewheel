@@ -58,11 +58,12 @@ impl<const NUM_CHANNELS: usize> AudioNode for AllpassFilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: AllpassFilterProcessor<NUM_CHANNELS> = AllpassFilterProcessor {
+        let mut result: AllpassFilterProcessor<NUM_CHANNELS> = AllpassFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -71,6 +72,12 @@ struct AllpassFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]>,
     params: AllpassFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> AllpassFilterProcessor<NUM_CHANNELS> {
+    fn design(&mut self) {
+        self.filter.allpass(self.params.cutoff_hz, self.params.q);
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for AllpassFilterProcessor<NUM_CHANNELS> {
@@ -86,7 +93,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for AllpassFilterProcessor<NU
             updated = true;
         });
         if updated {
-            self.filter.allpass(self.params.cutoff_hz, self.params.q);
+            self.design();
         }
 
         self.prev_block_was_silent = false;

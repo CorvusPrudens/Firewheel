@@ -61,11 +61,12 @@ impl<const NUM_CHANNELS: usize> AudioNode for LowShelfFilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: LowShelfFilterProcessor<NUM_CHANNELS> = LowShelfFilterProcessor {
+        let mut result: LowShelfFilterProcessor<NUM_CHANNELS> = LowShelfFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -74,6 +75,13 @@ struct LowShelfFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]>,
     params: LowShelfFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> LowShelfFilterProcessor<NUM_CHANNELS> {
+    fn design(&mut self) {
+        self.filter
+            .low_shelf(self.params.cutoff_hz, self.params.q, self.params.gain_db);
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for LowShelfFilterProcessor<NUM_CHANNELS> {
@@ -89,8 +97,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for LowShelfFilterProcessor<N
             updated = true;
         });
         if updated {
-            self.filter
-                .low_shelf(self.params.cutoff_hz, self.params.q, self.params.gain_db);
+            self.design();
         }
 
         self.prev_block_was_silent = false;

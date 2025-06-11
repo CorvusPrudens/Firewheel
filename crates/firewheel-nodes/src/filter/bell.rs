@@ -61,11 +61,12 @@ impl<const NUM_CHANNELS: usize> AudioNode for BellFilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: BellFilterProcessor<NUM_CHANNELS> = BellFilterProcessor {
+        let mut result: BellFilterProcessor<NUM_CHANNELS> = BellFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -74,6 +75,13 @@ struct BellFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]>,
     params: BellFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> BellFilterProcessor<NUM_CHANNELS> {
+    fn design(&mut self) {
+        self.filter
+            .bell(self.params.center_hz, self.params.q, self.params.gain_db);
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for BellFilterProcessor<NUM_CHANNELS> {
@@ -89,8 +97,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for BellFilterProcessor<NUM_C
             updated = true;
         });
         if updated {
-            self.filter
-                .bell(self.params.center_hz, self.params.q, self.params.gain_db);
+            self.design();
         }
 
         self.prev_block_was_silent = false;

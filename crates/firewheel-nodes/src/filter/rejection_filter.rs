@@ -71,11 +71,12 @@ impl<const NUM_CHANNELS: usize> AudioNode for RejectionFilterNode<NUM_CHANNELS> 
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: RejectionFilterProcessor<NUM_CHANNELS> = RejectionFilterProcessor {
+        let mut result: RejectionFilterProcessor<NUM_CHANNELS> = RejectionFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -84,6 +85,23 @@ struct RejectionFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
     params: RejectionFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize> RejectionFilterProcessor<NUM_CHANNELS> {
+    fn design(&mut self) {
+        match self.params.filter_type {
+            RejectionFilterType::Lowpass => self.filter.lowpass(
+                self.params.order as usize,
+                self.params.cutoff_hz,
+                self.params.q,
+            ),
+            RejectionFilterType::Rejection => self.filter.highpass(
+                self.params.order as usize,
+                self.params.cutoff_hz,
+                self.params.q,
+            ),
+        }
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<NUM_CHANNELS> {
@@ -99,18 +117,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
             updated = true;
         });
         if updated {
-            match self.params.filter_type {
-                RejectionFilterType::Lowpass => self.filter.lowpass(
-                    self.params.order as usize,
-                    self.params.cutoff_hz,
-                    self.params.q,
-                ),
-                RejectionFilterType::Rejection => self.filter.highpass(
-                    self.params.order as usize,
-                    self.params.cutoff_hz,
-                    self.params.q,
-                ),
-            }
+            self.design();
         }
 
         self.prev_block_was_silent = false;

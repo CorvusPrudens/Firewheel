@@ -65,11 +65,12 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: LowpassFilterProcessor<NUM_CHANNELS, MAX_ORDER> = LowpassFilterProcessor {
+        let mut result: LowpassFilterProcessor<NUM_CHANNELS, MAX_ORDER> = LowpassFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
         };
+        result.design();
         result
     }
 }
@@ -78,6 +79,18 @@ struct LowpassFilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
     filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
     params: LowpassFilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
+    LowpassFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
+    fn design(&mut self) {
+        self.filter.lowpass(
+            self.params.order as usize,
+            self.params.cutoff_hz,
+            self.params.q,
+        );
+    }
 }
 
 impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
@@ -95,11 +108,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
             updated = true;
         });
         if updated {
-            self.filter.lowpass(
-                self.params.order as usize,
-                self.params.cutoff_hz,
-                self.params.q,
-            );
+            self.design();
         }
 
         self.prev_block_was_silent = false;
