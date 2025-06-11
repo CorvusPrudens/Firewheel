@@ -16,10 +16,22 @@ use firewheel_core::{
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct RejectionFilterNodeConfig<const NUM_CHANNELS: usize>;
 
-#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct RejectionFilterNode<const NUM_CHANNELS: usize> {
+    pub order: u8,
     pub cutoff: f32,
+    pub q: f32,
+}
+
+impl<const NUM_CHANNELS: usize> Default for RejectionFilterNode<NUM_CHANNELS> {
+    fn default() -> Self {
+        Self {
+            order: 2,
+            cutoff: 1.,
+            q: 1.,
+        }
+    }
 }
 
 impl<const NUM_CHANNELS: usize> AudioNode for RejectionFilterNode<NUM_CHANNELS> {
@@ -41,11 +53,13 @@ impl<const NUM_CHANNELS: usize> AudioNode for RejectionFilterNode<NUM_CHANNELS> 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
-        _cx: ConstructProcessorContext,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        // TODO: assert num_input channels < NUM_CHANNELS
+        assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
+
         let result: RejectionFilterProcessor<NUM_CHANNELS> = RejectionFilterProcessor {
             filter: Default::default(),
+            params: Default::default(),
             prev_block_was_silent: true,
         };
         result
@@ -53,7 +67,8 @@ impl<const NUM_CHANNELS: usize> AudioNode for RejectionFilterNode<NUM_CHANNELS> 
 }
 
 struct RejectionFilterProcessor<const NUM_CHANNELS: usize> {
-    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<8>>,
+    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
+    params: RejectionFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
 }
 
@@ -64,20 +79,26 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
         proc_info: &ProcInfo,
         mut events: NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<RejectionFilterNode<NUM_CHANNELS>>(
-            |RejectionFilterNodePatch::Cutoff(c)| {
-                self.filter.lowpass_ord4(c, 1.);
-            },
-        );
+        let mut updated = false;
+        events.for_each_patch::<RejectionFilterNode<NUM_CHANNELS>>(|patch| {
+            self.params.apply(patch);
+            updated = true;
+        });
+        if updated {
+            // TODO: think about having to reset filter states if we increase the order
+            self.filter.lowpass(
+                self.params.order as usize,
+                self.params.cutoff,
+                self.params.q,
+            );
+        }
 
         self.prev_block_was_silent = false;
 
-        // TODO: think about what value the silence threshold should actually be (arbitrarily picked some low number for now)
-        let silence_threshold = 0.000_000_1;
         if proc_info
             .in_silence_mask
             .all_channels_silent(buffers.inputs.len())
-            && self.filter.is_silent(silence_threshold)
+            && self.filter.is_silent()
         {
             self.prev_block_was_silent = true;
 
@@ -92,7 +113,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
             .enumerate()
         {
             if proc_info.in_silence_mask.is_channel_silent(ch_i)
-                && self.filter.filters[ch_i].is_silent(silence_threshold)
+                && self.filter.filters[ch_i].is_silent()
             {
                 if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
                     out_ch.fill(0.0);
@@ -113,6 +134,6 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for RejectionFilterProcessor<
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
         // TODO: make this more ergonomic. filters should automatically redesign themselves when a relevant parameter changes
         self.filter.sample_rate_recip = stream_info.sample_rate_recip as f32;
-        self.filter.lowpass_ord4(440., 1.);
+        self.filter.lowpass(4, 440., 1.);
     }
 }

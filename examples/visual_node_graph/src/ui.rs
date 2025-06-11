@@ -393,10 +393,18 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             }
             GuiAudioNode::RejectionFilter { id, params } => {
                 ui.vertical(|ui| {
+                    ui.add(egui::Slider::new(&mut params.order, 1..=16).text("Order"));
+
                     ui.add(
                         egui::Slider::new(&mut params.cutoff, 20.0..=20_000.0)
                             .logarithmic(true)
                             .text("frequency"),
+                    );
+
+                    ui.add(
+                        egui::Slider::new(&mut params.q, 0.1..=10.0)
+                            .text("Q")
+                            .logarithmic(true),
                     );
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));

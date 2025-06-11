@@ -67,8 +67,8 @@ impl Filter for OnePoleIirState {
     }
 
     #[inline(always)]
-    fn is_silent(&self, eps: f32) -> bool {
-        self.z1.abs() <= eps
+    fn is_silent(&self) -> bool {
+        self.z1.abs() <= Self::SILENT_THRESHOLD
     }
 }
 
@@ -177,8 +177,11 @@ pub mod simd {
             self.z1 = f32x4::splat(0.0);
         }
 
-        fn is_silent(&self, eps: f32) -> bool {
-            self.z1.abs().simd_le(f32x4::splat(eps)).all()
+        fn is_silent(&self) -> bool {
+            self.z1
+                .abs()
+                .simd_le(f32x4::splat(Self::SILENCE_THRESHOLD))
+                .all()
         }
     }
 
@@ -216,8 +219,11 @@ pub mod simd {
             self.z1 = f32x8::splat(0.0);
         }
 
-        fn is_silent(&self, eps: f32) -> bool {
-            self.z1.abs().simd_le(f32x8::splat(eps)).all()
+        fn is_silent(&self) -> bool {
+            self.z1
+                .abs()
+                .simd_le(f32x8::splat(Self::SILENCE_THRESHOLD))
+                .all()
         }
     }
 }

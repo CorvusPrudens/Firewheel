@@ -153,8 +153,8 @@ impl Filter for SvfState {
     }
 
     #[inline(always)]
-    fn is_silent(&self, eps: f32) -> bool {
-        self.ic1eq.abs() <= eps && self.ic2eq.abs() <= eps
+    fn is_silent(&self) -> bool {
+        self.ic1eq.abs() <= Self::SILENT_THRESHOLD && self.ic2eq.abs() <= Self::SILENT_THRESHOLD
     }
 }
 
@@ -176,8 +176,8 @@ impl<const N: usize> Filter for [SvfState; N] {
     }
 
     #[inline(always)]
-    fn is_silent(&self, eps: f32) -> bool {
-        self.iter().all(|state| state.is_silent(eps))
+    fn is_silent(&self) -> bool {
+        self.iter().all(|state| state.is_silent())
     }
 }
 
@@ -199,8 +199,8 @@ impl<'a> Filter for &'a mut [SvfState] {
     }
 
     #[inline(always)]
-    fn is_silent(&self, eps: f32) -> bool {
-        self.iter().all(|state| state.is_silent(eps))
+    fn is_silent(&self) -> bool {
+        self.iter().all(|state| state.is_silent())
     }
 }
 
@@ -352,9 +352,16 @@ pub mod simd {
         }
 
         #[inline(always)]
-        fn is_silent(&self, eps: f32) -> bool {
-            self.ic1eq.abs().simd_le(f32x4::splat(eps)).all()
-                && self.ic2eq.abs().simd_le(f32x4::splat(eps)).all()
+        fn is_silent(&self) -> bool {
+            self.ic1eq
+                .abs()
+                .simd_le(f32x4::splat(Self::SILENT_THRESHOLD))
+                .all()
+                && self
+                    .ic2eq
+                    .abs()
+                    .simd_le(f32x4::splat(Self::SILENT_THRESHOLD))
+                    .all()
         }
     }
 
@@ -415,9 +422,16 @@ pub mod simd {
         }
 
         #[inline(always)]
-        fn is_silent(&self, eps: f32) -> bool {
-            self.ic1eq.abs().simd_le(f32x8::splat(eps)).all()
-                && self.ic2eq.abs().simd_le(f32x8::splat(eps)).all()
+        fn is_silent(&self) -> bool {
+            self.ic1eq
+                .abs()
+                .simd_le(f32x8::splat(Self::SILENT_THRESHOLD))
+                .all()
+                && self
+                    .ic2eq
+                    .abs()
+                    .simd_le(f32x8::splat(Self::SILENT_THRESHOLD))
+                    .all()
         }
     }
 }

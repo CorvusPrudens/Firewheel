@@ -1,5 +1,8 @@
 use crate::dsp::filter::{
-    cascade::FilterCascadeUpTo, filter_trait::Filter, primitives::svf::SvfCoeff, spec::FilterOrder,
+    cascade::FilterCascadeUpTo,
+    filter_trait::Filter,
+    primitives::{one_pole_iir::OnePoleIirCoeff, svf::SvfCoeff},
+    spec::FilterOrder,
 };
 
 /// A collection of `NUM_CHANNELS` filters `F` that share coefficients.
@@ -24,11 +27,37 @@ where
     }
 }
 
+impl<const NUM_CHANNELS: usize, F: Filter> MultiChannelFilter<NUM_CHANNELS, F> {
+    #[inline(always)]
+    pub fn reset(&mut self) {
+        for filter in self.filters.iter_mut() {
+            filter.reset();
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, x: f32, channel_index: usize) -> f32 {
+        // TODO: need to assert that channel_index <= NUM_CHANNELS?
+        self.filters[channel_index].process(x, &self.coeffs)
+    }
+
+    #[inline(always)]
+    pub fn is_silent(&self) -> bool {
+        self.filters.iter().all(|filter| filter.is_silent())
+    }
+}
+
 impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
     MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>
 {
     pub fn lowpass(&mut self, order: FilterOrder, cutoff_hz: f32, q: f32) {
         assert!(order <= MAX_ORDER);
+
+        if order % 2 == 0 {
+            self.coeffs.one_pole = OnePoleIirCoeff::NO_OP;
+        } else {
+            self.coeffs.one_pole = OnePoleIirCoeff::lowpass(cutoff_hz, self.sample_rate_recip);
+        }
 
         SvfCoeff::lowpass(
             order,
@@ -38,7 +67,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             &mut self.coeffs.svfs,
         );
         for filter in self.filters.iter_mut() {
-            filter.num_svfs = 1;
+            filter.num_svfs = order / 2;
         }
     }
     pub fn highpass(&mut self, order: FilterOrder, cutoff_hz: f32, q: f32) {
@@ -52,7 +81,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             &mut self.coeffs.svfs,
         );
         for filter in self.filters.iter_mut() {
-            filter.num_svfs = 1;
+            filter.num_svfs = order;
         }
     }
 
