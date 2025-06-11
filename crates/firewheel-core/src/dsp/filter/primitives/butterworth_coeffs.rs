@@ -81,6 +81,6 @@ pub fn butterworth_coeffs(order: FilterOrder) -> &'static [f64] {
             1.722447098238334,
             5.101148618689164,
         ],
-        0 | 17.. => panic!("Unsupported filter order"),
+        0 | 17.. => panic!("Unsupported filter order {order}"),
     }
 }

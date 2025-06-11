@@ -18,13 +18,15 @@ pub struct HighpassFilterNodeConfig<const NUM_CHANNELS: usize>;
 
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct HighpassFilterNode<const NUM_CHANNELS: usize> {
+pub struct HighpassFilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
     pub order: u32,
     pub cutoff_hz: f32,
     pub q: f32,
 }
 
-impl<const NUM_CHANNELS: usize> Default for HighpassFilterNode<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> Default
+    for HighpassFilterNode<NUM_CHANNELS, MAX_ORDER>
+{
     fn default() -> Self {
         Self {
             order: 2,
@@ -34,11 +36,12 @@ impl<const NUM_CHANNELS: usize> Default for HighpassFilterNode<NUM_CHANNELS> {
     }
 }
 
-impl<const NUM_CHANNELS: usize> AudioNode for HighpassFilterNode<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
+    for HighpassFilterNode<NUM_CHANNELS, MAX_ORDER>
+{
     type Configuration = HighpassFilterNodeConfig<NUM_CHANNELS>;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        // TODO: manage channel count better, this whole file is kind of a mess just to prototype
         let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
         let num_outputs = num_inputs;
         AudioNodeInfo::new()
@@ -57,7 +60,7 @@ impl<const NUM_CHANNELS: usize> AudioNode for HighpassFilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: HighpassFilterProcessor<NUM_CHANNELS> = HighpassFilterProcessor {
+        let result: HighpassFilterProcessor<NUM_CHANNELS, MAX_ORDER> = HighpassFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
@@ -66,13 +69,15 @@ impl<const NUM_CHANNELS: usize> AudioNode for HighpassFilterNode<NUM_CHANNELS> {
     }
 }
 
-struct HighpassFilterProcessor<const NUM_CHANNELS: usize> {
-    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
-    params: HighpassFilterNode<NUM_CHANNELS>,
+struct HighpassFilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
+    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
+    params: HighpassFilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeProcessor for HighpassFilterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
+    for HighpassFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -80,7 +85,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for HighpassFilterProcessor<N
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<HighpassFilterNode<NUM_CHANNELS>>(|patch| {
+        events.for_each_patch::<HighpassFilterNode<NUM_CHANNELS, MAX_ORDER>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });

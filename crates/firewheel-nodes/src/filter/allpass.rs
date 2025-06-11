@@ -36,7 +36,6 @@ impl<const NUM_CHANNELS: usize> AudioNode for AllpassFilterNode<NUM_CHANNELS> {
     type Configuration = AllpassFilterNodeConfig<NUM_CHANNELS>;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        // TODO: manage channel count better, this whole file is kind of a mess just to prototype
         let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
         let num_outputs = num_inputs;
         AudioNodeInfo::new()

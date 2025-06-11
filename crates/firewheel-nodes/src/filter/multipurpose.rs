@@ -36,10 +36,10 @@ pub enum FilterType {
 
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct MultipurposeFilterNode<const NUM_CHANNELS: usize> {
+pub struct MultipurposeFilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
     pub filter_type: FilterType,
-    pub lowpass: LowpassFilterNode<NUM_CHANNELS>,
-    pub highpass: HighpassFilterNode<NUM_CHANNELS>,
+    pub lowpass: LowpassFilterNode<NUM_CHANNELS, MAX_ORDER>,
+    pub highpass: HighpassFilterNode<NUM_CHANNELS, MAX_ORDER>,
     pub notch: NotchFilterNode<NUM_CHANNELS>,
     pub bell: BellFilterNode<NUM_CHANNELS>,
     pub low_shelf: LowShelfFilterNode<NUM_CHANNELS>,
@@ -47,11 +47,12 @@ pub struct MultipurposeFilterNode<const NUM_CHANNELS: usize> {
     pub allpass: AllpassFilterNode<NUM_CHANNELS>,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNode for MultipurposeFilterNode<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
+    for MultipurposeFilterNode<NUM_CHANNELS, MAX_ORDER>
+{
     type Configuration = MultipurposeFilterNodeConfig<NUM_CHANNELS>;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        // TODO: manage channel count better, this whole file is kind of a mess just to prototype
         let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
         let num_outputs = num_inputs;
         AudioNodeInfo::new()
@@ -70,22 +71,25 @@ impl<const NUM_CHANNELS: usize> AudioNode for MultipurposeFilterNode<NUM_CHANNEL
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: MultipurposeFilterProcessor<NUM_CHANNELS> = MultipurposeFilterProcessor {
-            filter: Default::default(),
-            params: Default::default(),
-            prev_block_was_silent: true,
-        };
+        let result: MultipurposeFilterProcessor<NUM_CHANNELS, MAX_ORDER> =
+            MultipurposeFilterProcessor {
+                filter: Default::default(),
+                params: Default::default(),
+                prev_block_was_silent: true,
+            };
         result
     }
 }
 
-struct MultipurposeFilterProcessor<const NUM_CHANNELS: usize> {
-    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
-    params: MultipurposeFilterNode<NUM_CHANNELS>,
+struct MultipurposeFilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
+    filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
+    params: MultipurposeFilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeProcessor for MultipurposeFilterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
+    for MultipurposeFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -93,7 +97,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for MultipurposeFilterProcess
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<MultipurposeFilterNode<NUM_CHANNELS>>(|patch| {
+        events.for_each_patch::<MultipurposeFilterNode<NUM_CHANNELS, MAX_ORDER>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });

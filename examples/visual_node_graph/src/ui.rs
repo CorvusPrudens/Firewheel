@@ -49,7 +49,7 @@ pub enum GuiAudioNode {
     },
     Filter {
         id: firewheel::node::NodeID,
-        params: Memo<MultipurposeFilterNode<2>>,
+        params: Memo<MultipurposeFilterNode<2, 16>>,
     },
 }
 
