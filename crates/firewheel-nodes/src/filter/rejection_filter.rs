@@ -1,3 +1,5 @@
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -37,8 +39,8 @@ impl<const NUM_CHANNELS: usize> Default for RejectionFilterNode<NUM_CHANNELS> {
         Self {
             filter_type: Default::default(),
             order: 2,
-            cutoff_hz: 1.,
-            q: 1.,
+            cutoff_hz: 440.,
+            q: FRAC_1_SQRT_2,
         }
     }
 }

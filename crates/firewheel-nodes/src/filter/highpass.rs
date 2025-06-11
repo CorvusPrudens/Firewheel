@@ -1,3 +1,5 @@
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -30,8 +32,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> Default
     fn default() -> Self {
         Self {
             order: 2,
-            cutoff_hz: 1.,
-            q: 1.,
+            cutoff_hz: 440.,
+            q: FRAC_1_SQRT_2,
         }
     }
 }

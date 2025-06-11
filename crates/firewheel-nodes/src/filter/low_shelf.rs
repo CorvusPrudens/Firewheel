@@ -1,3 +1,5 @@
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -27,8 +29,8 @@ pub struct LowShelfFilterNode<const NUM_CHANNELS: usize> {
 impl<const NUM_CHANNELS: usize> Default for LowShelfFilterNode<NUM_CHANNELS> {
     fn default() -> Self {
         Self {
-            cutoff_hz: 1.,
-            q: 1.,
+            cutoff_hz: 440.,
+            q: FRAC_1_SQRT_2,
             gain_db: 0.,
         }
     }
