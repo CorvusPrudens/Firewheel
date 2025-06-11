@@ -12,14 +12,20 @@ use firewheel_core::{
     SilenceMask,
 };
 
+use crate::filter::{
+    allpass::AllpassFilterNode, bell::BellFilterNode, high_shelf::HighShelfFilterNode,
+    highpass::HighpassFilterNode, low_shelf::LowShelfFilterNode, lowpass::LowpassFilterNode,
+    notch::NotchFilterNode,
+};
+
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct FilterNodeConfig<const NUM_CHANNELS: usize>;
+pub struct MultipurposeFilterNodeConfig<const NUM_CHANNELS: usize>;
 
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub enum FilterType {
-    Lowpass,
     #[default]
+    Lowpass,
     Highpass,
     Notch,
     Bell,
@@ -28,131 +34,9 @@ pub enum FilterType {
     Allpass,
 }
 
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct LowpassFilterNode {
-    pub order: u32,
-    pub cutoff_hz: f32,
-    pub q: f32,
-}
-
-impl Default for LowpassFilterNode {
-    fn default() -> Self {
-        Self {
-            order: 2,
-            cutoff_hz: 1.,
-            q: 1.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct HighpassFilterNode {
-    pub order: u32,
-    pub cutoff_hz: f32,
-    pub q: f32,
-}
-
-impl Default for HighpassFilterNode {
-    fn default() -> Self {
-        Self {
-            order: 2,
-            cutoff_hz: 1.,
-            q: 1.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct NotchFilterNode {
-    pub cutoff_hz: f32,
-    pub q: f32,
-}
-
-impl Default for NotchFilterNode {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 1.,
-            q: 1.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct BellFilterNode {
-    pub cutoff_hz: f32,
-    pub q: f32,
-    pub gain_db: f32,
-}
-
-impl Default for BellFilterNode {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 1.,
-            q: 1.,
-            gain_db: 0.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct LowShelfFilterNode {
-    pub cutoff_hz: f32,
-    pub q: f32,
-    pub gain_db: f32,
-}
-
-impl Default for LowShelfFilterNode {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 1.,
-            q: 1.,
-            gain_db: 0.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct HighShelfFilterNode {
-    pub cutoff_hz: f32,
-    pub q: f32,
-    pub gain_db: f32,
-}
-
-impl Default for HighShelfFilterNode {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 1.,
-            q: 1.,
-            gain_db: 0.,
-        }
-    }
-}
-
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct AllpassFilterNode {
-    pub cutoff_hz: f32,
-    pub q: f32,
-}
-
-impl Default for AllpassFilterNode {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 1.,
-            q: 1.,
-        }
-    }
-}
-
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct FilterNode<const NUM_CHANNELS: usize> {
+pub struct MultipurposeFilterNode<const NUM_CHANNELS: usize> {
     pub filter_type: FilterType,
     pub lowpass: LowpassFilterNode,
     pub highpass: HighpassFilterNode,
@@ -163,8 +47,8 @@ pub struct FilterNode<const NUM_CHANNELS: usize> {
     pub allpass: AllpassFilterNode,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNode for FilterNode<NUM_CHANNELS> {
-    type Configuration = FilterNodeConfig<NUM_CHANNELS>;
+impl<const NUM_CHANNELS: usize> AudioNode for MultipurposeFilterNode<NUM_CHANNELS> {
+    type Configuration = MultipurposeFilterNodeConfig<NUM_CHANNELS>;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         // TODO: manage channel count better, this whole file is kind of a mess just to prototype
@@ -186,7 +70,7 @@ impl<const NUM_CHANNELS: usize> AudioNode for FilterNode<NUM_CHANNELS> {
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: FilterProcessor<NUM_CHANNELS> = FilterProcessor {
+        let result: MultipurposeFilterProcessor<NUM_CHANNELS> = MultipurposeFilterProcessor {
             filter: Default::default(),
             params: Default::default(),
             prev_block_was_silent: true,
@@ -195,13 +79,13 @@ impl<const NUM_CHANNELS: usize> AudioNode for FilterNode<NUM_CHANNELS> {
     }
 }
 
-struct FilterProcessor<const NUM_CHANNELS: usize> {
+struct MultipurposeFilterProcessor<const NUM_CHANNELS: usize> {
     filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<16>>,
-    params: FilterNode<NUM_CHANNELS>,
+    params: MultipurposeFilterNode<NUM_CHANNELS>,
     prev_block_was_silent: bool,
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeProcessor for FilterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize> AudioNodeProcessor for MultipurposeFilterProcessor<NUM_CHANNELS> {
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -209,7 +93,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for FilterProcessor<NUM_CHANN
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<FilterNode<NUM_CHANNELS>>(|patch| {
+        events.for_each_patch::<MultipurposeFilterNode<NUM_CHANNELS>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });

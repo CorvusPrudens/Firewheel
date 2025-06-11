@@ -9,7 +9,7 @@ use firewheel::{
     nodes::{
         beep_saw_test::BeepSawTestNode,
         beep_test::BeepTestNode,
-        filter::{FilterNode, FilterType},
+        filter::multipurpose::{FilterType, MultipurposeFilterNode},
         volume::VolumeNode,
         volume_pan::VolumePanNode,
     },
@@ -49,7 +49,7 @@ pub enum GuiAudioNode {
     },
     Filter {
         id: firewheel::node::NodeID,
-        params: Memo<FilterNode<2>>,
+        params: Memo<MultipurposeFilterNode<2>>,
     },
 }
 
@@ -395,7 +395,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 });
             }
             GuiAudioNode::Filter { id, params } => match params.filter_type {
-                firewheel::nodes::filter::FilterType::Lowpass => {
+                FilterType::Lowpass => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -422,7 +422,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::Highpass => {
+                FilterType::Highpass => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -449,7 +449,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::Notch => {
+                FilterType::Notch => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -475,7 +475,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::Bell => {
+                FilterType::Bell => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -505,7 +505,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::LowShelf => {
+                FilterType::LowShelf => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -535,7 +535,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::HighShelf => {
+                FilterType::HighShelf => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
@@ -565,7 +565,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     });
                 }
-                firewheel::nodes::filter::FilterType::Allpass => {
+                FilterType::Allpass => {
                     ui.vertical(|ui| {
                         ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
                         ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
