@@ -11,6 +11,7 @@ pub struct MultiChannelFilter<const NUM_CHANNELS: usize, F: Filter> {
     pub filters: [F; NUM_CHANNELS],
     pub coeffs: <F as Filter>::Coeffs,
     pub sample_rate_recip: f32,
+    pub current_order: FilterOrder,
 }
 
 impl<const NUM_CHANNELS: usize, F> Default for MultiChannelFilter<NUM_CHANNELS, F>
@@ -23,6 +24,7 @@ where
             filters: [Default::default(); NUM_CHANNELS],
             coeffs: Default::default(),
             sample_rate_recip: 1. / 44100.,
+            current_order: 1,
         }
     }
 }
@@ -50,6 +52,22 @@ impl<const NUM_CHANNELS: usize, F: Filter> MultiChannelFilter<NUM_CHANNELS, F> {
 impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
     MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>
 {
+    /// Resets filters if they are now in use and weren't before to make sure stale filter memory does not poison new samples.
+    /// Additionally, it stores the new_order.
+    fn process_order_change(&mut self, new_order: FilterOrder) {
+        if new_order % 2 == 1 && self.current_order % 2 == 0 {
+            for filter in self.filters.iter_mut() {
+                filter.one_pole.reset();
+            }
+        }
+        if new_order > self.current_order {
+            for filter in self.filters[new_order..].iter_mut() {
+                filter.reset();
+            }
+        }
+        self.current_order = new_order;
+    }
+
     pub fn lowpass(&mut self, order: FilterOrder, cutoff_hz: f32, q: f32) {
         assert!(order <= MAX_ORDER);
 
@@ -69,6 +87,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = order / 2;
         }
+
+        self.process_order_change(order);
     }
     pub fn highpass(&mut self, order: FilterOrder, cutoff_hz: f32, q: f32) {
         assert!(order <= MAX_ORDER);
@@ -81,8 +101,10 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             &mut self.coeffs.svfs,
         );
         for filter in self.filters.iter_mut() {
-            filter.num_svfs = order;
+            filter.num_svfs = order / 2;
         }
+
+        self.process_order_change(order);
     }
 
     pub fn notch(&mut self, cutoff_hz: f32, q: f32) {
@@ -92,6 +114,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = 1;
         }
+
+        self.process_order_change(1);
     }
 
     pub fn bell(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -101,6 +125,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = 1;
         }
+
+        self.process_order_change(1);
     }
 
     pub fn low_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -110,6 +136,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = 1;
         }
+
+        self.process_order_change(1);
     }
 
     pub fn high_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -119,6 +147,8 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = 1;
         }
+
+        self.process_order_change(1);
     }
 
     pub fn allpass(&mut self, cutoff_hz: f32, q: f32) {
@@ -128,5 +158,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         for filter in self.filters.iter_mut() {
             filter.num_svfs = 1;
         }
+
+        self.process_order_change(1);
     }
 }
