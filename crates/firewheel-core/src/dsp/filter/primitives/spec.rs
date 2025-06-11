@@ -1,4 +1,4 @@
-type FilterOrder = usize;
+pub type FilterOrder = usize;
 
 /// Filter order achieving a steepness of 6 dB/oct
 const DB_OCT_6: usize = 1;

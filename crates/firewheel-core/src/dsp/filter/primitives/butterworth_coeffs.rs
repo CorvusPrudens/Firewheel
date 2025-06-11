@@ -1,6 +1,6 @@
 use std::f64::consts::FRAC_1_SQRT_2;
 
-use crate::dsp::filter::spec::FilterOrder;
+use crate::dsp::filter::primitives::spec::FilterOrder;
 
 /// Returns the coefficients used to design an SVF. Orders > 16 will panic.
 pub fn butterworth_coeffs(order: FilterOrder) -> &'static [f64] {

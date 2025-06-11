@@ -71,12 +71,13 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
     ) -> impl AudioNodeProcessor {
         assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
 
-        let result: MultipurposeFilterProcessor<NUM_CHANNELS, MAX_ORDER> =
+        let mut result: MultipurposeFilterProcessor<NUM_CHANNELS, MAX_ORDER> =
             MultipurposeFilterProcessor {
                 filter: Default::default(),
                 params: Default::default(),
                 prev_block_was_silent: true,
             };
+        result.design();
         result
     }
 }
@@ -85,6 +86,46 @@ struct MultipurposeFilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: u
     filter: MultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
     params: MultipurposeFilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
+}
+
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
+    MultipurposeFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
+    fn design(&mut self) {
+        match self.params.filter_type {
+            FilterType::Lowpass => self.filter.lowpass(
+                self.params.lowpass.order as usize,
+                self.params.lowpass.cutoff_hz,
+                self.params.lowpass.q,
+            ),
+            FilterType::Highpass => self.filter.highpass(
+                self.params.highpass.order as usize,
+                self.params.highpass.cutoff_hz,
+                self.params.highpass.q,
+            ),
+            FilterType::Notch => self
+                .filter
+                .notch(self.params.notch.center_hz, self.params.notch.q),
+            FilterType::Bell => self.filter.bell(
+                self.params.bell.center_hz,
+                self.params.bell.q,
+                self.params.bell.gain_db,
+            ),
+            FilterType::LowShelf => self.filter.low_shelf(
+                self.params.low_shelf.cutoff_hz,
+                self.params.low_shelf.q,
+                self.params.low_shelf.gain_db,
+            ),
+            FilterType::HighShelf => self.filter.high_shelf(
+                self.params.high_shelf.cutoff_hz,
+                self.params.high_shelf.q,
+                self.params.high_shelf.gain_db,
+            ),
+            FilterType::Allpass => self
+                .filter
+                .allpass(self.params.allpass.cutoff_hz, self.params.allpass.q),
+        }
+    }
 }
 
 impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
@@ -102,39 +143,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
             updated = true;
         });
         if updated {
-            match self.params.filter_type {
-                FilterType::Lowpass => self.filter.lowpass(
-                    self.params.lowpass.order as usize,
-                    self.params.lowpass.cutoff_hz,
-                    self.params.lowpass.q,
-                ),
-                FilterType::Highpass => self.filter.highpass(
-                    self.params.highpass.order as usize,
-                    self.params.highpass.cutoff_hz,
-                    self.params.highpass.q,
-                ),
-                FilterType::Notch => self
-                    .filter
-                    .notch(self.params.notch.center_hz, self.params.notch.q),
-                FilterType::Bell => self.filter.bell(
-                    self.params.bell.center_hz,
-                    self.params.bell.q,
-                    self.params.bell.gain_db,
-                ),
-                FilterType::LowShelf => self.filter.low_shelf(
-                    self.params.low_shelf.cutoff_hz,
-                    self.params.low_shelf.q,
-                    self.params.low_shelf.gain_db,
-                ),
-                FilterType::HighShelf => self.filter.high_shelf(
-                    self.params.high_shelf.cutoff_hz,
-                    self.params.high_shelf.q,
-                    self.params.high_shelf.gain_db,
-                ),
-                FilterType::Allpass => self
-                    .filter
-                    .allpass(self.params.allpass.cutoff_hz, self.params.allpass.q),
-            }
+            self.design();
         }
 
         self.prev_block_was_silent = false;

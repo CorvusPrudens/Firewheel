@@ -2,7 +2,8 @@
 use std::f32::consts::PI;
 
 use crate::dsp::filter::{
-    filter_trait::Filter, primitives::butterworth_coeffs::butterworth_coeffs, spec::FilterOrder,
+    filter_trait::Filter,
+    primitives::{butterworth_coeffs::butterworth_coeffs, spec::FilterOrder},
 };
 
 /// The coefficients for an SVF (state variable filter) model.
