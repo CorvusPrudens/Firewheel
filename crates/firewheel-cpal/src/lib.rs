@@ -331,10 +331,10 @@ impl AudioBackend for CpalBackend {
 
         let default_config = out_device.default_output_config()?;
 
-        let mut desired_sample_rate = config
-            .output
-            .desired_sample_rate
-            .unwrap_or(default_config.sample_rate().0);
+        let default_sample_rate = default_config.sample_rate().0;
+        // Try to use the common sample rates by default.
+        let try_common_sample_rates = default_sample_rate != 44100 && default_sample_rate != 48000;
+
         let desired_block_frames =
             if let &cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
                 config
@@ -345,15 +345,58 @@ impl AudioBackend for CpalBackend {
                 None
             };
 
-        let supported_configs = out_device.supported_output_configs()?;
+        let mut supports_desired_sample_rate = false;
+        let mut supports_44100 = false;
+        let mut supports_48000 = false;
 
-        let mut min_sample_rate = u32::MAX;
-        let mut max_sample_rate = 0;
-        for config in supported_configs.into_iter() {
-            min_sample_rate = min_sample_rate.min(config.min_sample_rate().0);
-            max_sample_rate = max_sample_rate.max(config.max_sample_rate().0);
+        if config.output.desired_sample_rate.is_some() || try_common_sample_rates {
+            for cpal_config in out_device.supported_output_configs()? {
+                if let Some(sr) = config.output.desired_sample_rate {
+                    if !supports_desired_sample_rate {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(sr))
+                            .is_some()
+                        {
+                            supports_desired_sample_rate = true;
+                            break;
+                        }
+                    }
+                }
+
+                if try_common_sample_rates {
+                    if !supports_44100 {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(44100))
+                            .is_some()
+                        {
+                            supports_44100 = true;
+                        }
+                    }
+                    if !supports_48000 {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(48000))
+                            .is_some()
+                        {
+                            supports_48000 = true;
+                        }
+                    }
+                }
+            }
         }
-        desired_sample_rate = desired_sample_rate.clamp(min_sample_rate, max_sample_rate);
+
+        let sample_rate = if supports_desired_sample_rate {
+            config.output.desired_sample_rate.unwrap()
+        } else if try_common_sample_rates {
+            if supports_44100 {
+                44100
+            } else if supports_48000 {
+                48000
+            } else {
+                default_sample_rate
+            }
+        } else {
+            default_sample_rate
+        };
 
         let num_out_channels = default_config.channels() as usize;
         assert_ne!(num_out_channels, 0);
@@ -366,7 +409,7 @@ impl AudioBackend for CpalBackend {
 
         let out_stream_config = cpal::StreamConfig {
             channels: num_out_channels as u16,
-            sample_rate: cpal::SampleRate(desired_sample_rate),
+            sample_rate: cpal::SampleRate(sample_rate),
             buffer_size: desired_buffer_size,
         };
 
