@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-nodes"
-version = "0.4.1"
+version = "0.4.2"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
 edition.workspace = true
@@ -44,7 +44,7 @@ stream = ["dep:fixed-resample"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.4.1" }
+firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
 bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }

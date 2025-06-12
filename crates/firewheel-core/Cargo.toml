@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-core"
-version = "0.4.1"
+version = "0.4.2"
 description = "Shared types for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-core"
 edition.workspace = true
@@ -24,7 +24,7 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.4.1", default-features = false, optional = true }
+symphonium = { version = "0.5.0", default-features = false, optional = true }
 fixed-resample = { version = "0.8.0", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
 smallvec.workspace = true
 bevy_platform.workspace = true

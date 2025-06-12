@@ -19,8 +19,8 @@ resample_inputs = ["fixed-resample/fft-resampler"]
 wasm-bindgen = ["cpal/wasm-bindgen"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.4.1" }
-firewheel-graph = { path = "../firewheel-graph", version = "0.4.1" }
+firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
+firewheel-graph = { path = "../firewheel-graph", version = "0.4.2" }
 cpal = "0.15.3"
 log.workspace = true
 ringbuf.workspace = true
