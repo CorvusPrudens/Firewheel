@@ -3,6 +3,7 @@ name = "firewheel-cpal"
 version = "0.4.3"
 description = "cpal backend for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-cpal"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true

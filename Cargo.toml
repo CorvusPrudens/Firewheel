@@ -2,7 +2,7 @@
 name = "firewheel"
 version = "0.4.3"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
-repository = "https://github.com/BillyDM/firewheel"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -21,6 +21,7 @@ authors = ["Billy Messenger <60663878+BillyDM@users.noreply.github.com>"]
 keywords = ["game", "audio", "graph"]
 categories = ["game-development", "multimedia::audio"]
 exclude = ["assets/"]
+repository = "https://github.com/BillyDM/firewheel"
 
 [workspace]
 members = [
