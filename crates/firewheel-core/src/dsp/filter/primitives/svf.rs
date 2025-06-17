@@ -70,6 +70,13 @@ impl SvfCoeff {
         }
     }
 
+    pub fn bandpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
+        let g = g(cutoff_hz, sample_rate_recip);
+        let k = 1. / q;
+
+        Self::from_g_and_k(g, k, 0., 1., 0.)
+    }
+
     pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / q;

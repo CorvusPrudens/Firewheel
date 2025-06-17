@@ -112,6 +112,17 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
         self.process_order_change(order);
     }
 
+    pub fn bandpass(&mut self, cutoff_hz: f32, q: f32) {
+        assert!(MAX_ORDER >= 2);
+
+        self.coeffs.svfs[0] = SvfCoeff::bandpass(cutoff_hz, q, self.sample_rate_recip);
+        for filter in self.filters.iter_mut() {
+            filter.num_svfs = 1;
+        }
+
+        self.process_order_change(2);
+    }
+
     pub fn notch(&mut self, cutoff_hz: f32, q: f32) {
         assert!(MAX_ORDER >= 2);
 
@@ -120,7 +131,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             filter.num_svfs = 1;
         }
 
-        self.process_order_change(1);
+        self.process_order_change(2);
     }
 
     pub fn bell(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -131,7 +142,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             filter.num_svfs = 1;
         }
 
-        self.process_order_change(1);
+        self.process_order_change(2);
     }
 
     pub fn low_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -142,7 +153,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             filter.num_svfs = 1;
         }
 
-        self.process_order_change(1);
+        self.process_order_change(2);
     }
 
     pub fn high_shelf(&mut self, cutoff_hz: f32, q: f32, gain_db: f32) {
@@ -153,7 +164,7 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             filter.num_svfs = 1;
         }
 
-        self.process_order_change(1);
+        self.process_order_change(2);
     }
 
     pub fn allpass(&mut self, cutoff_hz: f32, q: f32) {
@@ -164,17 +175,22 @@ impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
             filter.num_svfs = 1;
         }
 
-        self.process_order_change(1);
+        self.process_order_change(2);
     }
 }
 
 /// Implementation using exactly 1 SVF for more space efficient basic filters that don't need the single pole filter
 impl<const NUM_CHANNELS: usize> MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]> {
     pub fn lowpass(&mut self, cutoff_hz: f32, q: f32) {
-        SvfCoeff::lowpass(1, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
+        SvfCoeff::lowpass(2, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
     }
+
     pub fn highpass(&mut self, cutoff_hz: f32, q: f32) {
-        SvfCoeff::highpass(1, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
+        SvfCoeff::highpass(2, cutoff_hz, q, self.sample_rate_recip, &mut self.coeffs);
+    }
+
+    pub fn bandpass(&mut self, cutoff_hz: f32, q: f32) {
+        self.coeffs[0] = SvfCoeff::bandpass(cutoff_hz, q, self.sample_rate_recip);
     }
 
     pub fn notch(&mut self, cutoff_hz: f32, q: f32) {
