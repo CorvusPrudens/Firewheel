@@ -7,7 +7,7 @@ use core::{
 use std::sync::mpsc;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};
+use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::{AudioBackend, DeviceInfo},
     processor::FirewheelProcessor,
@@ -732,11 +732,13 @@ struct DataCallback {
     num_out_channels: usize,
     from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
+    sample_rate: u32,
     sample_rate_recip: f64,
     //_first_internal_clock_instant: Option<cpal::StreamInstant>,
     //_prev_stream_instant: Option<cpal::StreamInstant>,
     first_fallback_clock_instant: Option<bevy_platform::time::Instant>,
-    predicted_stream_secs: Option<f64>,
+    predicted_rt_clock: Option<Duration>,
+    prev_rt_clock: Duration,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
 }
@@ -762,10 +764,12 @@ impl DataCallback {
             num_out_channels,
             from_cx_rx,
             processor: None,
+            sample_rate,
             sample_rate_recip: f64::from(sample_rate).recip(),
             //_first_internal_clock_instant: None,
             //_prev_stream_instant: None,
-            predicted_stream_secs: None,
+            predicted_rt_clock: None,
+            prev_rt_clock: Duration::ZERO,
             first_fallback_clock_instant: None,
             input_stream_cons,
             input_buffer,
@@ -780,16 +784,16 @@ impl DataCallback {
 
         let frames = output.len() / self.num_out_channels;
 
-        let (internal_clock_secs, underflow) =
-            if let Some(instant) = self.first_fallback_clock_instant {
-                let now = bevy_platform::time::Instant::now();
+        let now = bevy_platform::time::Instant::now();
 
-                let internal_clock_secs = (now - instant).as_secs_f64();
+        let (real_time_clock, underflow) =
+            if let Some(first_instant) = self.first_fallback_clock_instant {
+                let real_time_clock = now - first_instant;
 
-                let underflow = if let Some(predicted_stream_secs) = self.predicted_stream_secs {
+                let underflow = if let Some(predicted_rt_clock) = self.predicted_rt_clock {
                     // If the stream time is significantly greater than the predicted stream
                     // time, it means an output underflow has occurred.
-                    internal_clock_secs > predicted_stream_secs
+                    real_time_clock > predicted_rt_clock
                 } else {
                     false
                 };
@@ -798,14 +802,24 @@ impl DataCallback {
                 //
                 // Add a little bit of wiggle room to account for tiny clock
                 // innacuracies and rounding errors.
-                self.predicted_stream_secs =
-                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
+                self.predicted_rt_clock = Some(
+                    real_time_clock
+                        + Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2),
+                );
 
-                (ClockSeconds(internal_clock_secs), underflow)
+                (real_time_clock, underflow)
             } else {
-                self.first_fallback_clock_instant = Some(bevy_platform::time::Instant::now());
-                (ClockSeconds(0.0), false)
+                self.first_fallback_clock_instant = Some(now);
+                (Duration::ZERO, false)
             };
+
+        let dropped_frames = underflow
+            .then(|| {
+                ((real_time_clock - self.prev_rt_clock).as_secs_f64() * self.sample_rate as f64)
+                    .round() as u32
+            })
+            .unwrap_or(0);
+        self.prev_rt_clock = real_time_clock;
 
         // TODO: PLEASE FIX ME:
         //
@@ -898,8 +912,9 @@ impl DataCallback {
                 num_in_chanenls,
                 self.num_out_channels,
                 frames,
-                internal_clock_secs,
+                real_time_clock,
                 stream_status,
+                dropped_frames,
             );
         } else {
             output.fill(0.0);

@@ -1,5 +1,5 @@
 use bevy_platform::time::Instant;
-use core::{num::NonZeroU32, ops::Range};
+use core::{num::NonZeroU32, ops::Range, time::Duration};
 
 use ringbuf::traits::{Consumer, Producer};
 use thunderdome::Arena;
@@ -57,8 +57,9 @@ impl FirewheelProcessor {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        clock_seconds: ClockSeconds,
+        real_time_clock: Duration,
         stream_status: StreamStatus,
+        dropped_frames: u32,
     ) {
         if let Some(inner) = &mut self.inner {
             inner.process_interleaved(
@@ -67,8 +68,9 @@ impl FirewheelProcessor {
                 num_in_channels,
                 num_out_channels,
                 frames,
-                clock_seconds,
+                real_time_clock,
                 stream_status,
+                dropped_frames,
             );
         }
     }
@@ -89,7 +91,6 @@ pub(crate) struct FirewheelProcessorInner {
 
     clock_samples: ClockSamples,
     shared_clock_input: triple_buffer::Input<SharedClock>,
-    clock_samples_stream_restart_offset: ClockSamples,
 
     hard_clip_outputs: bool,
 
@@ -105,8 +106,6 @@ pub(crate) struct FirewheelProcessorInner {
     /// main thread know that it shouldn't try spawning a new audio stream
     /// with the shared `Arc<AtomicRefCell<FirewheelProcessorInner>>` object.
     pub(crate) poisoned: bool,
-
-    is_new_stream: bool,
 }
 
 impl FirewheelProcessorInner {
@@ -129,7 +128,6 @@ impl FirewheelProcessorInner {
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: ClockSamples(0),
-            clock_samples_stream_restart_offset: ClockSamples(0),
             shared_clock_input,
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
@@ -139,7 +137,6 @@ impl FirewheelProcessorInner {
             transport_paused_at_frame: ClockSamples(0),
             transport_paused_at_musical_time: MusicalTime(0.0),
             poisoned: false,
-            is_new_stream: true,
         }
     }
 
@@ -153,39 +150,21 @@ impl FirewheelProcessorInner {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        clock_seconds: ClockSeconds,
-        stream_status: StreamStatus,
+        process_timestamp: Duration,
+        mut stream_status: StreamStatus,
+        mut dropped_frames: u32,
     ) {
-        // --- Sync the clock -----------------------------------------------------------------
-
-        if self.is_new_stream {
-            self.is_new_stream = false;
-
-            // The clock sent to us by the OS may not start at exactly 0, so account for that.
-            self.clock_samples_stream_restart_offset -=
-                clock_seconds.to_samples(self.sample_rate.get());
-        }
-
-        let mut clock_samples = if stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
-            // If an output underflow occurred, correct for the missing frames by
-            // syncing the sample clock to the OS's clock.
-            clock_seconds.to_samples(self.sample_rate.get())
-                + self.clock_samples_stream_restart_offset
-        } else {
-            self.clock_samples
-        };
-
-        // The sample clock is ultimately used as the "source of truth".
-        let mut clock_seconds =
-            clock_samples.to_seconds(self.sample_rate.get(), self.sample_rate_recip);
-
-        self.clock_samples = clock_samples;
-
         // --- Poll messages ------------------------------------------------------------------
 
         self.poll_messages();
 
         // --- Increment the clock for the next process cycle ---------------------------------
+
+        let mut clock_samples = self.clock_samples;
+
+        // The sample clock is ultimately used as the "source of truth".
+        let mut clock_seconds =
+            clock_samples.to_seconds(self.sample_rate.get(), self.sample_rate_recip);
 
         self.clock_samples += ClockSamples(frames as i64);
 
@@ -232,7 +211,9 @@ impl FirewheelProcessorInner {
                 block_frames,
                 self.clock_samples,
                 clock_seconds..next_clock_seconds,
+                process_timestamp,
                 stream_status,
+                dropped_frames,
             );
 
             // Copy the output of the graph to the output buffer.
@@ -258,6 +239,8 @@ impl FirewheelProcessorInner {
             frames_processed += block_frames;
             clock_samples += ClockSamples(block_frames as i64);
             clock_seconds = next_clock_seconds;
+            stream_status = StreamStatus::empty();
+            dropped_frames = 0;
         }
 
         // --- Hard clip outputs --------------------------------------------------------------
@@ -427,7 +410,9 @@ impl FirewheelProcessorInner {
         block_frames: usize,
         clock_samples: ClockSamples,
         clock_seconds: Range<ClockSeconds>,
+        process_timestamp: Duration,
         stream_status: StreamStatus,
+        dropped_frames: u32,
     ) {
         if self.schedule_data.is_none() {
             return;
@@ -459,7 +444,7 @@ impl FirewheelProcessorInner {
             };
 
             TransportInfo {
-                musical_clock: start_beat..end_beat,
+                clock_musical: start_beat..end_beat,
                 transport,
                 playing: *self.transport_state.playing,
             }
@@ -469,10 +454,12 @@ impl FirewheelProcessorInner {
             frames: block_frames,
             in_silence_mask: SilenceMask::default(),
             out_silence_mask: SilenceMask::default(),
-            clock_samples: clock_samples..(clock_samples + ClockSamples(block_frames as i64)),
-            clock_seconds: clock_seconds.clone(),
+            audio_clock_samples: clock_samples..(clock_samples + ClockSamples(block_frames as i64)),
+            audio_clock_seconds: clock_seconds.clone(),
+            process_timestamp,
             transport_info,
             stream_status,
+            dropped_frames,
             declick_values: &self.declick_values,
         };
 
@@ -534,8 +521,6 @@ impl FirewheelProcessorInner {
     fn stream_stopped(&mut self) {
         self.sync_shared_clock(false);
 
-        self.clock_samples_stream_restart_offset = self.clock_samples;
-
         for (_, node) in self.nodes.iter_mut() {
             node.processor.stream_stopped();
         }
@@ -545,8 +530,6 @@ impl FirewheelProcessorInner {
     ///
     /// Note, this method gets called on the main thread, not the audio thread.
     pub(crate) fn new_stream(&mut self, stream_info: &StreamInfo) {
-        self.is_new_stream = true;
-
         for (_, node) in self.nodes.iter_mut() {
             node.processor.new_stream(stream_info);
         }
@@ -554,10 +537,6 @@ impl FirewheelProcessorInner {
         if self.sample_rate != stream_info.sample_rate {
             self.clock_samples = self
                 .clock_samples
-                .to_seconds(self.sample_rate.get(), self.sample_rate_recip)
-                .to_samples(stream_info.sample_rate.get());
-            self.clock_samples_stream_restart_offset = self
-                .clock_samples_stream_restart_offset
                 .to_seconds(self.sample_rate.get(), self.sample_rate_recip)
                 .to_samples(stream_info.sample_rate.get());
 

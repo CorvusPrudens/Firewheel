@@ -282,9 +282,15 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
     /// Get the current time of the audio clock.
     ///
-    /// Unlike, [`FirewheelCtx::audio_clock_raw`], this method accounts for the
-    /// delay between when the audio clock was last updated and now, leading to
-    /// a more accurate result for games and other applications.
+    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
+    /// that has been processed.) For applications where the timing of audio events is
+    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// OS's clock (`Instant::now()`).
+    ///
+    /// Unlike, [`FirewheelCtx::audio_clock_raw`], this method accounts for the delay
+    /// between when the audio clock was last updated and now, leading to a more accurate
+    /// result for games and other applications.
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
@@ -315,8 +321,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
         let musical = clock.musical_time.map(|musical_time| {
-            if let Some(transport) = &self.transport_state.transport {
-                transport.delta_seconds_from(musical_time, delta_seconds)
+            if clock.transport_is_playing && self.transport_state.transport.is_some() {
+                self.transport_state
+                    .transport
+                    .as_ref()
+                    .unwrap()
+                    .delta_seconds_from(musical_time, delta_seconds)
             } else {
                 musical_time
             }
@@ -335,6 +345,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// For most use cases you probably want to use [`FirewheelCtx::audio_clock`]
     /// instead, but this method is provided if needed.
+    ///
+    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
+    /// that has been processed.) For applications where the timing of audio events is
+    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// OS's clock (`Instant::now()`).
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.

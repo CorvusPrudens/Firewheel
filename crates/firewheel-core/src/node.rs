@@ -1,4 +1,4 @@
-use core::{any::Any, fmt::Debug, hash::Hash, ops::Range};
+use core::{any::Any, fmt::Debug, hash::Hash, ops::Range, time::Duration};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -422,8 +422,8 @@ pub struct ProcBuffers<'a, 'b, 'c, 'd> {
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a> {
-    /// The number of samples (in a single channel of audio) in this
-    /// processing block.
+    /// The number of frames (samples in a single channel of audio) in
+    /// this processing block.
     ///
     /// Not to be confused with video frames.
     pub frames: usize,
@@ -438,38 +438,42 @@ pub struct ProcInfo<'a> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current timestamp of this audio block, in total number of frames
-    /// (samples in a single channel of audio) that have been processed since
-    /// this Firewheel context was first started.
+    /// The current time of the audio clock, equal to the total number of
+    /// frames (samples in a single channel of audio) that have been
+    /// processed since this Firewheel context was first started.
     ///
-    /// The start of the range is the instant of time at the
-    /// first sample in the block (inclusive), and the end of the range
-    /// is the instant of time at the end of the block (exclusive).
+    /// The start of the range is the instant of time at the first frame
+    /// in the block (inclusive), and the end of the range is the instant
+    /// of time at the end of the block (exclusive).
     ///
-    /// This value automatically accounts for any output underflows that
-    /// occur. If you wish to get the total number of frames processed
-    /// without accounting for output underflows, then you can simply set
-    /// up your own counter that counts [`ProcInfo::frames`].
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
     ///
     /// Note, generally this value will always count up, but there may be
     /// a few edge cases that cause this value to be less than the previous
     /// block, such as when the sample rate of the stream has been changed.
-    pub clock_samples: Range<ClockSamples>,
+    pub audio_clock_samples: Range<ClockSamples>,
 
-    /// The current timestamp of this audio block, equal to the number of
-    /// seconds of data that has been processed since the Firewheel context
-    /// was first started.
+    /// The current time of the audio clock, equal to the total amount of
+    /// data in seconds that have been processed since this Firewheel
+    /// context was first started.
     ///
-    /// The start of the range is the instant of time at the
-    /// first sample in the block (inclusive), and the end of the range
-    /// is the instant of time at the end of the block (exclusive).
+    /// The start of the range is the instant of time at the first frame
+    /// in the block (inclusive), and the end of the range is the instant
+    /// of time at the end of the block (exclusive).
     ///
-    /// Note, this value automatically accounts for any output underflows
-    /// that occur. If you wish to get a value that does not account for
-    /// output underflows, then simply set up your own counter that counts
-    /// [`ProcInfo::frames`], and then convert that value to seconds with
-    /// [`ClockSamples::to_seconds`].
-    pub clock_seconds: Range<ClockSeconds>,
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
+    pub audio_clock_seconds: Range<ClockSeconds>,
+
+    /// The amount of real time that has passed from the start of the
+    /// audio stream to when the Firewheel processor's `process` method
+    /// was invoked.
+    ///
+    /// This value is reset when a new audio stream is started.
+    ///
+    /// Note, this clock is not as accurate as the audio clock.
+    pub process_timestamp: Duration,
 
     /// Information about the musical transport.
     ///
@@ -479,6 +483,18 @@ pub struct ProcInfo<'a> {
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
+
+    /// If an output underflow (underrun) occured, then this will contain
+    /// an estimate for the number of frames (samples in a single channel
+    /// of audio) that were dropped.
+    ///
+    /// This can be used to correct the timing of events if desired.
+    ///
+    /// Note, this is just an estimate, and may not always be perfectly
+    /// accurate.
+    ///
+    /// If an underrun did not occur, then this will be `0`.
+    pub dropped_frames: u32,
 
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when
@@ -491,13 +507,17 @@ pub struct TransportInfo<'a> {
     /// The current transport.
     pub transport: &'a MusicalTransport,
 
-    /// The current interval of time of the internal clock in units of
-    /// musical time. The start of the range is the instant of time at the
-    /// first sample in the block (inclusive), and the end of the range
-    /// is the instant of time at the end of the block (exclusive).
+    /// The current time of the musical transport.
+    ///
+    /// The start of the range is the instant of time at the first frame in
+    /// the block (inclusive), and the end of the range is the instant of
+    /// time at the end of the block (exclusive).
     ///
     /// This will be `None` if no musical clock is currently present.
-    pub musical_clock: Range<MusicalTime>,
+    ///
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
+    pub clock_musical: Range<MusicalTime>,
 
     /// Whether or not the transport is currently playing (true) or paused
     /// (false).
@@ -513,7 +533,7 @@ bitflags::bitflags! {
         const INPUT_OVERFLOW = 0b01;
 
         /// The output buffer ran low, likely producing a break in the
-        /// output sound.
+        /// output sound. (This is also known as an "underrun").
         const OUTPUT_UNDERFLOW = 0b10;
     }
 }

@@ -8,33 +8,34 @@ pub enum EventDelay {
     /// The event should happen when the clock reaches the given time in
     /// seconds.
     ///
-    /// The value is an absolute time, *NOT* a delta time. Use the context's
-    /// `clock_now` method to get the current time of the clock.
+    /// The value is an absolute time, *NOT* a delta time. Use
+    /// `FirewheelCtx::audio_clock` to get the current time of the clock.
     DelayUntilSeconds(ClockSeconds),
 
     /// The event should happen when the clock reaches the given time in
     /// samples (of a single channel of audio).
     ///
-    /// The value is an absolute time, *NOT* a delta time. Use the context's
-    /// `clock_samples` to get the current time of the clock.
+    /// The value is an absolute time, *NOT* a delta time. Use
+    /// `FirewheelCtx::audio_clock` to get the current time of the clock.
     DelayUntilSamples(ClockSamples),
 
     /// The event should happen when the musical clock reaches the given
     /// musical time.
-    ///
-    /// Like `DelayUntilSamples`, this is very accurate, but note it also
-    /// does not account for any output underflows that may occur.
     DelayUntilMusical(MusicalTime),
 }
 
 impl EventDelay {
     pub fn elapsed_before_this_block(&self, proc_info: &ProcInfo) -> bool {
         match self {
-            EventDelay::DelayUntilSeconds(seconds) => *seconds < proc_info.clock_seconds.start,
-            EventDelay::DelayUntilSamples(samples) => *samples < proc_info.clock_samples.start,
+            EventDelay::DelayUntilSeconds(seconds) => {
+                *seconds < proc_info.audio_clock_seconds.start
+            }
+            EventDelay::DelayUntilSamples(samples) => {
+                *samples < proc_info.audio_clock_samples.start
+            }
             EventDelay::DelayUntilMusical(musical) => {
                 if let Some(transport) = &proc_info.transport_info {
-                    transport.playing && *musical < transport.musical_clock.start
+                    transport.playing && *musical < transport.clock_musical.start
                 } else {
                     false
                 }
@@ -44,11 +45,11 @@ impl EventDelay {
 
     pub fn elapsed_this_block(&self, proc_info: &ProcInfo) -> bool {
         match self {
-            EventDelay::DelayUntilSeconds(seconds) => *seconds < proc_info.clock_seconds.end,
-            EventDelay::DelayUntilSamples(samples) => *samples < proc_info.clock_samples.end,
+            EventDelay::DelayUntilSeconds(seconds) => *seconds < proc_info.audio_clock_seconds.end,
+            EventDelay::DelayUntilSamples(samples) => *samples < proc_info.audio_clock_samples.end,
             EventDelay::DelayUntilMusical(musical) => {
                 if let Some(transport) = &proc_info.transport_info {
-                    transport.playing && *musical < transport.musical_clock.end
+                    transport.playing && *musical < transport.clock_musical.end
                 } else {
                     false
                 }
@@ -59,12 +60,12 @@ impl EventDelay {
     pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: u32) -> Option<usize> {
         match self {
             EventDelay::DelayUntilSeconds(seconds) => {
-                if *seconds <= proc_info.clock_seconds.start {
+                if *seconds <= proc_info.audio_clock_seconds.start {
                     Some(0)
-                } else if *seconds >= proc_info.clock_seconds.end {
+                } else if *seconds >= proc_info.audio_clock_seconds.end {
                     None
                 } else {
-                    let frame = ((seconds.0 - proc_info.clock_seconds.start.0)
+                    let frame = ((seconds.0 - proc_info.audio_clock_seconds.start.0)
                         * f64::from(sample_rate))
                     .round() as usize;
 
@@ -76,23 +77,23 @@ impl EventDelay {
                 }
             }
             EventDelay::DelayUntilSamples(samples) => {
-                if *samples <= proc_info.clock_samples.start {
+                if *samples <= proc_info.audio_clock_samples.start {
                     Some(0)
-                } else if *samples >= proc_info.clock_samples.end {
+                } else if *samples >= proc_info.audio_clock_samples.end {
                     None
                 } else {
-                    Some((*samples - proc_info.clock_samples.start).0 as usize)
+                    Some((*samples - proc_info.audio_clock_samples.start).0 as usize)
                 }
             }
             EventDelay::DelayUntilMusical(musical) => {
                 if let Some(transport) = &proc_info.transport_info {
-                    if !transport.playing || *musical >= transport.musical_clock.end {
+                    if !transport.playing || *musical >= transport.clock_musical.end {
                         None
-                    } else if *musical <= transport.musical_clock.start {
+                    } else if *musical <= transport.clock_musical.start {
                         Some(0)
                     } else {
                         let frame = transport.transport.musical_to_sample(*musical, sample_rate)
-                            - proc_info.clock_samples.start;
+                            - proc_info.audio_clock_samples.start;
 
                         if frame.0 >= proc_info.frames as i64 {
                             None
@@ -383,31 +384,46 @@ impl MusicalTransport {
     }
 }
 
-// Information about the time of the internal audio clock.
+/// The time of the internal audio clock.
+///
+/// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+/// the system's time (`Instant::now`). (Instead it is based on the amount of data
+/// that has been processed.) For applications where the timing of audio events is
+/// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+/// OS's clock (`Instant::now()`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioClock {
     /// The timestamp from the audio stream, equal to the number of frames
     /// (samples in a single channel of audio) of data that have been processed
     /// since the Firewheel context was first started.
     ///
-    /// This value also automatically accounts for any output underflows that
-    /// occur.
-    ///
     /// Note, generally this value will always count up, but there may be a
     /// few edge cases that cause this value to be less than the previous call,
     /// such as when the sample rate of the stream has been changed.
+    ///
+    /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
+    /// does *NOT* account for any output underflows (underruns) that may have
+    /// occured. For applications where the timing of audio events is critical (i.e.
+    /// a rythm game), sync the game to this audio clock.
     pub samples: ClockSamples,
 
     /// The timestamp from the audio stream, equal to the number of seconds of
     /// data that have been processed since the Firewheel context was first started.
     ///
-    /// This value also automatically accounts for any output underflows that
-    /// occur.
+    /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
+    /// does *NOT* account for any output underflows (underruns) that may have
+    /// occured. For applications where the timing of audio events is critical (i.e.
+    /// a rythm game), sync the game to this audio clock.
     pub seconds: ClockSeconds,
 
     /// The current time of the playhead of the musical transport.
     ///
     /// If no musical transport is present, then this will be `None`.
+    ///
+    /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
+    /// does *NOT* account for any output underflows (underruns) that may have
+    /// occured. For applications where the timing of audio events is critical (i.e.
+    /// a rythm game), sync the game to this audio clock.
     pub musical: Option<MusicalTime>,
 
     /// This is `true` if a musical transport is present and it is not paused,
