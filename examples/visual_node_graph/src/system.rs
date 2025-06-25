@@ -6,7 +6,7 @@ use firewheel::{
     nodes::{
         beep_saw_test::BeepSawTestNode,
         beep_test::BeepTestNode,
-        filter::multipurpose::MultipurposeFilterNode,
+        filter::const_channel_filter::ConstChannelFilterNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
@@ -67,7 +67,7 @@ impl AudioSystem {
             NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
             NodeType::Filter => self
                 .cx
-                .add_node(MultipurposeFilterNode::<2, 16>::default(), None),
+                .add_node(ConstChannelFilterNode::<2, 16>::default(), None),
         };
 
         match node_type {

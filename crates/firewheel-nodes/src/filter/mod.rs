@@ -1,9 +1,2 @@
-pub mod allpass;
-pub mod bell;
-pub mod high_shelf;
-pub mod highpass;
-pub mod low_shelf;
-pub mod lowpass;
-pub mod multipurpose;
-pub mod notch;
-pub mod rejection_filter;
+pub mod const_channel_filter;
+pub mod flexible_channel_filter;

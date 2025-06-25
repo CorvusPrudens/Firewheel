@@ -2,7 +2,7 @@ use crate::dsp::filter::{
     filter_trait::Filter,
     primitives::{
         one_pole_iir::{OnePoleIirCoeff, OnePoleIirState},
-        spec::FilterOrder,
+        spec::{FilterOrder, DB_OCT_24},
         svf::{SvfCoeff, SvfState},
     },
 };
@@ -63,7 +63,7 @@ impl<const ORDER: FilterOrder> Filter for FilterCascade<ORDER> {
 /// A cascade of up to `N` state variable filters + a first order filter
 /// Supports redesigning of filters with different steepness up to `N` but also uses space for `N` filters regardless of current design
 #[derive(Clone, Copy)]
-pub struct FilterCascadeUpTo<const ORDER: FilterOrder> {
+pub struct FilterCascadeUpTo<const ORDER: FilterOrder = DB_OCT_24> {
     pub one_pole: OnePoleIirState,
     pub svfs: [SvfState; ORDER],
     pub num_svfs: usize,

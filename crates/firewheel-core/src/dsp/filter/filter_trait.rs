@@ -1,7 +1,8 @@
 /// A trait defining all functions a generic filter needs to support
 pub trait Filter {
     /// Filter memory below this value should be considered silent.
-    /// Set to the same value Reason's Rack Extensions should use, so probably a good default.
+    ///
+    /// Set to the same value which Reason's Rack Extensions should use, so probably a good default.
     const SILENT_THRESHOLD: f32 = 2.0e-8f32;
 
     /// The type of coefficients needed for the filter to process samples

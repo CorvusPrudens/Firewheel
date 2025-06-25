@@ -1,15 +1,19 @@
 use eframe::App;
-use egui::{Color32, Id, Ui};
+use egui::{Color32, ComboBox, Id, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
 use firewheel::{
     diff::Memo,
+    dsp::filter::primitives::spec::FilterSpec,
     nodes::{
         beep_saw_test::BeepSawTestNode,
         beep_test::BeepTestNode,
-        filter::multipurpose::{FilterType, MultipurposeFilterNode},
+        filter::{
+            const_channel_filter::ConstChannelFilterNode,
+            flexible_channel_filter::FlexibleChannelFilterNode,
+        },
         volume::VolumeNode,
         volume_pan::VolumePanNode,
     },
@@ -49,7 +53,7 @@ pub enum GuiAudioNode {
     },
     Filter {
         id: firewheel::node::NodeID,
-        params: Memo<MultipurposeFilterNode<2, 16>>,
+        params: Memo<FlexibleChannelFilterNode<16>>,
     },
 }
 
@@ -394,204 +398,187 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
-            GuiAudioNode::Filter { id, params } => match params.filter_type {
-                FilterType::Lowpass => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(egui::Slider::new(&mut params.lowpass.order, 1..=16).text("Order"));
-                        ui.add(
-                            egui::Slider::new(&mut params.lowpass.cutoff_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.lowpass.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
+            GuiAudioNode::Filter { id, params } => {
+                let initial_variant = params.spec.get_type().to_owned();
+                let mut new_variant = initial_variant.to_owned();
+
+                ComboBox::from_label("Filter Type").show_ui(ui, |ui| {
+                    ui.selectable_value(&mut new_variant, "Lowpass".into(), "Lowpass");
+                    ui.selectable_value(&mut new_variant, "Highpass".into(), "Highpass");
+                    ui.selectable_value(&mut new_variant, "Bandpass".into(), "Bandpass");
+                    ui.selectable_value(&mut new_variant, "Allpass".into(), "Allpass");
+                    ui.selectable_value(&mut new_variant, "Bell".into(), "Bell");
+                    ui.selectable_value(&mut new_variant, "Low Shelf".into(), "Low Shelf");
+                    ui.selectable_value(&mut new_variant, "High Shelf".into(), "High Shelf");
+                    ui.selectable_value(&mut new_variant, "Notch".into(), "Notch");
+                });
+
+                if new_variant != initial_variant {
+                    // here's where you change the variants
+                    match new_variant.as_str() {
+                        "Lowpass" => {
+                            params.spec = FilterSpec::Lowpass {
+                                order: 1,
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Highpass" => {
+                            params.spec = FilterSpec::Highpass {
+                                order: 1,
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Bandpass" => {
+                            params.spec = FilterSpec::Bandpass {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Allpass" => {
+                            params.spec = FilterSpec::Allpass {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Bell" => {
+                            params.spec = FilterSpec::Bell {
+                                center_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "Low Shelf" => {
+                            params.spec = FilterSpec::LowShelf {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "High Shelf" => {
+                            params.spec = FilterSpec::HighShelf {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "Notch" => {
+                            params.spec = FilterSpec::Notch {
+                                center_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        &_ => panic!("Unknown filter type"),
+                    }
                 }
-                FilterType::Highpass => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(egui::Slider::new(&mut params.highpass.order, 1..=16).text("Order"));
-                        ui.add(
-                            egui::Slider::new(&mut params.highpass.cutoff_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.highpass.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
+
+                match &mut params.spec {
+                    FilterSpec::Lowpass {
+                        order,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(order, 1..=16).text("Order"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Highpass {
+                        order,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(order, 1..=16).text("Order"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Bandpass { cutoff_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Allpass { cutoff_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Bell {
+                        gain_db,
+                        center_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(center_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Center Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::LowShelf {
+                        gain_db,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::HighShelf {
+                        gain_db,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Notch { center_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(center_hz, -10f32..=10f32).text("Center Hz"));
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
                 }
-                FilterType::Notch => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(
-                            egui::Slider::new(&mut params.notch.center_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.notch.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
-                }
-                FilterType::Bell => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(
-                            egui::Slider::new(&mut params.bell.center_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.bell.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.bell.gain_db, -20.0..=20.0)
-                                .text("Gain dB"),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
-                }
-                FilterType::LowShelf => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(
-                            egui::Slider::new(&mut params.low_shelf.cutoff_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.low_shelf.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.low_shelf.gain_db, -20.0..=20.0)
-                                .text("Gain dB"),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
-                }
-                FilterType::HighShelf => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(
-                            egui::Slider::new(&mut params.high_shelf.cutoff_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.high_shelf.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.high_shelf.gain_db, -20.0..=20.0)
-                                .text("Gain dB"),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
-                }
-                FilterType::Allpass => {
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
-                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
-                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
-                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
-                        ui.radio_value(
-                            &mut params.filter_type,
-                            FilterType::HighShelf,
-                            "High Shelf",
-                        );
-                        ui.add(egui::Separator::default());
-                        ui.add(
-                            egui::Slider::new(&mut params.allpass.cutoff_hz, 20.0..=20_000.0)
-                                .logarithmic(true)
-                                .text("Frequency"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.allpass.q, 0.1..=10.0)
-                                .text("Q")
-                                .logarithmic(true),
-                        );
-                        params.update_memo(&mut self.audio_system.event_queue(*id));
-                    });
-                }
-            },
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
+            }
             _ => {}
         }
     }

@@ -1,4 +1,4 @@
-//! Based on https://github.com/MeadowlarkDAW/meadow-dsp/tree/main/meadow-dsp-mit with permission
+//! Based on <https://github.com/MeadowlarkDAW/meadow-dsp/tree/main/meadow-dsp-mit> with permission
 use std::f32::consts::PI;
 
 use crate::dsp::filter::{
@@ -77,17 +77,24 @@ impl SvfCoeff {
         Self::from_g_and_k(g, k, 0., 1., 0.)
     }
 
-    pub fn notch(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
+    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
         let g = g(cutoff_hz, sample_rate_recip);
+        let k = 1.0 / q;
+
+        Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0)
+    }
+
+    pub fn notch(center_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
+        let g = g(center_hz, sample_rate_recip);
         let k = 1.0 / q;
 
         Self::from_g_and_k(g, k, 1.0, -k, 0.0)
     }
 
-    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
+    pub fn bell(center_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
         let a = gain_db_to_a(gain_db);
 
-        let g = g(cutoff_hz, sample_rate_recip);
+        let g = g(center_hz, sample_rate_recip);
         let k = 1.0 / (q * a);
 
         Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0)
@@ -109,13 +116,6 @@ impl SvfCoeff {
         let k = 1.0 / q;
 
         Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a)
-    }
-
-    pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
-        let g = g(cutoff_hz, sample_rate_recip);
-        let k = 1.0 / q;
-
-        Self::from_g_and_k(g, k, 1.0, -2.0 * k, 0.0)
     }
 
     pub fn from_g_and_k(g: f32, k: f32, m0: f32, m1: f32, m2: f32) -> Self {

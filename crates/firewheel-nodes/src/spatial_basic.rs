@@ -7,8 +7,8 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         filter::{
-            filter_trait::Filter,
-            single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
+            primitives::single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
+            traits::Filter,
         },
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},

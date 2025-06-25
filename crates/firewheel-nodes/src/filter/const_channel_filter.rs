@@ -1,10 +1,11 @@
-use std::f32::consts::FRAC_1_SQRT_2;
-
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::filter::{
-        filter_trait::Filter, multi_channel_filter::MultiChannelFilter, primitives::svf::SvfState,
+        cascade::FilterCascadeUpTo,
+        filter_trait::Filter,
+        multi_channel_filter::ArrayMultiChannelFilter,
+        primitives::spec::{FilterSpec, DB_OCT_24},
     },
     event::NodeEventList,
     node::{
@@ -16,31 +17,19 @@ use firewheel_core::{
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct LowShelfFilterNodeConfig<const NUM_CHANNELS: usize>;
+pub struct ConstChannelFilterNodeConfig<const NUM_CHANNELS: usize>;
 
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct LowShelfFilterNode<const NUM_CHANNELS: usize> {
-    /// The cut/boost frequency
-    pub cutoff_hz: f32,
-    /// The q factor
-    pub q: f32,
-    /// The gain in decibels
-    pub gain_db: f32,
+pub struct ConstChannelFilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize = DB_OCT_24> {
+    /// Specifies the type and parameters of the filter. Changing this at runtime will redesign the filter accordingly.
+    pub spec: FilterSpec,
 }
 
-impl<const NUM_CHANNELS: usize> Default for LowShelfFilterNode<NUM_CHANNELS> {
-    fn default() -> Self {
-        Self {
-            cutoff_hz: 440.,
-            q: FRAC_1_SQRT_2,
-            gain_db: 0.,
-        }
-    }
-}
-
-impl<const NUM_CHANNELS: usize> AudioNode for LowShelfFilterNode<NUM_CHANNELS> {
-    type Configuration = LowShelfFilterNodeConfig<NUM_CHANNELS>;
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
+    for ConstChannelFilterNode<NUM_CHANNELS, MAX_ORDER>
+{
+    type Configuration = ConstChannelFilterNodeConfig<NUM_CHANNELS>;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
@@ -59,32 +48,65 @@ impl<const NUM_CHANNELS: usize> AudioNode for LowShelfFilterNode<NUM_CHANNELS> {
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        assert!((cx.stream_info.num_stream_in_channels as usize) < NUM_CHANNELS);
+        assert!((cx.stream_info.num_stream_in_channels as usize) <= NUM_CHANNELS);
 
-        let mut result: LowShelfFilterProcessor<NUM_CHANNELS> = LowShelfFilterProcessor {
-            filter: Default::default(),
-            params: Default::default(),
-            prev_block_was_silent: true,
-        };
+        let mut result: ConstChannelFilterProcessor<NUM_CHANNELS, MAX_ORDER> =
+            ConstChannelFilterProcessor {
+                filter: Default::default(),
+                params: Default::default(),
+                prev_block_was_silent: true,
+            };
         result.design();
         result
     }
 }
 
-struct LowShelfFilterProcessor<const NUM_CHANNELS: usize> {
-    filter: MultiChannelFilter<NUM_CHANNELS, [SvfState; 1]>,
-    params: LowShelfFilterNode<NUM_CHANNELS>,
+struct ConstChannelFilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
+    filter: ArrayMultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
+    params: ConstChannelFilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
 }
 
-impl<const NUM_CHANNELS: usize> LowShelfFilterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize>
+    ConstChannelFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
     fn design(&mut self) {
-        self.filter
-            .low_shelf(self.params.cutoff_hz, self.params.q, self.params.gain_db);
+        match self.params.spec {
+            FilterSpec::Lowpass {
+                order,
+                cutoff_hz,
+                q,
+            } => self.filter.lowpass(order, cutoff_hz, q),
+            FilterSpec::Highpass {
+                order,
+                cutoff_hz,
+                q,
+            } => self.filter.highpass(order, cutoff_hz, q),
+            FilterSpec::Bandpass { cutoff_hz, q } => self.filter.bandpass(cutoff_hz, q),
+            FilterSpec::Allpass { cutoff_hz, q } => self.filter.allpass(cutoff_hz, q),
+            FilterSpec::Bell {
+                center_hz,
+                q,
+                gain_db,
+            } => self.filter.bell(center_hz, q, gain_db),
+            FilterSpec::LowShelf {
+                cutoff_hz,
+                q,
+                gain_db,
+            } => self.filter.low_shelf(cutoff_hz, q, gain_db),
+            FilterSpec::HighShelf {
+                cutoff_hz,
+                q,
+                gain_db,
+            } => self.filter.high_shelf(cutoff_hz, q, gain_db),
+            FilterSpec::Notch { center_hz, q } => self.filter.notch(center_hz, q),
+        }
     }
 }
 
-impl<const NUM_CHANNELS: usize> AudioNodeProcessor for LowShelfFilterProcessor<NUM_CHANNELS> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
+    for ConstChannelFilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -92,7 +114,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for LowShelfFilterProcessor<N
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<LowShelfFilterNode<NUM_CHANNELS>>(|patch| {
+        events.for_each_patch::<ConstChannelFilterNode<NUM_CHANNELS, MAX_ORDER>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });
