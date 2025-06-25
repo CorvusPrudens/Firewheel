@@ -3,9 +3,9 @@ use crate::dsp::filter::{
     filter_trait::Filter,
     primitives::{
         one_pole_iir::OnePoleIirCoeff,
-        spec::FilterOrder,
         svf::{SvfCoeff, SvfState},
     },
+    spec::FilterOrder,
 };
 
 /// A collection of filters `F` that share coefficients.

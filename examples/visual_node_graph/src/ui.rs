@@ -5,16 +5,12 @@ use egui_snarl::{
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
 use firewheel::{
+    core::dsp::filter::spec::DB_OCT_96,
     diff::Memo,
-    dsp::filter::primitives::spec::FilterSpec,
+    dsp::filter::spec::FilterSpec,
     nodes::{
-        beep_saw_test::BeepSawTestNode,
-        beep_test::BeepTestNode,
-        filter::{
-            const_channel_filter::ConstChannelFilterNode,
-            flexible_channel_filter::FlexibleChannelFilterNode,
-        },
-        volume::VolumeNode,
+        beep_saw_test::BeepSawTestNode, beep_test::BeepTestNode,
+        filter::const_channel_filter::ConstChannelFilterNode, volume::VolumeNode,
         volume_pan::VolumePanNode,
     },
     Volume,
@@ -53,7 +49,7 @@ pub enum GuiAudioNode {
     },
     Filter {
         id: firewheel::node::NodeID,
-        params: Memo<FlexibleChannelFilterNode<16>>,
+        params: Memo<ConstChannelFilterNode<2, DB_OCT_96>>,
     },
 }
 

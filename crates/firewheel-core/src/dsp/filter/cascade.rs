@@ -2,9 +2,9 @@ use crate::dsp::filter::{
     filter_trait::Filter,
     primitives::{
         one_pole_iir::{OnePoleIirCoeff, OnePoleIirState},
-        spec::{FilterOrder, DB_OCT_24},
         svf::{SvfCoeff, SvfState},
     },
+    spec::{FilterOrder, DB_OCT_24},
 };
 
 /// A cascade of `N` state variable filters + a first order filter

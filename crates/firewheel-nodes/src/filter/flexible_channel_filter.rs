@@ -5,7 +5,7 @@ use firewheel_core::{
         cascade::FilterCascadeUpTo,
         filter_trait::Filter,
         multi_channel_filter::{MultiChannelFilter, VecMultiChannelFilter},
-        primitives::spec::{FilterSpec, DB_OCT_24},
+        spec::{FilterSpec, DB_OCT_24},
     },
     event::NodeEventList,
     node::{
