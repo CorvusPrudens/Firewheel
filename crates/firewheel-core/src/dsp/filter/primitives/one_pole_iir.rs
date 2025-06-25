@@ -1,4 +1,4 @@
-//! Based on https://github.com/MeadowlarkDAW/meadow-dsp/tree/main/meadow-dsp-mit with permission
+//! Based on <https://github.com/MeadowlarkDAW/meadow-dsp/tree/main/meadow-dsp-mit> with permission
 use std::f32::consts::PI;
 
 use crate::dsp::filter::filter_trait::Filter;
