@@ -224,7 +224,7 @@ where
     }
 }
 
-/// Implementation using exactly 1 SVF for more space efficient basic filters that don't need the single pole filter
+/// Implementation using exactly 1 SVF for more space efficient basic filters that don't need the single pole filter.
 impl<C> MultiChannelFilter<C, [SvfState; 1]>
 where
     C: AsMut<[SvfState; 1]>,

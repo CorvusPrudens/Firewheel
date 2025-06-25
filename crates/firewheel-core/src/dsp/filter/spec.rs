@@ -96,7 +96,7 @@ pub enum FilterSpec {
         center_hz: f32,
         /// The q factor.
         ///
-        /// Higher values make the notch filter "more selective/aggressive", making it remove less and less of the frequencies around the cutoff frequency. A `q` of `10.0` will already be very selective/aggressive.
+        /// Higher values make the notch filter more selective/aggressive, making it remove less and less of the frequencies around the cutoff frequency. A `q` of `10.0` will already be very selective/aggressive.
         q: f32,
     },
 }
