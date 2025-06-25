@@ -397,16 +397,18 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 let initial_variant = params.spec.get_type().to_owned();
                 let mut new_variant = initial_variant.to_owned();
 
-                ComboBox::from_label("Filter Type").show_ui(ui, |ui| {
-                    ui.selectable_value(&mut new_variant, "Lowpass".into(), "Lowpass");
-                    ui.selectable_value(&mut new_variant, "Highpass".into(), "Highpass");
-                    ui.selectable_value(&mut new_variant, "Bandpass".into(), "Bandpass");
-                    ui.selectable_value(&mut new_variant, "Allpass".into(), "Allpass");
-                    ui.selectable_value(&mut new_variant, "Bell".into(), "Bell");
-                    ui.selectable_value(&mut new_variant, "Low Shelf".into(), "Low Shelf");
-                    ui.selectable_value(&mut new_variant, "High Shelf".into(), "High Shelf");
-                    ui.selectable_value(&mut new_variant, "Notch".into(), "Notch");
-                });
+                ComboBox::from_label("Filter Type")
+                    .selected_text(new_variant.as_str())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut new_variant, "Lowpass".into(), "Lowpass");
+                        ui.selectable_value(&mut new_variant, "Highpass".into(), "Highpass");
+                        ui.selectable_value(&mut new_variant, "Bandpass".into(), "Bandpass");
+                        ui.selectable_value(&mut new_variant, "Allpass".into(), "Allpass");
+                        ui.selectable_value(&mut new_variant, "Bell".into(), "Bell");
+                        ui.selectable_value(&mut new_variant, "Low Shelf".into(), "Low Shelf");
+                        ui.selectable_value(&mut new_variant, "High Shelf".into(), "High Shelf");
+                        ui.selectable_value(&mut new_variant, "Notch".into(), "Notch");
+                    });
 
                 if new_variant != initial_variant {
                     // here's where you change the variants
