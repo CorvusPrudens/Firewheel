@@ -1,2 +1,2 @@
-pub mod const_channel_filter;
-pub mod flexible_channel_filter;
+pub mod filter;
+pub mod runtime_filter;

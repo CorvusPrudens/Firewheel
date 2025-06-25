@@ -1,10 +1,10 @@
 use firewheel_core::{
-    channel_config::{ChannelConfig, NonZeroChannelCount},
+    channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::filter::{
         cascade::FilterCascadeUpTo,
         filter_trait::Filter,
-        multi_channel_filter::{MultiChannelFilter, VecMultiChannelFilter},
+        multi_channel_filter::ArrayMultiChannelFilter,
         spec::{FilterSpec, DB_OCT_24},
     },
     event::NodeEventList,
@@ -15,66 +15,58 @@ use firewheel_core::{
     SilenceMask,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct FlexibleChannelFilterNodeConfig {
-    /// The number of input and output channels.
-    pub channels: NonZeroChannelCount,
-}
-
-impl Default for FlexibleChannelFilterNodeConfig {
-    fn default() -> Self {
-        Self {
-            channels: NonZeroChannelCount::STEREO,
-        }
-    }
-}
+pub struct FilterNodeConfig<const NUM_CHANNELS: usize>;
 
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct FlexibleChannelFilterNode<const MAX_ORDER: usize = DB_OCT_24> {
-    /// Specifies the type of the filter. Changing this at runtime will redesign the filter accordingly.
+pub struct FilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize = DB_OCT_24> {
+    /// Specifies the type and parameters of the filter. Changing this at runtime will redesign the filter accordingly.
     pub spec: FilterSpec,
 }
 
-impl<const MAX_ORDER: usize> AudioNode for FlexibleChannelFilterNode<MAX_ORDER> {
-    type Configuration = FlexibleChannelFilterNodeConfig;
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNode
+    for FilterNode<NUM_CHANNELS, MAX_ORDER>
+{
+    type Configuration = FilterNodeConfig<NUM_CHANNELS>;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        let num_inputs = config.channels;
-        let num_outputs = config.channels;
+    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+        let num_inputs = ChannelCount::new(NUM_CHANNELS as u32).unwrap();
+        let num_outputs = num_inputs;
         AudioNodeInfo::new()
             .debug_name("volume")
             .channel_config(ChannelConfig {
-                num_inputs: num_inputs.get(),
-                num_outputs: num_outputs.get(),
+                num_inputs,
+                num_outputs,
             })
             .uses_events(true)
     }
 
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
-        _cx: ConstructProcessorContext,
+        _config: &Self::Configuration,
+        cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let mut result: FlexibleChannelFilterProcessor<MAX_ORDER> =
-            FlexibleChannelFilterProcessor {
-                filter: MultiChannelFilter::with_channels(config.channels),
-                params: Default::default(),
-                prev_block_was_silent: true,
-            };
+        assert!((cx.stream_info.num_stream_in_channels as usize) <= NUM_CHANNELS);
+
+        let mut result: FilterProcessor<NUM_CHANNELS, MAX_ORDER> = FilterProcessor {
+            filter: Default::default(),
+            params: Default::default(),
+            prev_block_was_silent: true,
+        };
         result.design();
         result
     }
 }
 
-struct FlexibleChannelFilterProcessor<const MAX_ORDER: usize = DB_OCT_24> {
-    filter: VecMultiChannelFilter<FilterCascadeUpTo<MAX_ORDER>>,
-    params: FlexibleChannelFilterNode<MAX_ORDER>,
+struct FilterProcessor<const NUM_CHANNELS: usize, const MAX_ORDER: usize> {
+    filter: ArrayMultiChannelFilter<NUM_CHANNELS, FilterCascadeUpTo<MAX_ORDER>>,
+    params: FilterNode<NUM_CHANNELS, MAX_ORDER>,
     prev_block_was_silent: bool,
 }
 
-impl<const MAX_ORDER: usize> FlexibleChannelFilterProcessor<MAX_ORDER> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> FilterProcessor<NUM_CHANNELS, MAX_ORDER> {
     fn design(&mut self) {
         match self.params.spec {
             FilterSpec::Lowpass {
@@ -109,7 +101,9 @@ impl<const MAX_ORDER: usize> FlexibleChannelFilterProcessor<MAX_ORDER> {
     }
 }
 
-impl<const MAX_ORDER: usize> AudioNodeProcessor for FlexibleChannelFilterProcessor<MAX_ORDER> {
+impl<const NUM_CHANNELS: usize, const MAX_ORDER: usize> AudioNodeProcessor
+    for FilterProcessor<NUM_CHANNELS, MAX_ORDER>
+{
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -117,7 +111,7 @@ impl<const MAX_ORDER: usize> AudioNodeProcessor for FlexibleChannelFilterProcess
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<FlexibleChannelFilterNode<MAX_ORDER>>(|patch| {
+        events.for_each_patch::<FilterNode<NUM_CHANNELS, MAX_ORDER>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });

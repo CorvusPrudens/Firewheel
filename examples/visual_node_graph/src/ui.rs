@@ -9,9 +9,8 @@ use firewheel::{
     diff::Memo,
     dsp::filter::spec::FilterSpec,
     nodes::{
-        beep_saw_test::BeepSawTestNode, beep_test::BeepTestNode,
-        filter::const_channel_filter::ConstChannelFilterNode, volume::VolumeNode,
-        volume_pan::VolumePanNode,
+        beep_saw_test::BeepSawTestNode, beep_test::BeepTestNode, filter::filter::FilterNode,
+        volume::VolumeNode, volume_pan::VolumePanNode,
     },
     Volume,
 };
@@ -49,7 +48,7 @@ pub enum GuiAudioNode {
     },
     Filter {
         id: firewheel::node::NodeID,
-        params: Memo<ConstChannelFilterNode<2, DB_OCT_96>>,
+        params: Memo<FilterNode<2, DB_OCT_96>>,
     },
 }
 
