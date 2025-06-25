@@ -54,12 +54,12 @@ impl<const MAX_ORDER: usize> AudioNode for FlexibleChannelFilterNode<MAX_ORDER> 
 
     fn construct_processor(
         &self,
-        _config: &Self::Configuration,
-        cx: ConstructProcessorContext,
+        config: &Self::Configuration,
+        _cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let mut result: FlexibleChannelFilterProcessor<MAX_ORDER> =
             FlexibleChannelFilterProcessor {
-                filter: MultiChannelFilter::with_channels(cx.stream_info.num_stream_in_channels),
+                filter: MultiChannelFilter::with_channels(config.channels),
                 params: Default::default(),
                 prev_block_was_silent: true,
             };

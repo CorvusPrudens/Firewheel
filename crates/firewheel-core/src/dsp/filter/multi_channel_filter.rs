@@ -1,11 +1,14 @@
-use crate::dsp::filter::{
-    cascade::FilterCascadeUpTo,
-    filter_trait::Filter,
-    primitives::{
-        one_pole_iir::OnePoleIirCoeff,
-        svf::{SvfCoeff, SvfState},
+use crate::{
+    channel_config::NonZeroChannelCount,
+    dsp::filter::{
+        cascade::FilterCascadeUpTo,
+        filter_trait::Filter,
+        primitives::{
+            one_pole_iir::OnePoleIirCoeff,
+            svf::{SvfCoeff, SvfState},
+        },
+        spec::FilterOrder,
     },
-    spec::FilterOrder,
 };
 
 /// A collection of filters `F` that share coefficients.
@@ -272,9 +275,9 @@ where
     F: Filter + Default + Clone,
     F::Coeffs: Default,
 {
-    pub fn with_channels(num_channels: u32) -> Self {
+    pub fn with_channels(num_channels: NonZeroChannelCount) -> Self {
         Self {
-            filters: vec![F::default(); num_channels as usize],
+            filters: vec![F::default(); num_channels.get().get() as usize],
             coeffs: Default::default(),
             sample_rate_recip: 1. / 44100.,
             current_order: 1,
