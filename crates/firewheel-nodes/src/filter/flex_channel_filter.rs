@@ -17,12 +17,12 @@ use firewheel_core::{
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct RuntimeFilterNodeConfig {
+pub struct FlexChannelFilterNodeConfig {
     /// The number of input and output channels.
     pub channels: NonZeroChannelCount,
 }
 
-impl Default for RuntimeFilterNodeConfig {
+impl Default for FlexChannelFilterNodeConfig {
     fn default() -> Self {
         Self {
             channels: NonZeroChannelCount::STEREO,
@@ -30,15 +30,18 @@ impl Default for RuntimeFilterNodeConfig {
     }
 }
 
+/// A filter node whose channels are set up at runtime, when the number of channels is known.
+/// This is a bit less efficient than `FilterNode`, as it needs to allocate memory on the heap.
+/// The number of channels can **not** be changed after the node is constructed. This node just serves the purpose of not having to specify the number of channels at compile time.
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-pub struct RuntimeFilterNode<const MAX_ORDER: usize = DB_OCT_24> {
+pub struct FlexChannelFilterNode<const MAX_ORDER: usize = DB_OCT_24> {
     /// Specifies the type of the filter. Changing this at runtime will redesign the filter accordingly.
     pub spec: FilterSpec,
 }
 
-impl<const MAX_ORDER: usize> AudioNode for RuntimeFilterNode<MAX_ORDER> {
-    type Configuration = RuntimeFilterNodeConfig;
+impl<const MAX_ORDER: usize> AudioNode for FlexChannelFilterNode<MAX_ORDER> {
+    type Configuration = FlexChannelFilterNodeConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         let num_inputs = config.channels;
@@ -57,7 +60,7 @@ impl<const MAX_ORDER: usize> AudioNode for RuntimeFilterNode<MAX_ORDER> {
         config: &Self::Configuration,
         _cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let mut result: RuntimeFilterProcessor<MAX_ORDER> = RuntimeFilterProcessor {
+        let mut result: FlexChannelFilterProcessor<MAX_ORDER> = FlexChannelFilterProcessor {
             filter: MultiChannelFilter::with_channels(config.channels),
             params: Default::default(),
             prev_block_was_silent: true,
@@ -67,13 +70,13 @@ impl<const MAX_ORDER: usize> AudioNode for RuntimeFilterNode<MAX_ORDER> {
     }
 }
 
-struct RuntimeFilterProcessor<const MAX_ORDER: usize = DB_OCT_24> {
+struct FlexChannelFilterProcessor<const MAX_ORDER: usize = DB_OCT_24> {
     filter: VecMultiChannelFilter<FilterCascadeUpTo<MAX_ORDER>>,
-    params: RuntimeFilterNode<MAX_ORDER>,
+    params: FlexChannelFilterNode<MAX_ORDER>,
     prev_block_was_silent: bool,
 }
 
-impl<const MAX_ORDER: usize> RuntimeFilterProcessor<MAX_ORDER> {
+impl<const MAX_ORDER: usize> FlexChannelFilterProcessor<MAX_ORDER> {
     fn design(&mut self) {
         match self.params.spec {
             FilterSpec::Lowpass {
@@ -108,7 +111,7 @@ impl<const MAX_ORDER: usize> RuntimeFilterProcessor<MAX_ORDER> {
     }
 }
 
-impl<const MAX_ORDER: usize> AudioNodeProcessor for RuntimeFilterProcessor<MAX_ORDER> {
+impl<const MAX_ORDER: usize> AudioNodeProcessor for FlexChannelFilterProcessor<MAX_ORDER> {
     fn process(
         &mut self,
         buffers: ProcBuffers,
@@ -116,7 +119,7 @@ impl<const MAX_ORDER: usize> AudioNodeProcessor for RuntimeFilterProcessor<MAX_O
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<RuntimeFilterNode<MAX_ORDER>>(|patch| {
+        events.for_each_patch::<FlexChannelFilterNode<MAX_ORDER>>(|patch| {
             self.params.apply(patch);
             updated = true;
         });

@@ -1,2 +1,2 @@
 pub mod filter;
-pub mod runtime_filter;
+pub mod flex_channel_filter;
