@@ -30,9 +30,9 @@ impl Default for FlexChannelFilterNodeConfig {
     }
 }
 
-/// A filter node whose channels are set up at runtime, when the number of channels is known.
-/// This is a bit less efficient than `FilterNode`, as it needs to allocate memory on the heap.
-/// The number of channels can **not** be changed after the node is constructed. This node just serves the purpose of not having to specify the number of channels at compile time.
+/// An alternative to `FilterNode`, where channels are set up at runtime instead of using a const generic. This is a bit less efficient than `FilterNode`, as it needs to allocate memory on the heap.
+///
+/// Note: The number of channels can **not** be changed after the node is constructed. This node just serves the purpose of not having to specify the number of channels at compile time.
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct FlexChannelFilterNode<const MAX_ORDER: usize = DB_OCT_24> {

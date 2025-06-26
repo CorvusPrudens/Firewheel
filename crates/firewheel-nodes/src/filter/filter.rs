@@ -19,6 +19,9 @@ use firewheel_core::{
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct FilterNodeConfig<const NUM_CHANNELS: usize>;
 
+/// A generic filter node supporting various filter types.
+///
+/// The number of channels are specified as a const generic, so they need to be known at compile time. If you do not know the number of channels at compile time, you can fall back to `FlexChannelFilterNode`, which is a bit less efficient but configures the number of channels at runtime, based on its configuration.
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct FilterNode<const NUM_CHANNELS: usize, const MAX_ORDER: usize = DB_OCT_24> {
