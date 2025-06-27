@@ -1,4 +1,5 @@
-use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range, time::Duration};
+use bevy_platform::time::Instant;
+use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -473,14 +474,11 @@ pub struct ProcInfo<'a> {
     /// (underruns) that may have occured.
     pub audio_clock_seconds: Range<ClockSeconds>,
 
-    /// The amount of real time that has passed from the start of the
-    /// audio stream to when the Firewheel processor's `process` method
-    /// was invoked.
-    ///
-    /// This value is reset when a new audio stream is started.
+    /// The instant the the Firewheel processor's `process` method was
+    /// invoked.
     ///
     /// Note, this clock is not as accurate as the audio clock.
-    pub process_timestamp: Duration,
+    pub process_timestamp: Instant,
 
     /// Information about the musical transport.
     ///

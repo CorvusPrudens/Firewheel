@@ -1,5 +1,5 @@
 use bevy_platform::time::Instant;
-use core::{num::NonZeroU32, ops::Range, time::Duration};
+use core::{num::NonZeroU32, ops::Range};
 
 use ringbuf::traits::{Consumer, Producer};
 use thunderdome::Arena;
@@ -57,7 +57,7 @@ impl FirewheelProcessor {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        real_time_clock: Duration,
+        process_timestamp: Instant,
         stream_status: StreamStatus,
         dropped_frames: u32,
     ) {
@@ -68,7 +68,7 @@ impl FirewheelProcessor {
                 num_in_channels,
                 num_out_channels,
                 frames,
-                real_time_clock,
+                process_timestamp,
                 stream_status,
                 dropped_frames,
             );
@@ -145,7 +145,7 @@ impl FirewheelProcessorInner {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        process_timestamp: Duration,
+        process_timestamp: Instant,
         mut stream_status: StreamStatus,
         mut dropped_frames: u32,
     ) {
@@ -365,7 +365,7 @@ impl FirewheelProcessorInner {
         sample_rate_recip: f64,
         clock_samples: ClockSamples,
         clock_seconds: Range<ClockSeconds>,
-        process_timestamp: Duration,
+        process_timestamp: Instant,
         stream_status: StreamStatus,
         dropped_frames: u32,
         playhead: MusicalTime,

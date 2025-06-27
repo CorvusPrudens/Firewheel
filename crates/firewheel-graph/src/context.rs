@@ -1,5 +1,6 @@
 use core::cell::RefCell;
 use core::num::NonZeroU32;
+use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::clock::TransportState;
 use firewheel_core::{
@@ -298,7 +299,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
         //
-        // PANIC SAFETY: This is the only place this is ever borrowed, so this
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
         // will never panic.
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
@@ -340,6 +341,25 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         }
     }
 
+    /// Get the delay between when the audio clock was last updated and now.
+    ///
+    /// Note, calling this method is not super cheap, so avoid calling it many
+    /// times within the same game loop iteration if possible.
+    pub fn audio_clock_delay(&self) -> Duration {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        clock
+            .instant_of_update
+            .map(|i| i.elapsed())
+            .unwrap_or_default()
+    }
+
     /// Get the current time of the audio clock, without accounting for the delay
     /// between when the clock was last updated and now.
     ///
@@ -358,10 +378,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
         //
-        // PANIC SAFETY: This is the only place this is ever borrowed, so this
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
         // will never panic.
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
-
         let clock = clock_borrowed.read();
 
         AudioClock {
