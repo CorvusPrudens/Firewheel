@@ -478,7 +478,7 @@ impl FirewheelProcessorInner {
             clock_samples: self.clock_samples,
             musical_time,
             transport_is_playing,
-            instant_of_update: stream_is_running.then(|| Instant::now()),
+            update_instant: stream_is_running.then(|| Instant::now()),
         });
     }
 
@@ -547,7 +547,7 @@ pub(crate) struct SharedClock {
     pub clock_samples: ClockSamples,
     pub musical_time: Option<MusicalTime>,
     pub transport_is_playing: bool,
-    pub instant_of_update: Option<Instant>,
+    pub update_instant: Option<Instant>,
 }
 
 impl Default for SharedClock {
@@ -556,7 +556,7 @@ impl Default for SharedClock {
             clock_samples: ClockSamples(0),
             musical_time: None,
             transport_is_playing: false,
-            instant_of_update: None,
+            update_instant: None,
         }
     }
 }

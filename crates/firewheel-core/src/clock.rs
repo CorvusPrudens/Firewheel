@@ -1,3 +1,4 @@
+use bevy_platform::time::Instant;
 use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
@@ -721,6 +722,15 @@ pub struct AudioClock {
     /// This is `true` if a musical transport is present and it is not paused,
     /// `false` otherwise.
     pub transport_is_playing: bool,
+
+    /// The instant the audio clock was last updated.
+    ///
+    /// If the audio thread is not currently running, then this will be `None`.
+    ///
+    /// Note, if this was returned via `FirewheelCtx::audio_clock_corrected()`, then
+    /// `samples`, `seconds`, and `musical` have already taken this delay into
+    /// account.
+    pub update_instant: Option<Instant>,
 }
 
 /// The state of the musical transport in a Firewheel context.

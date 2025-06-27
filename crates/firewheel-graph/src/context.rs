@@ -1,6 +1,6 @@
+use bevy_platform::time::Instant;
 use core::cell::RefCell;
 use core::num::NonZeroU32;
-use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::clock::TransportState;
 use firewheel_core::{
@@ -281,17 +281,17 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         self.active_state.as_ref().map(|s| &s.stream_info)
     }
 
-    /// Get the current time of the audio clock.
+    /// Get the current time of the audio clock, without accounting for the delay
+    /// between when the clock was last updated and now.
+    ///
+    /// For most use cases you probably want to use [`FirewheelCtx::audio_clock`]
+    /// instead, but this method is provided if needed.
     ///
     /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
     /// the system's time (`Instant::now`). (Instead it is based on the amount of data
     /// that has been processed.) For applications where the timing of audio events is
     /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
     /// OS's clock (`Instant::now()`).
-    ///
-    /// Unlike, [`FirewheelCtx::audio_clock_raw`], this method accounts for the delay
-    /// between when the audio clock was last updated and now, leading to a more accurate
-    /// result for games and other applications.
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
@@ -304,7 +304,41 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let Some(instant_of_update) = clock.instant_of_update else {
+        AudioClock {
+            samples: clock.clock_samples,
+            seconds: clock
+                .clock_samples
+                .to_seconds(self.sample_rate, self.sample_rate_recip),
+            musical: clock.musical_time,
+            transport_is_playing: clock.transport_is_playing,
+            update_instant: clock.update_instant,
+        }
+    }
+
+    /// Get the current time of the audio clock.
+    ///
+    /// Unlike, [`FirewheelCtx::audio_clock`], this method accounts for the delay
+    /// between when the audio clock was last updated and now, leading to a more
+    /// accurate result for games and other applications.
+    ///
+    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
+    /// that has been processed.) For applications where the timing of audio events is
+    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// OS's clock (`Instant::now()`).
+    ///
+    /// Note, calling this method is not super cheap, so avoid calling it many
+    /// times within the same game loop iteration if possible.
+    pub fn audio_clock_corrected(&self) -> AudioClock {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        let Some(update_instant) = clock.update_instant else {
             // The audio thread is not currently running, so just return the
             // latest value of the clock.
             return AudioClock {
@@ -314,11 +348,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     .to_seconds(self.sample_rate, self.sample_rate_recip),
                 musical: clock.musical_time,
                 transport_is_playing: clock.transport_is_playing,
+                update_instant: clock.update_instant,
             };
         };
 
         // Account for the delay between when the clock was last updated and now.
-        let delta_seconds = ClockSeconds(instant_of_update.elapsed().as_secs_f64());
+        let delta_seconds = ClockSeconds(update_instant.elapsed().as_secs_f64());
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
         let musical = clock.musical_time.map(|musical_time| {
@@ -338,14 +373,17 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             seconds: samples.to_seconds(self.sample_rate, self.sample_rate_recip),
             musical,
             transport_is_playing: clock.transport_is_playing,
+            update_instant: clock.update_instant,
         }
     }
 
-    /// Get the delay between when the audio clock was last updated and now.
+    /// Get the instant the audio clock was last updated.
+    ///
+    /// If the audio thread is not currently running, then this will be `None`.
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
-    pub fn audio_clock_delay(&self) -> Duration {
+    pub fn audio_clock_instant(&self) -> Option<Instant> {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
         //
@@ -354,43 +392,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        clock
-            .instant_of_update
-            .map(|i| i.elapsed())
-            .unwrap_or_default()
-    }
-
-    /// Get the current time of the audio clock, without accounting for the delay
-    /// between when the clock was last updated and now.
-    ///
-    /// For most use cases you probably want to use [`FirewheelCtx::audio_clock`]
-    /// instead, but this method is provided if needed.
-    ///
-    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
-    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
-    /// that has been processed.) For applications where the timing of audio events is
-    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
-    /// OS's clock (`Instant::now()`).
-    ///
-    /// Note, calling this method is not super cheap, so avoid calling it many
-    /// times within the same game loop iteration if possible.
-    pub fn audio_clock_raw(&self) -> AudioClock {
-        // Reading the latest value of the clock doesn't meaningfully mutate
-        // state, so treat it as an immutable operation with interior mutability.
-        //
-        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
-        // will never panic.
-        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
-        let clock = clock_borrowed.read();
-
-        AudioClock {
-            samples: clock.clock_samples,
-            seconds: clock
-                .clock_samples
-                .to_seconds(self.sample_rate, self.sample_rate_recip),
-            musical: clock.musical_time,
-            transport_is_playing: clock.transport_is_playing,
-        }
+        clock.update_instant
     }
 
     /// Sync the state of the musical transport.
