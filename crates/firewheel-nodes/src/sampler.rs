@@ -1,4 +1,5 @@
 use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use bevy_platform::time::Instant;
 use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
@@ -213,6 +214,47 @@ impl SamplerState {
     /// * `sample_rate` - The sample rate of the current audio stream.
     pub fn playhead_seconds(&self, sample_rate: NonZeroU32) -> f64 {
         self.playhead_frames() as f64 / sample_rate.get() as f64
+    }
+
+    /// Get the current position of the playhead in units of frames (samples of
+    /// a single channel of audio), corrected with the delay between when the audio clock
+    /// was last updated and now.
+    ///
+    /// Call `FirewheelCtx::audio_clock_instant()` right before calling this method to get
+    /// the latest update instant.
+    pub fn playhead_frames_corrected(
+        &self,
+        update_instant: Option<Instant>,
+        sample_rate: NonZeroU32,
+    ) -> u64 {
+        let frames = self.playhead_frames();
+
+        let Some(update_instant) = update_instant else {
+            return frames;
+        };
+
+        if self.shared_state.playing.load(Ordering::Relaxed) {
+            frames
+                + ClockSeconds(update_instant.elapsed().as_secs_f64())
+                    .to_samples(sample_rate)
+                    .0 as u64
+        } else {
+            frames
+        }
+    }
+
+    /// Get the current position of the playhead in units of seconds, corrected with the
+    /// delay between when the audio clock was last updated and now.
+    ///
+    /// Call `FirewheelCtx::audio_clock_instant()` right before calling this method to get
+    /// the latest update instant.
+    pub fn playhead_seconds_corrected(
+        &self,
+        update_instant: Option<Instant>,
+        sample_rate: NonZeroU32,
+    ) -> f64 {
+        self.playhead_frames_corrected(update_instant, sample_rate) as f64
+            / sample_rate.get() as f64
     }
 
     /// Returns `true` if the sequence has either not started playing yet or has finished
@@ -909,6 +951,9 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         self.is_first_process = false;
 
+        self.shared_state
+            .playing
+            .store(self.playback_state.is_playing(), Ordering::Relaxed);
         self.shared_state.stopped.store(
             self.playback_state == PlaybackState::Stop,
             Ordering::Relaxed,
@@ -1054,6 +1099,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             *self.params.sequence.as_mut_unsync() = None;
             self.loaded_sample_state = None;
             self.playback_state = PlaybackState::Stop;
+            self.shared_state.playing.store(false, Ordering::Relaxed);
             self.shared_state.stopped.store(true, Ordering::Relaxed);
             self.shared_state.finished.store(0, Ordering::Relaxed);
         }
@@ -1062,6 +1108,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
 struct SharedState {
     sequence_playhead_frames: AtomicU64,
+    playing: AtomicBool,
     stopped: AtomicBool,
     finished: AtomicU64,
 }
@@ -1070,6 +1117,7 @@ impl Default for SharedState {
     fn default() -> Self {
         Self {
             sequence_playhead_frames: AtomicU64::new(0),
+            playing: AtomicBool::new(false),
             stopped: AtomicBool::new(true),
             finished: AtomicU64::new(0),
         }
