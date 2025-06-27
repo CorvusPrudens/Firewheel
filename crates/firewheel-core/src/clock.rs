@@ -338,24 +338,23 @@ impl SubAssign for MusicalTime {
     }
 }
 
-/// A musical transport with a single static tempo.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MusicalTransport {
-    pub transport_type: TransportType,
+pub enum MusicalTransport {
+    Static(StaticTransport),
+    // TODO: Linearly automated tempo.
 }
 
 impl Default for MusicalTransport {
     fn default() -> Self {
-        Self {
-            transport_type: TransportType::default(),
-        }
+        Self::Static(StaticTransport::default())
     }
 }
 
 impl MusicalTransport {
     pub fn musical_to_seconds(&self, musical: MusicalTime) -> ClockSeconds {
-        match &self.transport_type {
-            TransportType::Static(s) => s.musical_to_seconds(musical),
+        match self {
+            MusicalTransport::Static(s) => s.musical_to_seconds(musical),
         }
     }
 
@@ -364,8 +363,8 @@ impl MusicalTransport {
         musical: MusicalTime,
         sample_rate: NonZeroU32,
     ) -> ClockSamples {
-        match &self.transport_type {
-            TransportType::Static(s) => s.musical_to_samples(musical, sample_rate),
+        match self {
+            MusicalTransport::Static(s) => s.musical_to_samples(musical, sample_rate),
         }
     }
 
@@ -375,16 +374,16 @@ impl MusicalTransport {
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> MusicalTime {
-        match &self.transport_type {
-            TransportType::Static(s) => {
+        match self {
+            MusicalTransport::Static(s) => {
                 s.samples_to_musical(sample_time, sample_rate, sample_rate_recip)
             }
         }
     }
 
     pub fn seconds_to_musical(&self, seconds: ClockSeconds) -> MusicalTime {
-        match &self.transport_type {
-            TransportType::Static(s) => s.seconds_to_musical(seconds),
+        match self {
+            MusicalTransport::Static(s) => s.seconds_to_musical(seconds),
         }
     }
 
@@ -395,21 +394,21 @@ impl MusicalTransport {
         from: MusicalTime,
         delta_seconds: ClockSeconds,
     ) -> MusicalTime {
-        match &self.transport_type {
-            TransportType::Static(s) => s.delta_seconds_from(from, delta_seconds),
+        match self {
+            MusicalTransport::Static(s) => s.delta_seconds_from(from, delta_seconds),
         }
     }
 
     /// Return the tempo in beats per minute at the given musical time.
     pub fn bpm_at_musical(&self, _musical: MusicalTime) -> f64 {
-        match &self.transport_type {
-            TransportType::Static(s) => s.beats_per_minute(),
+        match self {
+            MusicalTransport::Static(s) => s.beats_per_minute(),
         }
     }
 
     pub fn proc_transport_info(&self, frames: usize, _playhead: MusicalTime) -> ProcTransportInfo {
-        match &self.transport_type {
-            TransportType::Static(s) => ProcTransportInfo {
+        match self {
+            MusicalTransport::Static(s) => ProcTransportInfo {
                 frames,
                 beats_per_minute: s.beats_per_minute,
                 delta_beats_per_minute: 0.0,
@@ -437,19 +436,6 @@ pub struct ProcTransportInfo {
     /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
     /// each frame.
     pub delta_beats_per_minute: f64,
-}
-
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TransportType {
-    Static(StaticTransport),
-    // TODO: Linearly automated tempo.
-}
-
-impl Default for TransportType {
-    fn default() -> Self {
-        Self::Static(StaticTransport::default())
-    }
 }
 
 /// A musical transport with a single static tempo in beats per minute.
