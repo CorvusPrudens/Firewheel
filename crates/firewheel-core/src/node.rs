@@ -1,4 +1,4 @@
-use core::{any::Any, fmt::Debug, hash::Hash, ops::Range, time::Duration};
+use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range, time::Duration};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -438,6 +438,13 @@ pub struct ProcInfo<'a> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
+    /// The sample rate of the audio stream in samples per second.
+    pub sample_rate: NonZeroU32,
+
+    /// The reciprocal of the sample rate. This can be used to avoid a
+    /// division and improve performance.
+    pub sample_rate_recip: f64,
+
     /// The current time of the audio clock, equal to the total number of
     /// frames (samples in a single channel of audio) that have been
     /// processed since this Firewheel context was first started.
@@ -502,7 +509,7 @@ pub struct ProcInfo<'a> {
     pub declick_values: &'a DeclickValues,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct TransportInfo<'a> {
     /// The current transport.
     pub transport: &'a MusicalTransport,
@@ -522,6 +529,20 @@ pub struct TransportInfo<'a> {
     /// Whether or not the transport is currently playing (true) or paused
     /// (false).
     pub playing: bool,
+
+    /// The beats per minute at the first frame of this process block.
+    pub beats_per_minute: f64,
+
+    /// The rate at which `beats_per_minute` changes each frame in this
+    /// processing block.
+    ///
+    /// For example, if this value is `0.0`, then the bpm remains static for
+    /// the entire duration of this processing block.
+    ///
+    /// And for example, if this is `0.1`, then the bpm increases by `0.1`
+    /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
+    /// each frame.
+    pub delta_bpm_per_frame: f64,
 }
 
 bitflags::bitflags! {

@@ -24,6 +24,9 @@ pub struct StreamInfo {
     pub sample_rate: NonZeroU32,
     /// The reciprocal of the sample rate.
     pub sample_rate_recip: f64,
+    /// The sample rate of the previous stream. (If this is the first stream, then this
+    /// will just be a copy of [`StreamInfo::sample_rate`]).
+    pub prev_sample_rate: NonZeroU32,
     pub max_block_frames: NonZeroU32,
     pub num_stream_in_channels: u32,
     pub num_stream_out_channels: u32,
@@ -41,6 +44,7 @@ impl Default for StreamInfo {
         Self {
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
+            prev_sample_rate: NonZeroU32::new(44100).unwrap(),
             max_block_frames: NonZeroU32::new(1024).unwrap(),
             num_stream_in_channels: 0,
             num_stream_out_channels: 2,

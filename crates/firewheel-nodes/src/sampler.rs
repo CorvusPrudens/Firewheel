@@ -318,14 +318,14 @@ pub enum Playhead {
 }
 
 impl Playhead {
-    pub fn as_frames(&self, sample_rate: u32) -> u64 {
+    pub fn as_frames(&self, sample_rate: NonZeroU32) -> u64 {
         match *self {
             Self::Seconds(seconds) => {
                 if seconds <= 0.0 {
                     0
                 } else {
-                    (seconds.floor() as u64 * sample_rate as u64)
-                        + (seconds.fract() * sample_rate as f64).round() as u64
+                    (seconds.floor() as u64 * sample_rate.get() as u64)
+                        + (seconds.fract() * sample_rate.get() as f64).round() as u64
                 }
             }
             Self::Frames(frames) => frames,
@@ -472,7 +472,6 @@ impl AudioNode for SamplerNode {
             playback_start_time_frames: ClockSamples::default(),
             playback_pause_time_frames: ClockSamples::default(),
             start_delay: None,
-            sample_rate: cx.stream_info.sample_rate.get() as f64,
             amp_epsilon: config.amp_epsilon,
             is_first_process: true,
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
@@ -505,7 +504,6 @@ pub struct SamplerProcessor {
 
     start_delay: Option<EventDelay>,
 
-    sample_rate: f64,
     amp_epsilon: f32,
 
     is_first_process: bool,
@@ -829,7 +827,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if playhead_changed || self.is_first_process {
-            let playhead_frames = self.params.playhead.as_frames(self.sample_rate as u32);
+            let playhead_frames = self.params.playhead.as_frames(proc_info.sample_rate);
 
             if let Some(SequenceType::SingleSample { .. }) = self.params.sequence.as_ref() {
                 let state = self.loaded_sample_state.as_ref().unwrap();
@@ -917,7 +915,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         );
 
         let start_on_frame = if let Some(delay) = self.start_delay {
-            if let Some(frame) = delay.elapsed_on_frame(&proc_info, self.sample_rate as u32) {
+            if let Some(frame) = delay.elapsed_on_frame(&proc_info, proc_info.sample_rate) {
                 self.start_delay = None;
 
                 self.playback_start_time_seconds = proc_info.audio_clock_seconds.start;
@@ -1040,9 +1038,7 @@ impl AudioNodeProcessor for SamplerProcessor {
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {
-        if stream_info.sample_rate.get() as f64 != self.sample_rate {
-            self.sample_rate = stream_info.sample_rate.get() as f64;
-
+        if stream_info.sample_rate != stream_info.prev_sample_rate {
             self.stop_declicker_buffers = if self.config.num_declickers == 0 {
                 None
             } else {

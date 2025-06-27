@@ -105,7 +105,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
     shared_clock_output: RefCell<triple_buffer::Output<SharedClock>>,
-    sample_rate: u32,
+    sample_rate: NonZeroU32,
     sample_rate_recip: f64,
 
     transport_state: TransportState,
@@ -144,7 +144,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             processor_channel: Some((from_context_rx, to_context_tx, shared_clock_input)),
             processor_drop_rx: None,
             shared_clock_output: RefCell::new(shared_clock_output),
-            sample_rate: 44100,
+            sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
             transport_state: TransportState::default(),
             event_group_pool,
@@ -214,7 +214,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         )
         .unwrap_or(NonZeroU32::MIN);
 
-        self.sample_rate = stream_info.sample_rate.get();
+        self.sample_rate = stream_info.sample_rate;
         self.sample_rate_recip = stream_info.sample_rate_recip;
 
         let schedule = self.graph.compile(&stream_info)?;
