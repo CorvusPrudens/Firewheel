@@ -151,6 +151,22 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         }
     }
 
+    /// Get a reference to the currently active instance of the backend. Returns `None` if the backend has not
+    /// yet been initialized with `start_stream`.
+    pub fn active_backend(&self) -> Option<&B> {
+        self.active_state
+            .as_ref()
+            .map(|state| &state.backend_handle)
+    }
+
+    /// Get a mutable reference to the currently active instance of the backend. Returns `None` if the backend has not
+    /// yet been initialized with `start_stream`.
+    pub fn active_backend_mut(&mut self) -> Option<&mut B> {
+        self.active_state
+            .as_mut()
+            .map(|state| &mut state.backend_handle)
+    }
+
     /// Get a list of the available audio input devices.
     pub fn available_input_devices(&self) -> Vec<DeviceInfo> {
         B::available_input_devices()
