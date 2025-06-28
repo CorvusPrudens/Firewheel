@@ -1,13 +1,11 @@
-use bevy_platform::sync::{
-    atomic::{AtomicI64, Ordering},
-    Arc,
-};
-use core::any::Any;
+use bevy_platform::time::Instant;
+use core::cell::RefCell;
 use core::num::NonZeroU32;
+use core::{any::Any, f64};
+use firewheel_core::clock::TransportState;
 use firewheel_core::{
-    atomic_float::AtomicF64,
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
+    clock::{AudioClock, ClockSeconds},
     collector::Collector,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
@@ -23,6 +21,7 @@ use crate::{
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
     processor::{
         ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorInner, ProcessorToContextMsg,
+        SharedClock,
     },
 };
 
@@ -102,10 +101,15 @@ pub struct FirewheelCtx<B: AudioBackend> {
     processor_channel: Option<(
         ringbuf::HeapCons<ContextToProcessorMsg>,
         ringbuf::HeapProd<ProcessorToContextMsg>,
+        triple_buffer::Input<SharedClock>,
     )>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
-    clock_shared: Arc<ClockValues>,
+    shared_clock_output: RefCell<triple_buffer::Output<SharedClock>>,
+    sample_rate: NonZeroU32,
+    sample_rate_recip: f64,
+
+    transport_state: TransportState,
 
     // Re-use the allocations for groups of events.
     event_group_pool: Vec<Vec<NodeEvent>>,
@@ -118,12 +122,6 @@ pub struct FirewheelCtx<B: AudioBackend> {
 impl<B: AudioBackend> FirewheelCtx<B> {
     /// Create a new Firewheel context.
     pub fn new(config: FirewheelConfig) -> Self {
-        let clock_shared = Arc::new(ClockValues {
-            seconds: AtomicF64::new(0.0),
-            samples: AtomicI64::new(0),
-            musical: AtomicF64::new(0.0),
-        });
-
         let (to_processor_tx, from_context_rx) =
             ringbuf::HeapRb::<ContextToProcessorMsg>::new(config.channel_capacity as usize).split();
         let (to_context_tx, from_processor_rx) =
@@ -136,14 +134,20 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             event_group_pool.push(Vec::with_capacity(initial_event_group_capacity));
         }
 
+        let (shared_clock_input, shared_clock_output) =
+            triple_buffer::triple_buffer(&SharedClock::default());
+
         Self {
             graph: AudioGraph::new(&config),
             to_processor_tx,
             from_processor_rx,
             active_state: None,
-            processor_channel: Some((from_context_rx, to_context_tx)),
+            processor_channel: Some((from_context_rx, to_context_tx, shared_clock_input)),
             processor_drop_rx: None,
-            clock_shared: Arc::clone(&clock_shared),
+            shared_clock_output: RefCell::new(shared_clock_output),
+            sample_rate: NonZeroU32::new(44100).unwrap(),
+            sample_rate_recip: 44100.0f64.recip(),
+            transport_state: TransportState::default(),
             event_group_pool,
             event_group: Vec::with_capacity(initial_event_group_capacity),
             initial_event_group_capacity,
@@ -227,31 +231,35 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         )
         .unwrap_or(NonZeroU32::MIN);
 
+        self.sample_rate = stream_info.sample_rate;
+        self.sample_rate_recip = stream_info.sample_rate_recip;
+
         let schedule = self.graph.compile(&stream_info)?;
 
         let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner>::new(1).split();
 
-        let processor =
-            if let Some((from_context_rx, to_context_tx)) = self.processor_channel.take() {
-                FirewheelProcessorInner::new(
-                    from_context_rx,
-                    to_context_tx,
-                    Arc::clone(&self.clock_shared),
-                    self.graph.node_capacity(),
-                    &stream_info,
-                    self.config.hard_clip_outputs,
-                )
-            } else {
-                let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
+        let processor = if let Some((from_context_rx, to_context_tx, shared_clock_input)) =
+            self.processor_channel.take()
+        {
+            FirewheelProcessorInner::new(
+                from_context_rx,
+                to_context_tx,
+                shared_clock_input,
+                self.graph.node_capacity(),
+                &stream_info,
+                self.config.hard_clip_outputs,
+            )
+        } else {
+            let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
 
-                if processor.poisoned {
-                    panic!("The audio thread has panicked!");
-                }
+            if processor.poisoned {
+                panic!("The audio thread has panicked!");
+            }
 
-                processor.new_stream(&stream_info);
+            processor.new_stream(&stream_info);
 
-                processor
-            };
+            processor
+        };
 
         backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
 
@@ -289,79 +297,142 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         self.active_state.as_ref().map(|s| &s.stream_info)
     }
 
-    /// The current time of the clock in the number of seconds since the stream
-    /// was started.
+    /// Get the current time of the audio clock, without accounting for the delay
+    /// between when the clock was last updated and now.
     ///
-    /// Note, this clock is not perfectly accurate, but it is good enough for
-    /// most use cases. This clock also correctly accounts for any output
-    /// underflows that may occur.
-    pub fn clock_now(&self) -> ClockSeconds {
-        ClockSeconds(self.clock_shared.seconds.load(Ordering::Relaxed))
+    /// For most use cases you probably want to use [`FirewheelCtx::audio_clock`]
+    /// instead, but this method is provided if needed.
+    ///
+    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
+    /// that has been processed.) For applications where the timing of audio events is
+    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// OS's clock (`Instant::now()`).
+    ///
+    /// Note, calling this method is not super cheap, so avoid calling it many
+    /// times within the same game loop iteration if possible.
+    pub fn audio_clock(&self) -> AudioClock {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        AudioClock {
+            samples: clock.clock_samples,
+            seconds: clock
+                .clock_samples
+                .to_seconds(self.sample_rate, self.sample_rate_recip),
+            musical: clock.musical_time,
+            transport_is_playing: clock.transport_is_playing,
+            update_instant: clock.update_instant,
+        }
     }
 
-    /// The current time of the sample clock in the number of samples (of a single
-    /// channel of audio) that have been processed since the beginning of the
-    /// stream.
+    /// Get the current time of the audio clock.
     ///
-    /// This is more accurate than the seconds clock, and is ideal for syncing
-    /// events to a musical transport. Though note that this clock does not
-    /// account for any output underflows that may occur.
-    pub fn clock_samples(&self) -> ClockSamples {
-        ClockSamples(self.clock_shared.samples.load(Ordering::Relaxed))
+    /// Unlike, [`FirewheelCtx::audio_clock`], this method accounts for the delay
+    /// between when the audio clock was last updated and now, leading to a more
+    /// accurate result for games and other applications.
+    ///
+    /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
+    /// the system's time (`Instant::now`). (Instead it is based on the amount of data
+    /// that has been processed.) For applications where the timing of audio events is
+    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// OS's clock (`Instant::now()`).
+    ///
+    /// Note, calling this method is not super cheap, so avoid calling it many
+    /// times within the same game loop iteration if possible.
+    pub fn audio_clock_corrected(&self) -> AudioClock {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        let Some(update_instant) = clock.update_instant else {
+            // The audio thread is not currently running, so just return the
+            // latest value of the clock.
+            return AudioClock {
+                samples: clock.clock_samples,
+                seconds: clock
+                    .clock_samples
+                    .to_seconds(self.sample_rate, self.sample_rate_recip),
+                musical: clock.musical_time,
+                transport_is_playing: clock.transport_is_playing,
+                update_instant: clock.update_instant,
+            };
+        };
+
+        // Account for the delay between when the clock was last updated and now.
+        let delta_seconds = ClockSeconds(update_instant.elapsed().as_secs_f64());
+        let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
+
+        let musical = clock.musical_time.map(|musical_time| {
+            if clock.transport_is_playing && self.transport_state.transport.is_some() {
+                self.transport_state
+                    .transport
+                    .as_ref()
+                    .unwrap()
+                    .delta_seconds_from(musical_time, delta_seconds)
+            } else {
+                musical_time
+            }
+        });
+
+        AudioClock {
+            samples,
+            seconds: samples.to_seconds(self.sample_rate, self.sample_rate_recip),
+            musical,
+            transport_is_playing: clock.transport_is_playing,
+            update_instant: clock.update_instant,
+        }
     }
 
-    /// The current musical time of the transport.
+    /// Get the instant the audio clock was last updated.
     ///
-    /// If no transport is currently active, then this will have a value of `0`.
-    pub fn clock_musical(&self) -> MusicalTime {
-        MusicalTime(self.clock_shared.musical.load(Ordering::Relaxed))
+    /// If the audio thread is not currently running, then this will be `None`.
+    ///
+    /// Note, calling this method is not super cheap, so avoid calling it many
+    /// times within the same game loop iteration if possible.
+    pub fn audio_clock_instant(&self) -> Option<Instant> {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        clock.update_instant
     }
 
-    /// Set the musical transport to use.
-    ///
-    /// If an existing musical transport is already running, then the new
-    /// transport will pick up where the old one left off. This allows you
-    /// to, for example, change the tempo dynamically at runtime.
+    /// Sync the state of the musical transport.
     ///
     /// If the message channel is full, then this will return an error.
-    pub fn set_transport(
+    pub fn sync_transport(
         &mut self,
-        transport: Option<MusicalTransport>,
+        transport: &TransportState,
     ) -> Result<(), UpdateError<B::StreamError>> {
-        self.send_message_to_processor(ContextToProcessorMsg::SetTransport(transport))
-            .map_err(|(_, e)| e)
+        if &self.transport_state != transport {
+            self.send_message_to_processor(ContextToProcessorMsg::SetTransportState(Box::new(
+                transport.clone(),
+            )))
+            .map_err(|(_, e)| e)?;
+
+            self.transport_state = transport.clone();
+        }
+
+        Ok(())
     }
 
-    /// Start or restart the musical transport.
-    ///
-    /// If the message channel is full, then this will return an error.
-    pub fn start_or_restart_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        self.send_message_to_processor(ContextToProcessorMsg::StartOrRestartTransport)
-            .map_err(|(_, e)| e)
-    }
-
-    /// Pause the musical transport.
-    ///
-    /// If the message channel is full, then this will return an error.
-    pub fn pause_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        self.send_message_to_processor(ContextToProcessorMsg::PauseTransport)
-            .map_err(|(_, e)| e)
-    }
-
-    /// Resume the musical transport.
-    ///
-    /// If the message channel is full, then this will return an error.
-    pub fn resume_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        self.send_message_to_processor(ContextToProcessorMsg::ResumeTransport)
-            .map_err(|(_, e)| e)
-    }
-
-    /// Stop the musical transport.
-    ///
-    /// If the message channel is full, then this will return an error.
-    pub fn stop_transport(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        self.send_message_to_processor(ContextToProcessorMsg::StopTransport)
-            .map_err(|(_, e)| e)
+    /// Get the current transport state.
+    pub fn transport(&self) -> &TransportState {
+        &self.transport_state
     }
 
     /// Whether or not outputs are being hard clipped at 0dB.
@@ -404,6 +475,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 }
                 ProcessorToContextMsg::ReturnSchedule(schedule_data) => {
                     let _ = schedule_data;
+                }
+                ProcessorToContextMsg::ReturnTransportState(transport_state) => {
+                    let _ = transport_state;
                 }
             }
         }
@@ -687,12 +761,6 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
 
         firewheel_core::collector::GlobalCollector.collect();
     }
-}
-
-pub(crate) struct ClockValues {
-    pub seconds: AtomicF64,
-    pub samples: AtomicI64,
-    pub musical: AtomicF64,
 }
 
 impl<B: AudioBackend> FirewheelCtx<B> {

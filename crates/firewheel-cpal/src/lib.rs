@@ -6,8 +6,9 @@ use core::{
 };
 use std::sync::mpsc;
 
+use bevy_platform::time::Instant;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};
+use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::{AudioBackend, DeviceInfo},
     processor::FirewheelProcessor,
@@ -732,11 +733,12 @@ struct DataCallback {
     num_out_channels: usize,
     from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
+    sample_rate: u32,
     sample_rate_recip: f64,
-    _first_internal_clock_instant: Option<cpal::StreamInstant>,
-    _prev_stream_instant: Option<cpal::StreamInstant>,
-    first_fallback_clock_instant: Option<bevy_platform::time::Instant>,
-    predicted_stream_secs: Option<f64>,
+    //_first_internal_clock_instant: Option<cpal::StreamInstant>,
+    //_prev_stream_instant: Option<cpal::StreamInstant>,
+    predicted_delta_time: Duration,
+    prev_instant: Option<Instant>,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
 }
@@ -762,17 +764,20 @@ impl DataCallback {
             num_out_channels,
             from_cx_rx,
             processor: None,
+            sample_rate,
             sample_rate_recip: f64::from(sample_rate).recip(),
-            _first_internal_clock_instant: None,
-            _prev_stream_instant: None,
-            predicted_stream_secs: None,
-            first_fallback_clock_instant: None,
+            //_first_internal_clock_instant: None,
+            //_prev_stream_instant: None,
+            predicted_delta_time: Duration::default(),
+            prev_instant: None,
             input_stream_cons,
             input_buffer,
         }
     }
 
     fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
+        let process_timestamp = bevy_platform::time::Instant::now();
+
         for msg in self.from_cx_rx.pop_iter() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
@@ -780,32 +785,29 @@ impl DataCallback {
 
         let frames = output.len() / self.num_out_channels;
 
-        let (internal_clock_secs, underflow) =
-            if let Some(instant) = self.first_fallback_clock_instant {
-                let now = bevy_platform::time::Instant::now();
+        let (underflow, dropped_frames) = if let Some(prev_instant) = self.prev_instant {
+            let delta_time = process_timestamp - prev_instant;
 
-                let internal_clock_secs = (now - instant).as_secs_f64();
+            let underflow = delta_time > self.predicted_delta_time;
 
-                let underflow = if let Some(predicted_stream_secs) = self.predicted_stream_secs {
-                    // If the stream time is significantly greater than the predicted stream
-                    // time, it means an output underflow has occurred.
-                    internal_clock_secs > predicted_stream_secs
-                } else {
-                    false
-                };
-
-                // Calculate the next predicted stream time to detect underflows.
-                //
-                // Add a little bit of wiggle room to account for tiny clock
-                // innacuracies and rounding errors.
-                self.predicted_stream_secs =
-                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
-
-                (ClockSeconds(internal_clock_secs), underflow)
+            let dropped_frames = if underflow {
+                (delta_time.as_secs_f64() * self.sample_rate as f64).round() as u32
             } else {
-                self.first_fallback_clock_instant = Some(bevy_platform::time::Instant::now());
-                (ClockSeconds(0.0), false)
+                0
             };
+
+            (underflow, dropped_frames)
+        } else {
+            self.prev_instant = Some(process_timestamp);
+            (false, 0)
+        };
+
+        // Calculate the next predicted stream time to detect underflows.
+        //
+        // Add a little bit of wiggle room to account for tiny clock
+        // innacuracies and rounding errors.
+        self.predicted_delta_time =
+            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2);
 
         // TODO: PLEASE FIX ME:
         //
@@ -898,8 +900,9 @@ impl DataCallback {
                 num_in_chanenls,
                 self.num_out_channels,
                 frames,
-                internal_clock_secs,
+                process_timestamp,
                 stream_status,
+                dropped_frames,
             );
         } else {
             output.fill(0.0);
