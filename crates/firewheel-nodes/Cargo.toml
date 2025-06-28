@@ -49,5 +49,5 @@ firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
 bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
-fixed-resample = { version = "0.8.0", features = ["fft-resampler", "channel"], optional = true }
+fixed-resample = { version = "0.9.1", features = ["fft-resampler", "channel"], optional = true }
 bevy_ecs = { version = "0.16", optional = true }

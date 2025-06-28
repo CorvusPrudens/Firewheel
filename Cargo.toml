@@ -46,6 +46,7 @@ default = [
     "cpal",
     "symphonium",
     "symphonium_resample",
+    "symphonium_stretch",
     "peak_meter_node",
     "sampler_node",
 ]
@@ -57,6 +58,9 @@ cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
 symphonium = ["firewheel-core/symphonium"]
 # Enables resampling audio files when loading them with Symphonium
 symphonium_resample = ["firewheel-core/resampler"]
+# Enables the "arbitrary sinc" resampler for changing the pitch/length
+# of samples at load time.
+symphonium_stretch = ["firewheel-core/symphonium_stretch"]
 # Enables the `SamplerPool` helper type for constructing a pool of
 # sampler nodes that can dynamically be assigned work.
 sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]

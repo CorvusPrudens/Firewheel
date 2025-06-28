@@ -471,6 +471,52 @@ pub fn load_audio_file_from_source(
         .map(|d| DecodedAudio(d))
 }
 
+/// A helper method to load an audio file from a path using Symphonium. This
+/// also stretches (pitch shifts) the sample by the given amount.
+///
+/// * `loader` - The symphonium loader.
+/// * `path`` - The path to the audio file stored on disk.
+/// * `sample_rate` - The sample rate of the audio stream.
+/// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
+/// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
+/// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
+/// is given, then the final amount will automatically be adjusted to account for that.
+#[cfg(feature = "symphonium_stretch")]
+pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
+    loader: &mut symphonium::SymphoniumLoader,
+    path: P,
+    sample_rate: core::num::NonZeroU32,
+    stretch: f64,
+) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    loader
+        .load_f32_stretched(path, stretch, Some(sample_rate.get()), None)
+        .map(|d| DecodedAudio(d.into()))
+}
+
+/// A helper method to load an audio file from a custom source using Symphonium. This
+/// also stretches (pitch shifts) the sample by the given amount.
+///
+/// * `loader` - The symphonium loader.
+/// * `source` - The audio source which implements the [`MediaSource`] trait.
+/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
+/// * `sample_rate` - The sample rate of the audio stream.
+/// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
+/// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
+/// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
+/// is given, then the final amount will automatically be adjusted to account for that.
+#[cfg(feature = "symphonium_stretch")]
+pub fn load_audio_file_from_source_stretched(
+    loader: &mut symphonium::SymphoniumLoader,
+    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
+    hint: Option<symphonium::symphonia::core::probe::Hint>,
+    sample_rate: core::num::NonZeroU32,
+    stretch: f64,
+) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    loader
+        .load_f32_from_source_stretched(source, hint, stretch, Some(sample_rate.get()), None)
+        .map(|d| DecodedAudio(d.into()))
+}
+
 #[cfg(feature = "symphonium")]
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into
 /// a [`SampleResource`].

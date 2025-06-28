@@ -18,6 +18,9 @@ all-features = true
 [features]
 symphonium = ["dep:symphonium"]
 resampler = ["dep:fixed-resample", "symphonium?/resampler"]
+# Enables the "arbitrary sinc" resampler in Symphonium for changing the
+# pitch/length of samples at load time.
+symphonium_stretch = ["symphonium", "resampler", "symphonium?/stretch-sinc-resampler"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
@@ -25,8 +28,8 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.5.0", default-features = false, optional = true }
-fixed-resample = { version = "0.8.0", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
+symphonium = { version = "0.6.1", default-features = false, optional = true }
+fixed-resample = { version = "0.9.1", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
 smallvec.workspace = true
 bevy_platform.workspace = true
 glam = "0.29"
