@@ -523,7 +523,7 @@ impl AudioGraph {
 
         for node in failed_schedule.new_node_processors.iter() {
             if let Some(node_entry) = &mut self.nodes.get_mut(node.id.0) {
-                node_entry.activated = false;
+                node_entry.processor_constructed = false;
             }
         }
     }
@@ -533,9 +533,6 @@ impl AudioGraph {
     }
 
     pub(crate) fn deactivate(&mut self) {
-        for (_, entry) in self.nodes.iter_mut() {
-            entry.activated = false;
-        }
         self.needs_compile = true;
     }
 
@@ -547,8 +544,8 @@ impl AudioGraph {
 
         let mut new_node_processors = Vec::new();
         for (_, entry) in self.nodes.iter_mut() {
-            if !entry.activated {
-                entry.activated = true;
+            if !entry.processor_constructed {
+                entry.processor_constructed = true;
 
                 let event_buffer_indices = if entry.info.uses_events {
                     Vec::with_capacity(self.event_queue_capacity)
