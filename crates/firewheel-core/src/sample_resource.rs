@@ -497,7 +497,8 @@ pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
 /// also stretches (pitch shifts) the sample by the given amount.
 ///
 /// * `loader` - The symphonium loader.
-/// * `source` - The audio source which implements the [`MediaSource`] trait.
+/// * `source` - The audio source which implements the [`symphonium::symphonia::core::io::MediaSource`]
+/// trait.
 /// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
 /// * `sample_rate` - The sample rate of the audio stream.
 /// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
