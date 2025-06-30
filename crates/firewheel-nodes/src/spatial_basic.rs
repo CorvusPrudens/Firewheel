@@ -6,10 +6,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        filter::{
-            filter_trait::Filter,
-            primitives::single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
-        },
+        filter::single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
@@ -368,8 +365,8 @@ impl AudioNodeProcessor for Processor {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
 
-                    out1[i] = self.filter_l.process(out1[i], &coeff);
-                    out2[i] = self.filter_r.process(out2[i], &coeff);
+                    out1[i] = self.filter_l.process(out1[i], coeff);
+                    out2[i] = self.filter_r.process(out2[i], coeff);
                 }
             }
 
@@ -404,8 +401,8 @@ impl AudioNodeProcessor for Processor {
                         );
                     }
 
-                    out1[i] = self.filter_l.process(out1[i], &coeff);
-                    out2[i] = self.filter_r.process(out2[i], &coeff);
+                    out1[i] = self.filter_l.process(out1[i], coeff);
+                    out2[i] = self.filter_r.process(out2[i], coeff);
                 }
             }
 

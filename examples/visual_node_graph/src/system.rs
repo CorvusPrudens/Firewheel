@@ -4,9 +4,7 @@ use firewheel::{
     event::{NodeEvent, NodeEventType},
     node::NodeID,
     nodes::{
-        beep_saw_test::BeepSawTestNode,
         beep_test::BeepTestNode,
-        filter::filter::FilterNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
@@ -19,12 +17,10 @@ use crate::ui::GuiAudioNode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
     BeepTest,
-    BeepSawTest,
     StereoToMono,
     VolumeMono,
     VolumeStereo,
     VolumePan,
-    Filter,
 }
 
 pub struct AudioSystem {
@@ -48,7 +44,6 @@ impl AudioSystem {
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let id = match node_type {
             NodeType::BeepTest => self.cx.add_node(BeepTestNode::default(), None),
-            NodeType::BeepSawTest => self.cx.add_node(BeepSawTestNode::default(), None),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode, None),
             NodeType::VolumeMono => self.cx.add_node(
                 VolumeNode::default(),
@@ -65,15 +60,10 @@ impl AudioSystem {
                 }),
             ),
             NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
-            NodeType::Filter => self.cx.add_node(FilterNode::<2, 16>::default(), None),
         };
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {
-                id,
-                params: Default::default(),
-            },
-            NodeType::BeepSawTest => GuiAudioNode::BeepSawTest {
                 id,
                 params: Default::default(),
             },
@@ -87,10 +77,6 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::VolumePan => GuiAudioNode::VolumePan {
-                id,
-                params: Default::default(),
-            },
-            NodeType::Filter => GuiAudioNode::Filter {
                 id,
                 params: Default::default(),
             },
