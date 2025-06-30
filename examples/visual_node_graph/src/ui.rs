@@ -1,12 +1,17 @@
 use eframe::App;
-use egui::{Color32, Id, Ui};
+use egui::{Color32, ComboBox, Id, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
 use firewheel::{
+    core::dsp::filter::spec::DB_OCT_96,
     diff::Memo,
-    nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
+    dsp::filter::spec::FilterSpec,
+    nodes::{
+        beep_saw_test::BeepSawTestNode, beep_test::BeepTestNode, filter::filter::FilterNode,
+        volume::VolumeNode, volume_pan::VolumePanNode,
+    },
     Volume,
 };
 
@@ -21,6 +26,10 @@ pub enum GuiAudioNode {
     BeepTest {
         id: firewheel::node::NodeID,
         params: Memo<BeepTestNode>,
+    },
+    BeepSawTest {
+        id: firewheel::node::NodeID,
+        params: Memo<BeepSawTestNode>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
@@ -37,6 +46,10 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<VolumePanNode>,
     },
+    Filter {
+        id: firewheel::node::NodeID,
+        params: Memo<FilterNode<2, DB_OCT_96>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -45,10 +58,12 @@ impl GuiAudioNode {
             &Self::SystemIn => audio_system.graph_in_node_id(),
             &Self::SystemOut => audio_system.graph_out_node_id(),
             &Self::BeepTest { id, .. } => id,
+            &Self::BeepSawTest { id, .. } => id,
             &Self::StereoToMono { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
             &Self::VolumePan { id, .. } => id,
+            &Self::Filter { id, .. } => id,
         }
     }
 
@@ -57,10 +72,12 @@ impl GuiAudioNode {
             &Self::SystemIn => "System In",
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
+            &Self::BeepSawTest { .. } => "Beep Saw Test",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
             &Self::VolumePan { .. } => "Volume & Pan",
+            &Self::Filter { .. } => "Filter",
         }
         .into()
     }
@@ -70,10 +87,12 @@ impl GuiAudioNode {
             &Self::SystemIn => 0,
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
+            &Self::BeepSawTest { .. } => 0,
             &Self::StereoToMono { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::Filter { .. } => 2,
         }
     }
 
@@ -82,10 +101,12 @@ impl GuiAudioNode {
             &Self::SystemIn => 1,
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
+            &Self::BeepSawTest { .. } => 1,
             &Self::StereoToMono { .. } => 1,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::Filter { .. } => 2,
         }
     }
 }
@@ -201,6 +222,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("Beep Saw Test").clicked() {
+            let node = self.audio_system.add_node(NodeType::BeepSawTest);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
             snarl.insert_node(pos, node);
@@ -218,6 +244,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         }
         if ui.button("Volume & Pan").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumePan);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
+        if ui.button("Filter").clicked() {
+            let node = self.audio_system.add_node(NodeType::Filter);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
@@ -268,7 +299,9 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             GuiAudioNode::VolumeMono { .. }
             | GuiAudioNode::VolumeStereo { .. }
             | GuiAudioNode::VolumePan { .. }
-            | GuiAudioNode::BeepTest { .. } => true,
+            | GuiAudioNode::BeepTest { .. }
+            | GuiAudioNode::BeepSawTest { .. }
+            | GuiAudioNode::Filter { .. } => true,
             _ => false,
         }
     }
@@ -296,7 +329,28 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     ui.add(
                         egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
                             .logarithmic(true)
-                            .text("frequency"),
+                            .text("Frequency"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::BeepSawTest { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
+
+                    ui.add(
+                        egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
+                            .logarithmic(true)
+                            .text("Frequency"),
                     );
 
                     ui.checkbox(&mut params.enabled, "enabled");
@@ -338,6 +392,189 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
+            }
+            GuiAudioNode::Filter { id, params } => {
+                let initial_variant = params.spec.get_type().to_owned();
+                let mut new_variant = initial_variant.to_owned();
+
+                ComboBox::from_label("Filter Type")
+                    .selected_text(new_variant.as_str())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut new_variant, "Lowpass".into(), "Lowpass");
+                        ui.selectable_value(&mut new_variant, "Highpass".into(), "Highpass");
+                        ui.selectable_value(&mut new_variant, "Bandpass".into(), "Bandpass");
+                        ui.selectable_value(&mut new_variant, "Allpass".into(), "Allpass");
+                        ui.selectable_value(&mut new_variant, "Bell".into(), "Bell");
+                        ui.selectable_value(&mut new_variant, "Low Shelf".into(), "Low Shelf");
+                        ui.selectable_value(&mut new_variant, "High Shelf".into(), "High Shelf");
+                        ui.selectable_value(&mut new_variant, "Notch".into(), "Notch");
+                    });
+
+                if new_variant != initial_variant {
+                    // here's where you change the variants
+                    match new_variant.as_str() {
+                        "Lowpass" => {
+                            params.spec = FilterSpec::Lowpass {
+                                order: 1,
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Highpass" => {
+                            params.spec = FilterSpec::Highpass {
+                                order: 1,
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Bandpass" => {
+                            params.spec = FilterSpec::Bandpass {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Allpass" => {
+                            params.spec = FilterSpec::Allpass {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        "Bell" => {
+                            params.spec = FilterSpec::Bell {
+                                center_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "Low Shelf" => {
+                            params.spec = FilterSpec::LowShelf {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "High Shelf" => {
+                            params.spec = FilterSpec::HighShelf {
+                                cutoff_hz: 440.,
+                                q: 1.,
+                                gain_db: 0.,
+                            }
+                        }
+                        "Notch" => {
+                            params.spec = FilterSpec::Notch {
+                                center_hz: 440.,
+                                q: 1.,
+                            }
+                        }
+                        &_ => panic!("Unknown filter type"),
+                    }
+                }
+
+                match &mut params.spec {
+                    FilterSpec::Lowpass {
+                        order,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(order, 1..=16).text("Order"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Highpass {
+                        order,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(order, 1..=16).text("Order"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Bandpass { cutoff_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Allpass { cutoff_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Bell {
+                        gain_db,
+                        center_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(center_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Center Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::LowShelf {
+                        gain_db,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::HighShelf {
+                        gain_db,
+                        cutoff_hz,
+                        q,
+                    } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(gain_db, -10f32..=10f32).text("Gain dB"));
+                            ui.add(
+                                egui::Slider::new(cutoff_hz, 20f32..=20_000f32)
+                                    .logarithmic(true)
+                                    .text("Cutoff Hz"),
+                            );
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                    FilterSpec::Notch { center_hz, q } => {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Slider::new(center_hz, -10f32..=10f32).text("Center Hz"));
+                            ui.add(egui::Slider::new(q, 0.1..=10.).text("Q"));
+                        });
+                    }
+                }
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             _ => {}
         }
