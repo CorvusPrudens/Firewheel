@@ -1,6 +1,6 @@
 //! A simple node that generates pink noise.
 //!
-//! Base on the algorithm from https://www.musicdsp.org/en/latest/Synthesis/244-direct-pink-noise-synthesis-with-auto-correlated-generator.html
+//! Base on the algorithm from <https://www.musicdsp.org/en/latest/Synthesis/244-direct-pink-noise-synthesis-with-auto-correlated-generator.html>
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
