@@ -22,6 +22,8 @@ default = [
     "sampler",
     "spatial_basic",
     "stream",
+    "fast_filters",
+    "noise_generators"
 ]
 all_nodes = [
     "beep_test",
@@ -29,6 +31,8 @@ all_nodes = [
     "sampler",
     "spatial_basic",
     "stream",
+    "fast_filters",
+    "noise_generators"
 ]
 # Enables the "beep test" node
 beep_test = []
@@ -38,6 +42,10 @@ peak_meter = []
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
 spatial_basic = []
+# Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
+fast_filters = []
+# Enables WhiteNoiseGenNode and PinkNoiseGenNode
+noise_generators = []
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream = ["dep:fixed-resample"]

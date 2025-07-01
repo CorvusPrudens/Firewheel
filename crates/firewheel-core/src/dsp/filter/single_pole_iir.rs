@@ -5,12 +5,12 @@ use core::f32::consts::TAU;
 ///
 /// This filter has the form: `y[n] = ax[n] + by[n−1]`
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SinglePoleIirLPFCoeff {
+pub struct OnePoleIirLPFCoeff {
     pub a0: f32,
     pub b1: f32,
 }
 
-impl SinglePoleIirLPFCoeff {
+impl OnePoleIirLPFCoeff {
     #[inline]
     pub fn new(cutoff_hz: f32, sample_rate_recip: f32) -> Self {
         let b1 = (-TAU * cutoff_hz * sample_rate_recip).exp();
@@ -25,17 +25,17 @@ impl SinglePoleIirLPFCoeff {
 ///
 /// This filter has the form: `y[n] = ax[n] + by[n−1]`
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SinglePoleIirLPF {
+pub struct OnePoleIirLPF {
     pub z1: f32,
 }
 
-impl SinglePoleIirLPF {
+impl OnePoleIirLPF {
     pub fn reset(&mut self) {
         self.z1 = 0.0;
     }
 
     #[inline(always)]
-    pub fn process(&mut self, s: f32, coeff: SinglePoleIirLPFCoeff) -> f32 {
+    pub fn process(&mut self, s: f32, coeff: OnePoleIirLPFCoeff) -> f32 {
         self.z1 = (coeff.a0 * s) + (coeff.b1 * self.z1);
         self.z1
     }
@@ -46,12 +46,12 @@ impl SinglePoleIirLPF {
 ///
 /// This filter has the form: `y[n] = ax[n] + by[n−1]`
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SinglePoleIirHPFCoeff {
+pub struct OnePoleIirHPFCoeff {
     pub a0: f32,
     pub b1: f32,
 }
 
-impl SinglePoleIirHPFCoeff {
+impl OnePoleIirHPFCoeff {
     #[inline]
     pub fn new(cutoff_hz: f32, sample_rate_recip: f32) -> Self {
         let b1 = (-TAU * cutoff_hz * sample_rate_recip).exp();
@@ -66,19 +66,19 @@ impl SinglePoleIirHPFCoeff {
 ///
 /// This filter has the form: `y[n] = ax[n] + by[n−1]`
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SinglePoleIirHPF {
+pub struct OnePoleIirHPF {
     pub xz1: f32,
     pub yz1: f32,
 }
 
-impl SinglePoleIirHPF {
+impl OnePoleIirHPF {
     pub fn reset(&mut self) {
         self.xz1 = 0.0;
         self.yz1 = 0.0;
     }
 
     #[inline(always)]
-    pub fn process(&mut self, s: f32, coeff: SinglePoleIirHPFCoeff) -> f32 {
+    pub fn process(&mut self, s: f32, coeff: OnePoleIirHPFCoeff) -> f32 {
         self.yz1 = (coeff.a0 * s) + (coeff.b1 * self.yz1) - self.xz1;
         self.xz1 = s;
         self.yz1

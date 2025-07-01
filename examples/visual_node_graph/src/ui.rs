@@ -6,7 +6,12 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
-    nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
+    nodes::{
+        beep_test::BeepTestNode,
+        noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
+        volume::VolumeNode,
+        volume_pan::VolumePanNode,
+    },
     Volume,
 };
 
@@ -21,6 +26,14 @@ pub enum GuiAudioNode {
     BeepTest {
         id: firewheel::node::NodeID,
         params: Memo<BeepTestNode>,
+    },
+    WhiteNoiseGen {
+        id: firewheel::node::NodeID,
+        params: Memo<WhiteNoiseGenNode>,
+    },
+    PinkNoiseGen {
+        id: firewheel::node::NodeID,
+        params: Memo<PinkNoiseGenNode>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
@@ -45,6 +58,8 @@ impl GuiAudioNode {
             &Self::SystemIn => audio_system.graph_in_node_id(),
             &Self::SystemOut => audio_system.graph_out_node_id(),
             &Self::BeepTest { id, .. } => id,
+            &Self::WhiteNoiseGen { id, .. } => id,
+            &Self::PinkNoiseGen { id, .. } => id,
             &Self::StereoToMono { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
@@ -57,6 +72,8 @@ impl GuiAudioNode {
             &Self::SystemIn => "System In",
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
+            &Self::WhiteNoiseGen { .. } => "White Noise Generator",
+            &Self::PinkNoiseGen { .. } => "Pink Noise Generator",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
@@ -70,6 +87,8 @@ impl GuiAudioNode {
             &Self::SystemIn => 0,
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
+            &Self::WhiteNoiseGen { .. } => 0,
+            &Self::PinkNoiseGen { .. } => 0,
             &Self::StereoToMono { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
@@ -82,6 +101,8 @@ impl GuiAudioNode {
             &Self::SystemIn => 1,
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
+            &Self::WhiteNoiseGen { .. } => 1,
+            &Self::PinkNoiseGen { .. } => 1,
             &Self::StereoToMono { .. } => 1,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
@@ -201,6 +222,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("White Noise Generator").clicked() {
+            let node = self.audio_system.add_node(NodeType::WhiteNoiseGen);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
+        if ui.button("Pink Noise Generator").clicked() {
+            let node = self.audio_system.add_node(NodeType::PinkNoiseGen);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
             snarl.insert_node(pos, node);
@@ -268,7 +299,9 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             GuiAudioNode::VolumeMono { .. }
             | GuiAudioNode::VolumeStereo { .. }
             | GuiAudioNode::VolumePan { .. }
-            | GuiAudioNode::BeepTest { .. } => true,
+            | GuiAudioNode::BeepTest { .. }
+            | GuiAudioNode::WhiteNoiseGen { .. }
+            | GuiAudioNode::PinkNoiseGen { .. } => true,
             _ => false,
         }
     }
@@ -298,6 +331,36 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                             .logarithmic(true)
                             .text("frequency"),
                     );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::WhiteNoiseGen { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=0.5).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::PinkNoiseGen { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=0.5).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
 
                     ui.checkbox(&mut params.enabled, "enabled");
 

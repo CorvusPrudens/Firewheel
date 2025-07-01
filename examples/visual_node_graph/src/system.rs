@@ -5,6 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
@@ -17,6 +18,8 @@ use crate::ui::GuiAudioNode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
     BeepTest,
+    WhiteNoiseGen,
+    PinkNoiseGen,
     StereoToMono,
     VolumeMono,
     VolumeStereo,
@@ -44,6 +47,8 @@ impl AudioSystem {
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
         let id = match node_type {
             NodeType::BeepTest => self.cx.add_node(BeepTestNode::default(), None),
+            NodeType::WhiteNoiseGen => self.cx.add_node(WhiteNoiseGenNode::default(), None),
+            NodeType::PinkNoiseGen => self.cx.add_node(PinkNoiseGenNode::default(), None),
             NodeType::StereoToMono => self.cx.add_node(StereoToMonoNode, None),
             NodeType::VolumeMono => self.cx.add_node(
                 VolumeNode::default(),
@@ -64,6 +69,14 @@ impl AudioSystem {
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {
+                id,
+                params: Default::default(),
+            },
+            NodeType::WhiteNoiseGen => GuiAudioNode::WhiteNoiseGen {
+                id,
+                params: Default::default(),
+            },
+            NodeType::PinkNoiseGen => GuiAudioNode::PinkNoiseGen {
                 id,
                 params: Default::default(),
             },

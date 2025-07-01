@@ -6,7 +6,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        filter::single_pole_iir::{SinglePoleIirLPF, SinglePoleIirLPFCoeff},
+        filter::single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
@@ -238,8 +238,8 @@ impl AudioNode for SpatialBasicNode {
                 cx.stream_info.sample_rate,
             ),
             damping_disabled: computed_values.damping_cutoff_hz.is_none(),
-            filter_l: SinglePoleIirLPF::default(),
-            filter_r: SinglePoleIirLPF::default(),
+            filter_l: OnePoleIirLPF::default(),
+            filter_r: OnePoleIirLPF::default(),
             params: *self,
             prev_block_was_silent: true,
             amp_epsilon: config.amp_epsilon,
@@ -253,8 +253,8 @@ struct Processor {
     damping_cutoff_hz: SmoothedParam,
     damping_disabled: bool,
 
-    filter_l: SinglePoleIirLPF,
-    filter_r: SinglePoleIirLPF,
+    filter_l: OnePoleIirLPF,
+    filter_r: OnePoleIirLPF,
 
     params: SpatialBasicNode,
 
@@ -356,7 +356,7 @@ impl AudioNodeProcessor for Processor {
             } else {
                 // The cutoff parameter is not currently smoothing, so we can optimize by
                 // only updating the filter coefficients once.
-                let coeff = SinglePoleIirLPFCoeff::new(
+                let coeff = OnePoleIirLPFCoeff::new(
                     self.damping_cutoff_hz.target_value(),
                     proc_info.sample_rate_recip as f32,
                 );
@@ -381,7 +381,7 @@ impl AudioNodeProcessor for Processor {
                     out2[i] = in2[i] * gain_r;
                 }
             } else {
-                let mut coeff = SinglePoleIirLPFCoeff::default();
+                let mut coeff = OnePoleIirLPFCoeff::default();
 
                 for i in 0..proc_info.frames {
                     let cutoff_hz = self.damping_cutoff_hz.next_smoothed();
@@ -395,10 +395,8 @@ impl AudioNodeProcessor for Processor {
                     // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
                     // frames.
                     if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
-                        coeff = SinglePoleIirLPFCoeff::new(
-                            cutoff_hz,
-                            proc_info.sample_rate_recip as f32,
-                        );
+                        coeff =
+                            OnePoleIirLPFCoeff::new(cutoff_hz, proc_info.sample_rate_recip as f32);
                     }
 
                     out1[i] = self.filter_l.process(out1[i], coeff);

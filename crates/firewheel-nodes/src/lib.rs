@@ -13,6 +13,9 @@ pub mod spatial_basic;
 #[cfg(feature = "stream")]
 pub mod stream;
 
+#[cfg(feature = "noise_generators")]
+pub mod noise_generator;
+
 mod stereo_to_mono;
 pub use stereo_to_mono::StereoToMonoNode;
 

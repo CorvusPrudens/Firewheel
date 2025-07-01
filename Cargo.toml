@@ -71,6 +71,7 @@ all_nodes = [
     "sampler_node",
     "spatial_basic_node",
     "stream_nodes",
+    "noise_gen_nodes",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
@@ -83,6 +84,8 @@ spatial_basic_node = ["firewheel-nodes/spatial_basic"]
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream_nodes = ["firewheel-nodes/stream"]
+# Enables the white and pink noise generator nodes
+noise_gen_nodes = ["firewheel-nodes/noise_generators"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 # Enables the wasm-bindgen feature for the CPAL backend
