@@ -413,9 +413,6 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// running), then this will assume there was no delay between when the audio
     /// clock was last updated and now.
     ///
-    /// If the audio thread is not currently running, or if the delay could not
-    /// be determined for any other reason, then this will return `None`.
-    ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
     pub fn audio_clock_instant(&self) -> Option<Instant> {
