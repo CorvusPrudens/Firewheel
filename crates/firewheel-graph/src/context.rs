@@ -321,7 +321,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let update_instant = audio_clock_update_instant(&clock, &self.active_state)
+        let update_instant = audio_clock_update_instant_and_delay(&clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant);
 
         AudioClock {
@@ -341,6 +341,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// between when the audio clock was last updated and now, leading to a more
     /// accurate result for games and other applications.
     ///
+    /// If the delay could not be determined (i.e. an audio stream is not currently
+    /// running), then this will assume there was no delay between when the audio
+    /// clock was last updated and now.
+    ///
     /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
     /// the system's time (`Instant::now`). (Instead it is based on the amount of data
     /// that has been processed.) For applications where the timing of audio events is
@@ -358,7 +362,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let Some((update_instant, delay)) = audio_clock_update_instant(&clock, &self.active_state)
+        let Some((update_instant, delay)) =
+            audio_clock_update_instant_and_delay(&clock, &self.active_state)
         else {
             // The audio thread is not currently running, so just return the
             // latest value of the clock.
@@ -413,7 +418,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        audio_clock_update_instant(&clock, &self.active_state)
+        audio_clock_update_instant_and_delay(&clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant)
     }
 
@@ -810,7 +815,7 @@ impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
     }
 }
 
-fn audio_clock_update_instant<B: AudioBackend>(
+fn audio_clock_update_instant_and_delay<B: AudioBackend>(
     clock: &SharedClock<B::Instant>,
     active_state: &Option<ActiveState<B>>,
 ) -> Option<(Instant, Duration)> {
@@ -819,18 +824,14 @@ fn audio_clock_update_instant<B: AudioBackend>(
             .process_timestamp
             .clone()
             .and_then(|process_timestamp| {
-                let backend_now = active_state.backend_handle.now();
-                let now = Instant::now();
-
-                if let Some(delay) = active_state
+                active_state
                     .backend_handle
-                    .duration_between(process_timestamp, backend_now)
-                {
-                    Some((now.checked_sub(delay).unwrap_or(now), delay))
-                } else {
-                    log::error!("Invalid stream instant in audio clock");
-                    None
-                }
+                    .delay_from_last_process(process_timestamp)
+                    .and_then(|delay| {
+                        Instant::now()
+                            .checked_sub(delay)
+                            .map(|instant| (instant, delay))
+                    })
             })
     })
 }

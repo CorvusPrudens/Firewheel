@@ -529,12 +529,8 @@ impl AudioBackend for CpalBackend {
         }
     }
 
-    fn now(&self) -> Self::Instant {
-        bevy_platform::time::Instant::now()
-    }
-
-    fn duration_between(&self, earlier: Self::Instant, later: Self::Instant) -> Option<Duration> {
-        later.checked_duration_since(earlier)
+    fn delay_from_last_process(&self, process_timestamp: Self::Instant) -> Option<Duration> {
+        Some(process_timestamp.elapsed())
     }
 }
 
