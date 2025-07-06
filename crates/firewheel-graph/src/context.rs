@@ -404,14 +404,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get the instant the audio clock was last updated.
-    ///
+    /// 
     /// This method accounts for the delay between when the audio clock was last
     /// updated and now, leading to a more accurate result for games and other
     /// applications.
     ///
-    /// If the delay could not be determined (i.e. an audio stream is not currently
-    /// running), then this will assume there was no delay between when the audio
-    /// clock was last updated and now.
+    /// If the audio thread is not currently running, or if the delay could not
+    /// be determined for any other reason, then this will return `None`.
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
