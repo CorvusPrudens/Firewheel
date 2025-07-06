@@ -404,7 +404,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get the instant the audio clock was last updated.
-    /// 
+    ///
     /// This method accounts for the delay between when the audio clock was last
     /// updated and now, leading to a more accurate result for games and other
     /// applications.
