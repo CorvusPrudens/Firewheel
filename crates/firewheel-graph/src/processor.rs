@@ -400,6 +400,11 @@ impl FirewheelProcessorInner {
                     clock_musical: playhead..end_beat,
                     transport,
                     playing: *self.proc_transport_state.transport_state.playing,
+                    start_clock_samples: self
+                        .proc_transport_state
+                        .transport_state
+                        .playing
+                        .then(|| self.proc_transport_state.start_clock_samples),
                     beats_per_minute: proc_transport_info.beats_per_minute,
                     delta_bpm_per_frame: proc_transport_info.delta_beats_per_minute,
                 }
@@ -586,7 +591,8 @@ impl ProcTransportState {
     ) -> Option<MusicalTime> {
         self.transport_state.transport.as_ref().map(|transport| {
             transport.samples_to_musical(
-                clock_samples - self.start_clock_samples,
+                clock_samples,
+                self.start_clock_samples,
                 sample_rate,
                 sample_rate_recip,
             )
@@ -607,7 +613,11 @@ impl ProcTransportState {
                 || self.transport_state.transport.is_none()
             {
                 self.start_clock_samples = clock_samples
-                    - new_transport.musical_to_samples(*new_transport_state.playhead, sample_rate);
+                    - new_transport.musical_to_samples(
+                        *new_transport_state.playhead,
+                        ClockSamples::ZERO,
+                        sample_rate,
+                    );
             } else {
                 let old_transport = self.transport_state.transport.as_ref().unwrap();
 
@@ -619,18 +629,26 @@ impl ProcTransportState {
                                 clock_samples - self.paused_at_clock_samples;
                         } else {
                             self.start_clock_samples = clock_samples
-                                - new_transport
-                                    .musical_to_samples(self.paused_at_musical_time, sample_rate);
+                                - new_transport.musical_to_samples(
+                                    self.paused_at_musical_time,
+                                    ClockSamples::ZERO,
+                                    sample_rate,
+                                );
                         }
                     } else if old_transport != new_transport {
                         // Continue where the previous left off
                         let current_musical = old_transport.samples_to_musical(
-                            clock_samples - self.start_clock_samples,
+                            clock_samples,
+                            self.start_clock_samples,
                             sample_rate,
                             sample_rate_recip,
                         );
                         self.start_clock_samples = clock_samples
-                            - new_transport.musical_to_samples(current_musical, sample_rate);
+                            - new_transport.musical_to_samples(
+                                current_musical,
+                                ClockSamples::ZERO,
+                                sample_rate,
+                            );
                     }
                 } else if *self.transport_state.playing {
                     // Pause
@@ -638,7 +656,8 @@ impl ProcTransportState {
 
                     self.paused_at_clock_samples = clock_samples;
                     self.paused_at_musical_time = old_transport.samples_to_musical(
-                        clock_samples - self.start_clock_samples,
+                        clock_samples,
+                        self.start_clock_samples,
                         sample_rate,
                         sample_rate_recip,
                     );
@@ -676,7 +695,8 @@ impl ProcTransportState {
         };
 
         let mut playhead = transport.samples_to_musical(
-            clock_samples - self.start_clock_samples,
+            clock_samples,
+            self.start_clock_samples,
             sample_rate,
             sample_rate_recip,
         );
@@ -693,22 +713,25 @@ impl ProcTransportState {
             );
         }
 
-        let mut loop_end_offset = ClockSamples::default();
-        let mut stop_at_offset = ClockSamples::default();
+        let mut loop_end_clock_samples = ClockSamples::default();
+        let mut stop_at_clock_samples = ClockSamples::default();
 
         if let Some(loop_range) = &self.transport_state.loop_range {
-            loop_end_offset = transport.musical_to_samples(loop_range.end, sample_rate);
+            loop_end_clock_samples =
+                transport.musical_to_samples(loop_range.end, self.start_clock_samples, sample_rate);
 
-            if clock_samples >= self.start_clock_samples + loop_end_offset {
+            if clock_samples >= loop_end_clock_samples {
                 // Loop back to start of loop.
-                let loop_start_offset = transport.musical_to_samples(loop_range.start, sample_rate);
+                let loop_start_offset =
+                    transport.musical_to_samples(loop_range.start, ClockSamples::ZERO, sample_rate);
                 self.start_clock_samples = clock_samples - loop_start_offset;
                 playhead = loop_range.start;
             }
         } else if let Some(stop_at) = self.transport_state.stop_at {
-            stop_at_offset = transport.musical_to_samples(stop_at, sample_rate);
+            stop_at_clock_samples =
+                transport.musical_to_samples(stop_at, self.start_clock_samples, sample_rate);
 
-            if clock_samples >= self.start_clock_samples + stop_at_offset {
+            if clock_samples >= stop_at_clock_samples {
                 // Stop the transport.
                 *self.transport_state.playing = false;
                 return (
@@ -727,18 +750,14 @@ impl ProcTransportState {
         let proc_end_samples = clock_samples + ClockSamples(info.frames as i64);
 
         if self.transport_state.loop_range.is_some() {
-            if proc_end_samples > self.start_clock_samples + loop_end_offset {
+            if proc_end_samples > loop_end_clock_samples {
                 // End of the loop reached.
-                info.frames = (self.start_clock_samples + loop_end_offset - clock_samples)
-                    .0
-                    .max(0) as usize;
+                info.frames = (loop_end_clock_samples - clock_samples).0.max(0) as usize;
             }
         } else if self.transport_state.stop_at.is_some() {
-            if proc_end_samples > self.start_clock_samples + stop_at_offset {
+            if proc_end_samples > stop_at_clock_samples {
                 // End of the transport reached.
-                info.frames = (self.start_clock_samples + stop_at_offset - clock_samples)
-                    .0
-                    .max(0) as usize;
+                info.frames = (stop_at_clock_samples - clock_samples).0.max(0) as usize;
             }
         }
 

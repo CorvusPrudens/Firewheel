@@ -127,7 +127,7 @@ impl AudioSystem {
     pub fn resume(&mut self, sampler_i: usize) {
         let sampler = &mut self.samplers[sampler_i];
 
-        sampler.params.resume(None);
+        sampler.params.resume();
 
         sampler
             .params

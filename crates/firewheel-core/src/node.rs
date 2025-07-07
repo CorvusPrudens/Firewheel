@@ -528,6 +528,12 @@ pub struct TransportInfo<'a> {
     /// (false).
     pub playing: bool,
 
+    /// The instant that `MusicaltTime::ZERO` occured in units of
+    /// `ClockSamples`.
+    ///
+    /// If the transport is not currently playing, then this will be `None`.
+    pub start_clock_samples: Option<ClockSamples>,
+
     /// The beats per minute at the first frame of this process block.
     pub beats_per_minute: f64,
 

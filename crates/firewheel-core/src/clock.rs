@@ -6,52 +6,58 @@ use crate::{diff::Notify, node::ProcInfo};
 
 pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
 
-/// When a particular audio event should occur.
+/// When a particular audio event should occur, in units of absolute
+/// audio clock time.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EventDelay {
+pub enum EventInstant {
     /// The event should happen when the clock reaches the given time in
     /// seconds.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
     /// `FirewheelCtx::audio_clock` to get the current time of the clock.
-    DelayUntilSeconds(ClockSeconds),
+    Seconds(ClockSeconds),
 
     /// The event should happen when the clock reaches the given time in
     /// samples (of a single channel of audio).
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
     /// `FirewheelCtx::audio_clock` to get the current time of the clock.
-    DelayUntilSamples(ClockSamples),
+    Samples(ClockSamples),
 
     /// The event should happen when the musical clock reaches the given
     /// musical time.
-    DelayUntilMusical(MusicalTime),
+    Musical(MusicalTime),
 }
 
-impl EventDelay {
-    pub fn elapsed_before_this_block(&self, proc_info: &ProcInfo) -> bool {
+impl EventInstant {
+    /// Convert this instant to units of `ClockSamples`.
+    ///
+    /// If this is of type `Event::Instant::Musical` and if either there
+    /// is no transport or the transport is currently paused, then this
+    /// will return `None`.
+    pub fn to_samples(&self, proc_info: &ProcInfo) -> Option<ClockSamples> {
         match self {
-            EventDelay::DelayUntilSeconds(seconds) => {
-                *seconds < proc_info.audio_clock_seconds.start
-            }
-            EventDelay::DelayUntilSamples(samples) => {
-                *samples < proc_info.audio_clock_samples.start
-            }
-            EventDelay::DelayUntilMusical(musical) => {
-                if let Some(transport) = &proc_info.transport_info {
-                    transport.playing && *musical < transport.clock_musical.start
-                } else {
-                    false
-                }
+            EventInstant::Seconds(seconds) => Some(seconds.to_samples(proc_info.sample_rate)),
+            EventInstant::Samples(samples) => Some(*samples),
+            EventInstant::Musical(musical) => {
+                proc_info.transport_info.as_ref().and_then(|transport| {
+                    transport.start_clock_samples.map(|transport_start| {
+                        transport.transport.musical_to_samples(
+                            *musical,
+                            transport_start,
+                            proc_info.sample_rate,
+                        )
+                    })
+                })
             }
         }
     }
 
     pub fn elapsed_this_block(&self, proc_info: &ProcInfo) -> bool {
         match self {
-            EventDelay::DelayUntilSeconds(seconds) => *seconds < proc_info.audio_clock_seconds.end,
-            EventDelay::DelayUntilSamples(samples) => *samples < proc_info.audio_clock_samples.end,
-            EventDelay::DelayUntilMusical(musical) => {
+            EventInstant::Seconds(seconds) => *seconds < proc_info.audio_clock_seconds.end,
+            EventInstant::Samples(samples) => *samples < proc_info.audio_clock_samples.end,
+            EventInstant::Musical(musical) => {
                 if let Some(transport) = &proc_info.transport_info {
                     transport.playing && *musical < transport.clock_musical.end
                 } else {
@@ -63,7 +69,7 @@ impl EventDelay {
 
     pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: NonZeroU32) -> Option<usize> {
         match self {
-            EventDelay::DelayUntilSeconds(seconds) => {
+            EventInstant::Seconds(seconds) => {
                 if *seconds <= proc_info.audio_clock_seconds.start {
                     Some(0)
                 } else if *seconds >= proc_info.audio_clock_seconds.end {
@@ -73,14 +79,14 @@ impl EventDelay {
                         * f64::from(sample_rate.get()))
                     .round() as usize;
 
-                    if frame >= proc_info.frames {
-                        None
-                    } else {
+                    if frame < proc_info.frames {
                         Some(frame)
+                    } else {
+                        None
                     }
                 }
             }
-            EventDelay::DelayUntilSamples(samples) => {
+            EventInstant::Samples(samples) => {
                 if *samples <= proc_info.audio_clock_samples.start {
                     Some(0)
                 } else if *samples >= proc_info.audio_clock_samples.end {
@@ -89,24 +95,27 @@ impl EventDelay {
                     Some((*samples - proc_info.audio_clock_samples.start).0 as usize)
                 }
             }
-            EventDelay::DelayUntilMusical(musical) => {
-                if let Some(transport) = &proc_info.transport_info {
-                    if !transport.playing || *musical >= transport.clock_musical.end {
-                        None
-                    } else if *musical <= transport.clock_musical.start {
-                        Some(0)
-                    } else {
-                        let frame = transport
-                            .transport
-                            .musical_to_samples(*musical, sample_rate)
-                            - proc_info.audio_clock_samples.start;
+            EventInstant::Musical(musical) => {
+                let Some(transport_info) = &proc_info.transport_info else {
+                    return None;
+                };
 
-                        if frame.0 >= proc_info.frames as i64 {
-                            None
-                        } else {
-                            Some(frame.0 as usize)
-                        }
-                    }
+                if !transport_info.playing || *musical > transport_info.clock_musical.end {
+                    return None;
+                } else if *musical <= transport_info.clock_musical.start {
+                    return Some(0);
+                }
+
+                let frames = (transport_info.transport.musical_to_samples(
+                    *musical,
+                    transport_info.start_clock_samples.unwrap(),
+                    proc_info.sample_rate,
+                ) - proc_info.audio_clock_samples.start)
+                    .0
+                    .max(0) as usize;
+
+                if frames < proc_info.frames {
+                    Some(frames as usize)
                 } else {
                     None
                 }
@@ -121,6 +130,8 @@ impl EventDelay {
 pub struct ClockSeconds(pub f64);
 
 impl ClockSeconds {
+    pub const ZERO: Self = Self(0.0);
+
     pub fn to_samples(self, sample_rate: NonZeroU32) -> ClockSamples {
         let seconds_i64 = self.0.floor() as i64;
         let fract_samples_i64 = (self.0.fract() * f64::from(sample_rate.get())).round() as i64;
@@ -129,8 +140,12 @@ impl ClockSeconds {
     }
 
     /// Convert to the corresponding musical time.
-    pub fn to_musical(self, transport: &MusicalTransport) -> MusicalTime {
-        transport.seconds_to_musical(self)
+    pub fn to_musical(
+        self,
+        transport: &MusicalTransport,
+        transport_start: ClockSeconds,
+    ) -> MusicalTime {
+        transport.seconds_to_musical(self, transport_start)
     }
 }
 
@@ -178,6 +193,8 @@ impl Into<f64> for ClockSeconds {
 pub struct ClockSamples(pub i64);
 
 impl ClockSamples {
+    pub const ZERO: Self = Self(0);
+
     pub const fn new(samples: i64) -> Self {
         Self(samples)
     }
@@ -223,10 +240,11 @@ impl ClockSamples {
     pub fn to_musical(
         self,
         transport: &MusicalTransport,
+        transport_start: ClockSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> MusicalTime {
-        transport.samples_to_musical(self, sample_rate, sample_rate_recip)
+        transport.samples_to_musical(self, transport_start, sample_rate, sample_rate_recip)
     }
 }
 
@@ -353,38 +371,50 @@ impl Default for MusicalTransport {
 }
 
 impl MusicalTransport {
-    pub fn musical_to_seconds(&self, musical: MusicalTime) -> ClockSeconds {
+    pub fn musical_to_seconds(
+        &self,
+        musical: MusicalTime,
+        transport_start: ClockSeconds,
+    ) -> ClockSeconds {
         match self {
-            MusicalTransport::Static(s) => s.musical_to_seconds(musical),
+            MusicalTransport::Static(s) => s.musical_to_seconds(musical, transport_start),
         }
     }
 
     pub fn musical_to_samples(
         &self,
         musical: MusicalTime,
+        transport_start: ClockSamples,
         sample_rate: NonZeroU32,
     ) -> ClockSamples {
         match self {
-            MusicalTransport::Static(s) => s.musical_to_samples(musical, sample_rate),
+            MusicalTransport::Static(s) => {
+                s.musical_to_samples(musical, transport_start, sample_rate)
+            }
         }
     }
 
     pub fn samples_to_musical(
         &self,
         sample_time: ClockSamples,
+        transport_start: ClockSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> MusicalTime {
         match self {
             MusicalTransport::Static(s) => {
-                s.samples_to_musical(sample_time, sample_rate, sample_rate_recip)
+                s.samples_to_musical(sample_time, transport_start, sample_rate, sample_rate_recip)
             }
         }
     }
 
-    pub fn seconds_to_musical(&self, seconds: ClockSeconds) -> MusicalTime {
+    pub fn seconds_to_musical(
+        &self,
+        seconds: ClockSeconds,
+        transport_start: ClockSeconds,
+    ) -> MusicalTime {
         match self {
-            MusicalTransport::Static(s) => s.seconds_to_musical(seconds),
+            MusicalTransport::Static(s) => s.seconds_to_musical(seconds, transport_start),
         }
     }
 
@@ -470,29 +500,44 @@ impl StaticTransport {
         self.beats_per_minute * (1.0 / 60.0)
     }
 
-    pub fn musical_to_seconds(&self, musical: MusicalTime) -> ClockSeconds {
-        ClockSeconds(musical.0 * self.seconds_per_beat())
+    pub fn musical_to_seconds(
+        &self,
+        musical: MusicalTime,
+        transport_start: ClockSeconds,
+    ) -> ClockSeconds {
+        ClockSeconds(musical.0 * self.seconds_per_beat()) + transport_start
     }
 
     pub fn musical_to_samples(
         &self,
         musical: MusicalTime,
+        transport_start: ClockSamples,
         sample_rate: NonZeroU32,
     ) -> ClockSamples {
-        self.musical_to_seconds(musical).to_samples(sample_rate)
+        ClockSeconds(musical.0 * self.seconds_per_beat()).to_samples(sample_rate) + transport_start
     }
 
     pub fn samples_to_musical(
         &self,
         sample_time: ClockSamples,
+        transport_start: ClockSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> MusicalTime {
-        self.seconds_to_musical(sample_time.to_seconds(sample_rate, sample_rate_recip))
+        MusicalTime(
+            (sample_time - transport_start)
+                .to_seconds(sample_rate, sample_rate_recip)
+                .0
+                * self.beats_per_second(),
+        )
     }
 
-    pub fn seconds_to_musical(&self, seconds: ClockSeconds) -> MusicalTime {
-        MusicalTime(seconds.0 * self.beats_per_second())
+    pub fn seconds_to_musical(
+        &self,
+        seconds: ClockSeconds,
+        transport_start: ClockSeconds,
+    ) -> MusicalTime {
+        MusicalTime((seconds - transport_start).0 * self.beats_per_second())
     }
 
     /// Return the musical time that occurs `delta_seconds` seconds after the
@@ -502,7 +547,7 @@ impl StaticTransport {
         from: MusicalTime,
         delta_seconds: ClockSeconds,
     ) -> MusicalTime {
-        from + self.seconds_to_musical(delta_seconds)
+        from + self.seconds_to_musical(delta_seconds, ClockSeconds::ZERO)
     }
 }
 
