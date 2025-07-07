@@ -990,7 +990,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                             state.playhead = ((proc_info.audio_clock_samples.start
                                 - instant_clock_samples)
                                 .0 as u64)
-                                .max(state.sample_len_frames);
+                                .min(state.sample_len_frames);
                             state.num_times_looped_back = 0;
                         }
 
