@@ -176,9 +176,9 @@ impl SamplerNode {
     /// beginning when the instant occurs. If this instant is in the past when
     /// the node receives this event, then the sequence will skip ahead as if
     /// it started playing from that instant in the past.
-    pub fn start_or_restart(&mut self, play_from_instant: Option<EventInstant>) {
+    pub fn start_or_restart(&mut self, instant: Option<EventInstant>) {
         *self.playhead = Playhead::default();
-        *self.playback = PlaybackState::Play { play_from_instant };
+        *self.playback = PlaybackState::Play { instant };
     }
 
     /// Pause sequence playback.
@@ -188,9 +188,7 @@ impl SamplerNode {
 
     /// Resume sequence playback.
     pub fn resume(&mut self) {
-        *self.playback = PlaybackState::Play {
-            play_from_instant: None,
-        };
+        *self.playback = PlaybackState::Play { instant: None };
     }
 
     /// Stop sequence playback.
@@ -357,7 +355,7 @@ pub enum PlaybackState {
         /// beginning when the instant occurs. If this instant is in the past when
         /// this node receives this event, then the sequence will skip ahead as if
         /// it started playing from that instant in the past.
-        play_from_instant: Option<EventInstant>,
+        instant: Option<EventInstant>,
     },
 }
 
@@ -947,10 +945,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.playback_pause_time_frames = proc_info.audio_clock_samples.start;
                     }
                 }
-                PlaybackState::Play { play_from_instant } => {
-                    self.playback_state = PlaybackState::Play {
-                        play_from_instant: None,
-                    };
+                PlaybackState::Play {
+                    instant: play_from_instant,
+                } => {
+                    self.playback_state = PlaybackState::Play { instant: None };
 
                     // Crossfade with the previous sample.
                     if self.config.crossfade_on_restart && self.num_active_stop_declickers > 0 {
