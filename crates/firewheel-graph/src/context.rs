@@ -379,7 +379,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         };
 
         // Account for the delay between when the clock was last updated and now.
-        let delta_seconds = DurationSeconds(update_instant.elapsed().as_secs_f64());
+        let delta_seconds = DurationSeconds(delay.as_secs_f64());
 
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
