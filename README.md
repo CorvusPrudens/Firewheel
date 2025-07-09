@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/firewheel.svg)](https://crates.io/crates/firewheel)
 [![License](https://img.shields.io/crates/l/firewheel.svg)](https://github.com/BillyDM/firewheel/blob/main/LICENSE-APACHE)
 
-A low-level open source audio graph engine for games and applications, written in Rust.
+A low-level open source audio graph engine for games and other applications, written in Rust.
 
 This crate can be used as-is or as a base for other higher-level audio engines. (Think of it like [wgpu](https://wgpu.rs/) but for audio).
 
@@ -15,12 +15,12 @@ This crate can be used as-is or as a base for other higher-level audio engines. 
 * Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * A suite of essential built-in audio nodes
 * Custom audio node API allowing for a plethora of 3rd party generators and effects
-* (TODO) Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
+* A deterministic data-driven API that is friendly to ECS's (entity component systems). Parameter state between nodes and their processors never go out of sync, so no need to poll parameter states.
 * Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused)
 * Support for loading a wide variety of audio files using [Symphonium]
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)
-* Properly respect realtime constraints (no mutexes!)
-* An API that is friendly to ECS's (entity component systems)
+* Properly respects realtime constraints (no mutexes!)
+* (TODO) Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
 
 ## Non-features
 
