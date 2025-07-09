@@ -985,11 +985,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.play_from_instant = None;
 
                         if let Some(state) = &mut self.loaded_sample_state {
-                            state.playhead = ((proc_info.clock_samples.start
-                                - instant_clock_samples)
-                                .0 as u64
-                                + self.params.playhead.as_frames(proc_info.sample_rate))
-                            .min(state.sample_len_frames);
+                            state.playhead =
+                                ((proc_info.clock_samples.start - instant_clock_samples).0 as u64
+                                    + self.params.playhead.as_frames(proc_info.sample_rate))
+                                .min(state.sample_len_frames);
                             state.num_times_looped_back = 0;
                         }
 
@@ -1010,10 +1009,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                             state.num_times_looped_back = 0;
                         }
 
-                        Some(
-                            (instant_clock_samples - proc_info.clock_samples.start).0
-                                as usize,
-                        )
+                        Some((instant_clock_samples - proc_info.clock_samples.start).0 as usize)
                     }
                 })
         } else {

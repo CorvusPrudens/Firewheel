@@ -418,8 +418,7 @@ impl FirewheelProcessorInner {
             out_silence_mask: SilenceMask::default(),
             sample_rate,
             sample_rate_recip,
-            clock_samples: clock_samples
-                ..(clock_samples + DurationSamples(block_frames as i64)),
+            clock_samples: clock_samples..(clock_samples + DurationSamples(block_frames as i64)),
             clock_seconds: clock_seconds.clone(),
             process_timestamp,
             transport_info,
