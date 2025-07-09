@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
-    clock::{ClockSamples, ClockSeconds, EventInstant},
+    clock::{EventInstant, InstantSamples, InstantSeconds},
     collector::ArcGc,
     diff::{Diff, Notify, ParamPath, Patch},
     dsp::{
@@ -247,7 +247,7 @@ impl SamplerState {
 
         if self.shared_state.playing.load(Ordering::Relaxed) {
             frames
-                + ClockSeconds(update_instant.elapsed().as_secs_f64())
+                + InstantSeconds(update_instant.elapsed().as_secs_f64())
                     .to_samples(sample_rate)
                     .0 as u64
         } else {
@@ -528,8 +528,8 @@ impl AudioNode for SamplerNode {
             resampler: Some(Resampler::new(config.speed_quality)),
             speed: self.speed.max(MIN_PLAYBACK_SPEED),
             playback_state: *self.playback,
-            playback_pause_time_seconds: ClockSeconds::default(),
-            playback_pause_time_frames: ClockSamples::default(),
+            playback_pause_time_seconds: InstantSeconds::default(),
+            playback_pause_time_frames: InstantSamples::default(),
             play_from_instant: None,
             amp_epsilon: config.amp_epsilon,
             is_first_process: true,
@@ -556,8 +556,8 @@ pub struct SamplerProcessor {
     resampler: Option<Resampler>,
     speed: f64,
 
-    playback_pause_time_seconds: ClockSeconds,
-    playback_pause_time_frames: ClockSamples,
+    playback_pause_time_seconds: InstantSeconds,
+    playback_pause_time_frames: InstantSamples,
 
     play_from_instant: Option<EventInstant>,
 
@@ -941,8 +941,8 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         self.declicker.fade_to_0(proc_info.declick_values);
 
-                        self.playback_pause_time_seconds = proc_info.audio_clock_seconds.start;
-                        self.playback_pause_time_frames = proc_info.audio_clock_samples.start;
+                        self.playback_pause_time_seconds = proc_info.clock_seconds.start;
+                        self.playback_pause_time_frames = proc_info.clock_samples.start;
                     }
                 }
                 PlaybackState::Play {
@@ -979,13 +979,13 @@ impl AudioNodeProcessor for SamplerProcessor {
             play_from_instant
                 .to_samples(proc_info)
                 .and_then(|instant_clock_samples| {
-                    if instant_clock_samples >= proc_info.audio_clock_samples.end {
+                    if instant_clock_samples >= proc_info.clock_samples.end {
                         None
-                    } else if instant_clock_samples < proc_info.audio_clock_samples.start {
+                    } else if instant_clock_samples < proc_info.clock_samples.start {
                         self.play_from_instant = None;
 
                         if let Some(state) = &mut self.loaded_sample_state {
-                            state.playhead = ((proc_info.audio_clock_samples.start
+                            state.playhead = ((proc_info.clock_samples.start
                                 - instant_clock_samples)
                                 .0 as u64
                                 + self.params.playhead.as_frames(proc_info.sample_rate))
@@ -1011,7 +1011,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         }
 
                         Some(
-                            (instant_clock_samples - proc_info.audio_clock_samples.start).0
+                            (instant_clock_samples - proc_info.clock_samples.start).0
                                 as usize,
                         )
                     }

@@ -2,7 +2,15 @@ use core::any::Any;
 
 pub use glam::{Vec2, Vec3};
 
-use crate::{diff::ParamPath, dsp::volume::Volume, node::NodeID};
+use crate::{
+    clock::{
+        DurationMusical, DurationSamples, DurationSeconds, InstantMusical, InstantSamples,
+        InstantSeconds,
+    },
+    diff::ParamPath,
+    dsp::volume::Volume,
+    node::NodeID,
+};
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEvent {
@@ -42,6 +50,12 @@ pub enum ParamData {
     Bool(bool),
     Vector2D(Vec2),
     Vector3D(Vec3),
+    InstantSeconds(InstantSeconds),
+    DurationSeconds(DurationSeconds),
+    InstantSamples(InstantSamples),
+    DurationSamples(DurationSamples),
+    InstantMusical(InstantMusical),
+    DurationMusical(DurationMusical),
     Any(Box<Box<dyn Any + Send + Sync>>),
 }
 
@@ -93,6 +107,12 @@ param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
 param_data_from!(Vec2, Vector2D);
 param_data_from!(Vec3, Vector3D);
+param_data_from!(InstantSeconds, InstantSeconds);
+param_data_from!(DurationSeconds, DurationSeconds);
+param_data_from!(InstantSamples, InstantSamples);
+param_data_from!(DurationSamples, DurationSamples);
+param_data_from!(InstantMusical, InstantMusical);
+param_data_from!(DurationMusical, DurationMusical);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {
