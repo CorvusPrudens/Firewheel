@@ -8,7 +8,10 @@ use crate::{
     graph::{NodeHeapData, ScheduleHeapData},
 };
 use firewheel_core::{
-    clock::{ClockSamples, ClockSeconds, MusicalTime, ProcTransportInfo, TransportState},
+    clock::{
+        DurationSamples, DurationSeconds, InstantMusical, InstantSamples, InstantSeconds,
+        ProcTransportInfo, TransportState,
+    },
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, NodeEventList},
     node::{
@@ -93,7 +96,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     sample_rate_recip: f64,
     max_block_frames: usize,
 
-    clock_samples: ClockSamples,
+    clock_samples: InstantSamples,
     shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
 
     proc_transport_state: ProcTransportState,
@@ -128,13 +131,12 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             sample_rate: stream_info.sample_rate,
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
-            clock_samples: ClockSamples(0),
+            clock_samples: InstantSamples(0),
             shared_clock_input,
             proc_transport_state: ProcTransportState::new(),
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
             declick_values: DeclickValues::new(stream_info.declick_frames),
-
             poisoned: false,
         }
     }
@@ -165,7 +167,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         // The sample clock is ultimately used as the "source of truth".
         let mut clock_seconds = clock_samples.to_seconds(self.sample_rate, self.sample_rate_recip);
 
-        self.clock_samples += ClockSamples(frames as i64);
+        self.clock_samples += DurationSamples(frames as i64);
 
         self.sync_shared_clock(Some(process_timestamp));
 
@@ -214,7 +216,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 );
 
             let next_clock_seconds =
-                clock_seconds + ClockSeconds(block_frames as f64 * self.sample_rate_recip);
+                clock_seconds + DurationSeconds(block_frames as f64 * self.sample_rate_recip);
 
             self.process_block(
                 block_frames,
@@ -250,7 +252,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 );
 
             frames_processed += block_frames;
-            clock_samples += ClockSamples(block_frames as i64);
+            clock_samples += DurationSamples(block_frames as i64);
             clock_seconds = next_clock_seconds;
             stream_status = StreamStatus::empty();
             dropped_frames = 0;
@@ -368,12 +370,12 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         block_frames: usize,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-        clock_samples: ClockSamples,
-        clock_seconds: Range<ClockSeconds>,
+        clock_samples: InstantSamples,
+        clock_seconds: Range<InstantSeconds>,
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
-        playhead: MusicalTime,
+        playhead: InstantMusical,
         proc_transport_info: ProcTransportInfo,
     ) {
         if self.schedule_data.is_none() {
@@ -392,7 +394,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 let end_beat = if *self.proc_transport_state.transport_state.playing {
                     self.proc_transport_state
                         .playhead(
-                            clock_samples + ClockSamples(block_frames as i64),
+                            clock_samples + DurationSamples(block_frames as i64),
                             self.sample_rate,
                             self.sample_rate_recip,
                         )
@@ -405,6 +407,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     clock_musical: playhead..end_beat,
                     transport,
                     playing: *self.proc_transport_state.transport_state.playing,
+                    start_clock_samples: self
+                        .proc_transport_state
+                        .transport_state
+                        .playing
+                        .then(|| self.proc_transport_state.start_clock_samples),
                     beats_per_minute: proc_transport_info.beats_per_minute,
                     delta_bpm_per_frame: proc_transport_info.delta_beats_per_minute,
                 }
@@ -416,8 +423,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             out_silence_mask: SilenceMask::default(),
             sample_rate,
             sample_rate_recip,
-            audio_clock_samples: clock_samples..(clock_samples + ClockSamples(block_frames as i64)),
-            audio_clock_seconds: clock_seconds.clone(),
+            clock_samples: clock_samples..(clock_samples + DurationSamples(block_frames as i64)),
+            clock_seconds: clock_seconds.clone(),
             duration_since_stream_start,
             transport_info,
             stream_status,
@@ -549,8 +556,8 @@ pub(crate) enum ProcessorToContextMsg {
 
 #[derive(Clone)]
 pub(crate) struct SharedClock<I: Clone> {
-    pub clock_samples: ClockSamples,
-    pub musical_time: Option<MusicalTime>,
+    pub clock_samples: InstantSamples,
+    pub musical_time: Option<InstantMusical>,
     pub transport_is_playing: bool,
     pub process_timestamp: Option<I>,
 }
@@ -558,7 +565,7 @@ pub(crate) struct SharedClock<I: Clone> {
 impl<I: Clone> Default for SharedClock<I> {
     fn default() -> Self {
         Self {
-            clock_samples: ClockSamples(0),
+            clock_samples: InstantSamples(0),
             musical_time: None,
             transport_is_playing: false,
             process_timestamp: None,
@@ -568,30 +575,31 @@ impl<I: Clone> Default for SharedClock<I> {
 
 struct ProcTransportState {
     transport_state: Box<TransportState>,
-    start_clock_samples: ClockSamples,
-    paused_at_clock_samples: ClockSamples,
-    paused_at_musical_time: MusicalTime,
+    start_clock_samples: InstantSamples,
+    paused_at_clock_samples: InstantSamples,
+    paused_at_musical_time: InstantMusical,
 }
 
 impl ProcTransportState {
     fn new() -> Self {
         Self {
             transport_state: Box::new(TransportState::default()),
-            start_clock_samples: ClockSamples(0),
-            paused_at_clock_samples: ClockSamples(0),
-            paused_at_musical_time: MusicalTime(0.0),
+            start_clock_samples: InstantSamples(0),
+            paused_at_clock_samples: InstantSamples(0),
+            paused_at_musical_time: InstantMusical(0.0),
         }
     }
 
     fn playhead(
         &self,
-        clock_samples: ClockSamples,
+        clock_samples: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-    ) -> Option<MusicalTime> {
+    ) -> Option<InstantMusical> {
         self.transport_state.transport.as_ref().map(|transport| {
             transport.samples_to_musical(
-                clock_samples - self.start_clock_samples,
+                clock_samples,
+                self.start_clock_samples,
                 sample_rate,
                 sample_rate_recip,
             )
@@ -601,7 +609,7 @@ impl ProcTransportState {
     fn update(
         &mut self,
         new_transport_state: &mut Box<TransportState>,
-        clock_samples: ClockSamples,
+        clock_samples: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) {
@@ -611,8 +619,11 @@ impl ProcTransportState {
             if self.transport_state.playhead != new_transport_state.playhead
                 || self.transport_state.transport.is_none()
             {
-                self.start_clock_samples = clock_samples
-                    - new_transport.musical_to_samples(*new_transport_state.playhead, sample_rate);
+                self.start_clock_samples = new_transport.transport_start(
+                    clock_samples,
+                    *new_transport_state.playhead,
+                    sample_rate,
+                );
             } else {
                 let old_transport = self.transport_state.transport.as_ref().unwrap();
 
@@ -623,19 +634,25 @@ impl ProcTransportState {
                             self.start_clock_samples +=
                                 clock_samples - self.paused_at_clock_samples;
                         } else {
-                            self.start_clock_samples = clock_samples
-                                - new_transport
-                                    .musical_to_samples(self.paused_at_musical_time, sample_rate);
+                            self.start_clock_samples = new_transport.transport_start(
+                                clock_samples,
+                                self.paused_at_musical_time,
+                                sample_rate,
+                            );
                         }
                     } else if old_transport != new_transport {
                         // Continue where the previous left off
-                        let current_musical = old_transport.samples_to_musical(
-                            clock_samples - self.start_clock_samples,
+                        let current_playhead = old_transport.samples_to_musical(
+                            clock_samples,
+                            self.start_clock_samples,
                             sample_rate,
                             sample_rate_recip,
                         );
-                        self.start_clock_samples = clock_samples
-                            - new_transport.musical_to_samples(current_musical, sample_rate);
+                        self.start_clock_samples = new_transport.transport_start(
+                            clock_samples,
+                            current_playhead,
+                            sample_rate,
+                        );
                     }
                 } else if *self.transport_state.playing {
                     // Pause
@@ -643,7 +660,8 @@ impl ProcTransportState {
 
                     self.paused_at_clock_samples = clock_samples;
                     self.paused_at_musical_time = old_transport.samples_to_musical(
-                        clock_samples - self.start_clock_samples,
+                        clock_samples,
+                        self.start_clock_samples,
                         sample_rate,
                         sample_rate_recip,
                     );
@@ -665,13 +683,13 @@ impl ProcTransportState {
     fn process_block(
         &mut self,
         frames: usize,
-        clock_samples: ClockSamples,
+        clock_samples: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-    ) -> (MusicalTime, ProcTransportInfo) {
+    ) -> (InstantMusical, ProcTransportInfo) {
         let Some(transport) = &self.transport_state.transport else {
             return (
-                MusicalTime::ZERO,
+                InstantMusical::ZERO,
                 ProcTransportInfo {
                     frames,
                     beats_per_minute: 0.0,
@@ -681,7 +699,8 @@ impl ProcTransportState {
         };
 
         let mut playhead = transport.samples_to_musical(
-            clock_samples - self.start_clock_samples,
+            clock_samples,
+            self.start_clock_samples,
             sample_rate,
             sample_rate_recip,
         );
@@ -698,22 +717,24 @@ impl ProcTransportState {
             );
         }
 
-        let mut loop_end_offset = ClockSamples::default();
-        let mut stop_at_offset = ClockSamples::default();
+        let mut loop_end_clock_samples = InstantSamples::default();
+        let mut stop_at_clock_samples = InstantSamples::default();
 
         if let Some(loop_range) = &self.transport_state.loop_range {
-            loop_end_offset = transport.musical_to_samples(loop_range.end, sample_rate);
+            loop_end_clock_samples =
+                transport.musical_to_samples(loop_range.end, self.start_clock_samples, sample_rate);
 
-            if clock_samples >= self.start_clock_samples + loop_end_offset {
+            if clock_samples >= loop_end_clock_samples {
                 // Loop back to start of loop.
-                let loop_start_offset = transport.musical_to_samples(loop_range.start, sample_rate);
-                self.start_clock_samples = clock_samples - loop_start_offset;
+                self.start_clock_samples =
+                    transport.transport_start(clock_samples, loop_range.start, sample_rate);
                 playhead = loop_range.start;
             }
         } else if let Some(stop_at) = self.transport_state.stop_at {
-            stop_at_offset = transport.musical_to_samples(stop_at, sample_rate);
+            stop_at_clock_samples =
+                transport.musical_to_samples(stop_at, self.start_clock_samples, sample_rate);
 
-            if clock_samples >= self.start_clock_samples + stop_at_offset {
+            if clock_samples >= stop_at_clock_samples {
                 // Stop the transport.
                 *self.transport_state.playing = false;
                 return (
@@ -729,21 +750,17 @@ impl ProcTransportState {
 
         let mut info = transport.proc_transport_info(frames, playhead);
 
-        let proc_end_samples = clock_samples + ClockSamples(info.frames as i64);
+        let proc_end_samples = clock_samples + DurationSamples(info.frames as i64);
 
         if self.transport_state.loop_range.is_some() {
-            if proc_end_samples > self.start_clock_samples + loop_end_offset {
+            if proc_end_samples > loop_end_clock_samples {
                 // End of the loop reached.
-                info.frames = (self.start_clock_samples + loop_end_offset - clock_samples)
-                    .0
-                    .max(0) as usize;
+                info.frames = (loop_end_clock_samples - clock_samples).0.max(0) as usize;
             }
         } else if self.transport_state.stop_at.is_some() {
-            if proc_end_samples > self.start_clock_samples + stop_at_offset {
+            if proc_end_samples > stop_at_clock_samples {
                 // End of the transport reached.
-                info.frames = (self.start_clock_samples + stop_at_offset - clock_samples)
-                    .0
-                    .max(0) as usize;
+                info.frames = (stop_at_clock_samples - clock_samples).0.max(0) as usize;
             }
         }
 

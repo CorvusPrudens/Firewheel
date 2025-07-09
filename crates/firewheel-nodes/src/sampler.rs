@@ -1,3 +1,6 @@
+// TODO: The logic in this has become increadibly complex and error-prone. I plan
+// on rewriting the sampler engine using a state machine.
+
 use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use bevy_platform::time::Instant;
 use core::{
@@ -8,7 +11,7 @@ use smallvec::SmallVec;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
-    clock::{ClockSamples, ClockSeconds, EventDelay},
+    clock::{EventInstant, InstantSamples, InstantSeconds},
     collector::ArcGc,
     diff::{Diff, Notify, ParamPath, Patch},
     dsp::{
@@ -164,9 +167,18 @@ impl SamplerNode {
     /// Play the sequence in this node.
     ///
     /// If a sequence is already playing, then it will restart from the beginning.
-    pub fn start_or_restart(&mut self, delay: Option<EventDelay>) {
+    ///
+    /// * `instant` - The exact time at which the sequence should begin playing from the
+    /// beginning.
+    ///     * If this is `None`, then the sequence will restart from the beginning as soon
+    /// as this event is received.
+    ///     * If this is `Some`, then the sequence will begin playing from the
+    /// beginning when the instant occurs. If this instant is in the past when
+    /// the node receives this event, then the sequence will skip ahead as if
+    /// it started playing from that instant in the past.
+    pub fn start_or_restart(&mut self, instant: Option<EventInstant>) {
         *self.playhead = Playhead::default();
-        *self.playback = PlaybackState::Play { delay };
+        *self.playback = PlaybackState::Play { instant };
     }
 
     /// Pause sequence playback.
@@ -175,8 +187,8 @@ impl SamplerNode {
     }
 
     /// Resume sequence playback.
-    pub fn resume(&mut self, delay: Option<EventDelay>) {
-        *self.playback = PlaybackState::Play { delay };
+    pub fn resume(&mut self) {
+        *self.playback = PlaybackState::Play { instant: None };
     }
 
     /// Stop sequence playback.
@@ -235,7 +247,7 @@ impl SamplerState {
 
         if self.shared_state.playing.load(Ordering::Relaxed) {
             frames
-                + ClockSeconds(update_instant.elapsed().as_secs_f64())
+                + InstantSeconds(update_instant.elapsed().as_secs_f64())
                     .to_samples(sample_rate)
                     .0 as u64
         } else {
@@ -333,10 +345,17 @@ pub enum PlaybackState {
     Pause,
     /// Play the sequence.
     Play {
-        /// The exact time at which the sequence should begin playing.
+        /// The exact time at which the sequence should begin playing from the
+        /// beginning.
         ///
-        /// Set to `None` to play the sequence immediately.
-        delay: Option<EventDelay>,
+        /// If this is `None`, then the sequence will start/resume as soon as this
+        /// event is received.
+        ///
+        /// If this is `Some`, then the sequence will begin playing from the
+        /// beginning when the instant occurs. If this instant is in the past when
+        /// this node receives this event, then the sequence will skip ahead as if
+        /// it started playing from that instant in the past.
+        instant: Option<EventInstant>,
     },
 }
 
@@ -509,11 +528,9 @@ impl AudioNode for SamplerNode {
             resampler: Some(Resampler::new(config.speed_quality)),
             speed: self.speed.max(MIN_PLAYBACK_SPEED),
             playback_state: *self.playback,
-            playback_start_time_seconds: ClockSeconds::default(),
-            playback_pause_time_seconds: ClockSeconds::default(),
-            playback_start_time_frames: ClockSamples::default(),
-            playback_pause_time_frames: ClockSamples::default(),
-            start_delay: None,
+            playback_pause_time_seconds: InstantSeconds::default(),
+            playback_pause_time_frames: InstantSamples::default(),
+            play_from_instant: None,
             amp_epsilon: config.amp_epsilon,
             is_first_process: true,
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
@@ -539,12 +556,10 @@ pub struct SamplerProcessor {
     resampler: Option<Resampler>,
     speed: f64,
 
-    playback_start_time_seconds: ClockSeconds,
-    playback_pause_time_seconds: ClockSeconds,
-    playback_start_time_frames: ClockSamples,
-    playback_pause_time_frames: ClockSamples,
+    playback_pause_time_seconds: InstantSeconds,
+    playback_pause_time_frames: InstantSamples,
 
-    start_delay: Option<EventDelay>,
+    play_from_instant: Option<EventInstant>,
 
     amp_epsilon: f32,
 
@@ -694,7 +709,7 @@ impl SamplerProcessor {
     }
 
     fn currently_processing_sample(&self) -> bool {
-        if self.params.sequence.is_none() || self.start_delay.is_some() {
+        if self.params.sequence.is_none() || self.play_from_instant.is_some() {
             false
         } else {
             self.playback_state.is_playing()
@@ -769,7 +784,7 @@ impl SamplerProcessor {
         }
 
         self.declicker.reset_to_1();
-        self.start_delay = None;
+        self.play_from_instant = None;
 
         if let Some(resampler) = &mut self.resampler {
             resampler.reset();
@@ -926,12 +941,14 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         self.declicker.fade_to_0(proc_info.declick_values);
 
-                        self.playback_pause_time_seconds = proc_info.audio_clock_seconds.start;
-                        self.playback_pause_time_frames = proc_info.audio_clock_samples.start;
+                        self.playback_pause_time_seconds = proc_info.clock_seconds.start;
+                        self.playback_pause_time_frames = proc_info.clock_samples.start;
                     }
                 }
-                PlaybackState::Play { delay } => {
-                    self.playback_state = PlaybackState::Play { delay: None };
+                PlaybackState::Play {
+                    instant: play_from_instant,
+                } => {
+                    self.playback_state = PlaybackState::Play { instant: None };
 
                     // Crossfade with the previous sample.
                     if self.config.crossfade_on_restart && self.num_active_stop_declickers > 0 {
@@ -939,11 +956,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.declicker.fade_to_1(proc_info.declick_values);
                     }
 
-                    self.start_delay = delay;
+                    self.play_from_instant = play_from_instant;
 
-                    if self.start_delay.is_none() {
-                        self.playback_start_time_seconds = proc_info.audio_clock_seconds.start;
-                        self.playback_start_time_frames = proc_info.audio_clock_samples.start;
+                    if let Some(state) = &mut self.loaded_sample_state {
+                        state.num_times_looped_back = 0;
                     }
                 }
             }
@@ -959,17 +975,43 @@ impl AudioNodeProcessor for SamplerProcessor {
             Ordering::Relaxed,
         );
 
-        let start_on_frame = if let Some(delay) = self.start_delay {
-            if let Some(frame) = delay.elapsed_on_frame(&proc_info, proc_info.sample_rate) {
-                self.start_delay = None;
+        let start_on_frame = if let Some(play_from_instant) = self.play_from_instant {
+            play_from_instant
+                .to_samples(proc_info)
+                .and_then(|instant_clock_samples| {
+                    if instant_clock_samples >= proc_info.clock_samples.end {
+                        None
+                    } else if instant_clock_samples < proc_info.clock_samples.start {
+                        self.play_from_instant = None;
 
-                self.playback_start_time_seconds = proc_info.audio_clock_seconds.start;
-                self.playback_start_time_frames = proc_info.audio_clock_samples.start;
+                        if let Some(state) = &mut self.loaded_sample_state {
+                            state.playhead =
+                                ((proc_info.clock_samples.start - instant_clock_samples).0 as u64
+                                    + self.params.playhead.as_frames(proc_info.sample_rate))
+                                .min(state.sample_len_frames);
+                            state.num_times_looped_back = 0;
+                        }
 
-                Some(frame)
-            } else {
-                None
-            }
+                        // Fade in the sample to declick.
+                        self.declicker.reset_to_0();
+                        self.declicker.fade_to_1(proc_info.declick_values);
+
+                        Some(0)
+                    } else {
+                        self.play_from_instant = None;
+
+                        if let Some(state) = &mut self.loaded_sample_state {
+                            state.playhead = self
+                                .params
+                                .playhead
+                                .as_frames(proc_info.sample_rate)
+                                .min(state.sample_len_frames);
+                            state.num_times_looped_back = 0;
+                        }
+
+                        Some((instant_clock_samples - proc_info.clock_samples.start).0 as usize)
+                    }
+                })
         } else {
             None
         };

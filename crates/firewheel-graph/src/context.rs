@@ -3,10 +3,10 @@ use core::cell::RefCell;
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
-use firewheel_core::clock::TransportState;
+use firewheel_core::clock::{DurationSeconds, TransportState};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{AudioClock, ClockSeconds},
+    clock::AudioClock,
     collector::Collector,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
@@ -379,7 +379,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         };
 
         // Account for the delay between when the clock was last updated and now.
-        let delta_seconds = ClockSeconds(delay.as_secs_f64());
+        let delta_seconds = DurationSeconds(delay.as_secs_f64());
+
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
         let musical = clock.musical_time.map(|musical_time| {

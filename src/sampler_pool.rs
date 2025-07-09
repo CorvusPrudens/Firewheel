@@ -2,7 +2,6 @@ use core::num::NonZeroU32;
 
 use firewheel_core::{
     channel_config::NonZeroChannelCount,
-    clock::EventDelay,
     diff::{Diff, PathBuilder},
     node::NodeID,
 };
@@ -265,19 +264,14 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// Resume the given worker.
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn resume(
-        &mut self,
-        worker_id: WorkerID,
-        delay: Option<EventDelay>,
-        cx: &mut FirewheelContext,
-    ) -> bool {
+    pub fn resume(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
         };
 
         let worker = &mut self.workers[idx];
 
-        worker.params.resume(delay);
+        worker.params.resume();
         cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
 
         true
@@ -317,10 +311,10 @@ impl<FX: FxChain> SamplerPool<FX> {
     }
 
     /// Resume all workers.
-    pub fn resume_all(&mut self, delay: Option<EventDelay>, cx: &mut FirewheelContext) {
+    pub fn resume_all(&mut self, cx: &mut FirewheelContext) {
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                worker.params.resume(delay);
+                worker.params.resume();
                 cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
             }
         }

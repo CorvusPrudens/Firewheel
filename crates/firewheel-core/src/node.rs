@@ -3,7 +3,7 @@ use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
+    clock::{InstantMusical, InstantSamples, InstantSeconds, MusicalTransport},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventList, NodeEventType},
     SilenceMask, StreamInfo,
@@ -460,7 +460,7 @@ pub struct ProcInfo<'a> {
     /// Note, generally this value will always count up, but there may be
     /// a few edge cases that cause this value to be less than the previous
     /// block, such as when the sample rate of the stream has been changed.
-    pub audio_clock_samples: Range<ClockSamples>,
+    pub clock_samples: Range<InstantSamples>,
 
     /// The current time of the audio clock, equal to the total amount of
     /// data in seconds that have been processed since this Firewheel
@@ -472,7 +472,7 @@ pub struct ProcInfo<'a> {
     ///
     /// Note, this value does *NOT* account for any output underflows
     /// (underruns) that may have occured.
-    pub audio_clock_seconds: Range<ClockSeconds>,
+    pub clock_seconds: Range<InstantSeconds>,
 
     /// The duration between when the stream was started an when the
     /// Firewheel processor's `process` method was called.
@@ -522,11 +522,17 @@ pub struct TransportInfo<'a> {
     ///
     /// Note, this value does *NOT* account for any output underflows
     /// (underruns) that may have occured.
-    pub clock_musical: Range<MusicalTime>,
+    pub clock_musical: Range<InstantMusical>,
 
     /// Whether or not the transport is currently playing (true) or paused
     /// (false).
     pub playing: bool,
+
+    /// The instant that `MusicaltTime::ZERO` occured in units of
+    /// `ClockSamples`.
+    ///
+    /// If the transport is not currently playing, then this will be `None`.
+    pub start_clock_samples: Option<InstantSamples>,
 
     /// The beats per minute at the first frame of this process block.
     pub beats_per_minute: f64,
