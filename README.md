@@ -24,7 +24,7 @@ This crate can be used as-is or as a base for other higher-level audio engines. 
 
 ## Non-features
 
-While Firewheel is meant to cover nearly every use case for games and other applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engine and DAW audio engine are in conflict. (See the design document for more details on why).
+While Firewheel is meant to cover nearly every use case for games and other applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engines and DAW audio engines are in conflict. (See the design document for more details on why).
 
 ## Get Involved
 
