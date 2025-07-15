@@ -222,7 +222,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 block_frames,
                 self.sample_rate,
                 self.sample_rate_recip,
-                self.clock_samples,
+                clock_samples,
                 clock_seconds..next_clock_seconds,
                 duration_since_stream_start,
                 stream_status,
