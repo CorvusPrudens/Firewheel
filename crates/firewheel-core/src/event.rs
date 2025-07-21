@@ -24,14 +24,6 @@ pub struct NodeEvent {
     pub event: NodeEventType,
 }
 
-impl NodeEvent {
-    pub const DUMMY: Self = Self {
-        node_id: NodeID::DANGLING,
-        time: None,
-        event: NodeEventType::Dummy,
-    };
-}
-
 /// An event type associated with an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 #[non_exhaustive]
 pub enum NodeEventType {
@@ -45,8 +37,6 @@ pub enum NodeEventType {
     Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
-    /// Event which does nothing. Used internally.
-    Dummy,
 }
 
 impl NodeEventType {
