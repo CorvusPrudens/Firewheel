@@ -86,8 +86,6 @@ impl<T> Notify<T> {
     }
 }
 
-impl<T> Copy for Notify<T> where T: Copy {}
-
 impl<T> AsRef<T> for Notify<T> {
     fn as_ref(&self) -> &T {
         &self.value
