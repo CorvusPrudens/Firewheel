@@ -11,16 +11,7 @@ use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 fn increment_counter() -> u64 {
     static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-    NOTIFY_COUNTER
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current_val| {
-            current_val
-                // Attempt increment
-                .checked_add(1)
-                // If it overflows, return 1 instead
-                .or(Some(1))
-        })
-        // We always return `Some`
-        .unwrap()
+    NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A lightweight wrapper that guarantees an event
