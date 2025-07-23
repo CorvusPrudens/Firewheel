@@ -632,7 +632,6 @@ pub trait Patch {
 /// dropped on the audio thread if the struct is dropped.
 pub trait RealtimeClone: Clone {}
 
-//impl<T: Copy> RealtimeClone for T {}
 impl<T: ?Sized + Send + Sync + 'static> RealtimeClone for ArcGc<T> {}
 
 // NOTE: Using a `SmallVec` instead of a `Box<[u32]>` yields

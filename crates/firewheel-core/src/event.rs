@@ -83,14 +83,6 @@ pub enum ParamData {
     Vector2D(Vec2),
     Vector3D(Vec3),
 
-    NotifyF32(Notify<f32>),
-    NotifyF64(Notify<f64>),
-    NotifyI32(Notify<i32>),
-    NotifyU32(Notify<u32>),
-    NotifyI64(Notify<i64>),
-    NotifyU64(Notify<u64>),
-    NotifyBool(Notify<bool>),
-
     EventInstant(EventInstant),
     InstantSeconds(InstantSeconds),
     DurationSeconds(DurationSeconds),
@@ -176,6 +168,23 @@ macro_rules! param_data_from {
                 }
             }
         }
+
+        impl From<Notify<$ty>> for ParamData {
+            fn from(value: Notify<$ty>) -> Self {
+                Self::$variant(*value)
+            }
+        }
+
+        impl TryInto<Notify<$ty>> for ParamData {
+            type Error = crate::diff::PatchError;
+
+            fn try_into(self) -> Result<Notify<$ty>, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(Notify::new(value)),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
+            }
+        }
     };
 }
 
@@ -189,13 +198,6 @@ param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
 param_data_from!(Vec2, Vector2D);
 param_data_from!(Vec3, Vector3D);
-param_data_from!(Notify<f32>, NotifyF32);
-param_data_from!(Notify<f64>, NotifyF64);
-param_data_from!(Notify<i32>, NotifyI32);
-param_data_from!(Notify<u32>, NotifyU32);
-param_data_from!(Notify<i64>, NotifyI64);
-param_data_from!(Notify<u64>, NotifyU64);
-param_data_from!(Notify<bool>, NotifyBool);
 param_data_from!(EventInstant, EventInstant);
 param_data_from!(InstantSeconds, InstantSeconds);
 param_data_from!(DurationSeconds, DurationSeconds);

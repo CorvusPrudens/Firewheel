@@ -122,8 +122,8 @@ impl<T> core::ops::DerefMut for Notify<T> {
     }
 }
 
-// TODO: Once negative traits are stabilized, add extra implementations that don't allocate
-// for types that implement `Into<T>` + `From<T>` where T is a primitive type.
+impl<T: Copy> Copy for Notify<T> {}
+
 impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
         &self,

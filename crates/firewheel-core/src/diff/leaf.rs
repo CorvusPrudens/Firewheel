@@ -7,7 +7,7 @@ use crate::{
         InstantSeconds,
     },
     collector::ArcGc,
-    diff::RealtimeClone,
+    diff::{Notify, RealtimeClone},
     dsp::volume::Volume,
     event::{NodeEventType, ParamData, Vec2, Vec3},
 };
@@ -60,6 +60,29 @@ macro_rules! primitive_diff {
                 *self = value;
             }
         }
+
+        impl Diff for Notify<$ty> {
+            fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+                if self != baseline {
+                    event_queue.push_param(*self, path);
+                }
+            }
+        }
+
+        impl Patch for Notify<$ty> {
+            type Patch = Self;
+
+            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+                match data {
+                    ParamData::$variant(value) => Ok(Notify::new(value)),
+                    _ => Err(PatchError::InvalidData),
+                }
+            }
+
+            fn apply(&mut self, value: Self::Patch) {
+                *self = value;
+            }
+        }
     };
 
     ($ty:ty, $cast:ty, $variant:ident) => {
@@ -101,6 +124,29 @@ macro_rules! primitive_diff {
                 match data {
                     ParamData::$variant(value) => Ok(Some(value as $ty)),
                     ParamData::None => Ok(None),
+                    _ => Err(PatchError::InvalidData),
+                }
+            }
+
+            fn apply(&mut self, value: Self::Patch) {
+                *self = value;
+            }
+        }
+
+        impl Diff for Notify<$ty> {
+            fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+                if self != baseline {
+                    event_queue.push_param(**self as $cast, path);
+                }
+            }
+        }
+
+        impl Patch for Notify<$ty> {
+            type Patch = Self;
+
+            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+                match data {
+                    ParamData::$variant(value) => Ok(Notify::new(value as $ty)),
                     _ => Err(PatchError::InvalidData),
                 }
             }
