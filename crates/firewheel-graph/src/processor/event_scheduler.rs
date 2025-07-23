@@ -145,6 +145,9 @@ impl EventScheduler {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
                         // TODO: Realtime-safe logging
                         log::warn!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid allocations on the audio thread.");
+                        self.immediate_event_buffer
+                            .reserve(self.immediate_event_buffer_capacity);
+                        self.immediate_event_buffer_capacity *= 2;
                     }
                     BufferOutOfSpaceMode::Panic => {
                         panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
@@ -187,10 +190,8 @@ impl EventScheduler {
     pub fn remove_events_from_removed_nodes(&mut self, nodes: &Arena<NodeEntry>) {
         self.truncate_elapsed_events();
 
-        self.sorted_event_buffer_indices.retain(|(event_i, _)| {
-            let event = self.scheduled_event_arena[*event_i as usize]
-                .as_ref()
-                .unwrap();
+        self.sorted_event_buffer_indices.retain(|(slot, _)| {
+            let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
             if nodes.contains(event.node_id.0) {
                 true
@@ -202,16 +203,16 @@ impl EventScheduler {
                 }
 
                 // Clear any `ArcGc`s this event may have had.
-                self.scheduled_event_arena[*event_i as usize] = None;
+                self.scheduled_event_arena[*slot as usize] = None;
 
-                self.scheduled_event_arena_free_slots.push(*event_i);
+                self.scheduled_event_arena_free_slots.push(*slot);
 
                 false
             }
         });
     }
 
-    pub fn sync_scheduled_events(
+    pub fn sync_scheduled_events_to_transport(
         &mut self,
         transport_and_start_clock_samples: Option<(&MusicalTransport, InstantSamples)>,
         sample_rate: NonZeroU32,
@@ -223,10 +224,8 @@ impl EventScheduler {
         self.truncate_elapsed_events();
 
         if let Some((transport, start_clock_samples)) = transport_and_start_clock_samples {
-            for (event_i, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
-                let event = self.scheduled_event_arena[*event_i as usize]
-                    .as_ref()
-                    .unwrap();
+            for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
+                let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if let Some(EventInstant::Musical(musical)) = event.time {
                     *time_samples =
@@ -234,10 +233,8 @@ impl EventScheduler {
                 }
             }
         } else {
-            for (event_i, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
-                let event = self.scheduled_event_arena[*event_i as usize]
-                    .as_ref()
-                    .unwrap();
+            for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
+                let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if let Some(EventInstant::Musical(_)) = event.time {
                     // Set to `MAX` to effectively de-schedule the event.
@@ -306,10 +303,8 @@ impl EventScheduler {
                 }
             }
 
-            self.sorted_event_buffer_indices.retain(|(event_i, _)| {
-                let event = self.scheduled_event_arena[*event_i as usize]
-                    .as_ref()
-                    .unwrap();
+            self.sorted_event_buffer_indices.retain(|(slot, _)| {
+                let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if let Some(node_id) = msg.node_id {
                     if event.node_id != node_id {
@@ -339,9 +334,9 @@ impl EventScheduler {
                 }
 
                 // Clear any `ArcGc`s this event may have had.
-                self.scheduled_event_arena[*event_i as usize] = None;
+                self.scheduled_event_arena[*slot as usize] = None;
 
-                self.scheduled_event_arena_free_slots.push(*event_i);
+                self.scheduled_event_arena_free_slots.push(*slot);
 
                 false
             });
@@ -369,16 +364,14 @@ impl EventScheduler {
 
         let end_samples = proc_info.clock_samples_range().end;
 
-        for (sorted_i, (event_i, time_samples)) in self
+        for (sorted_i, (slot, time_samples)) in self
             .sorted_event_buffer_indices
             .iter()
             .enumerate()
             .skip(self.num_elapsed_sorted_events)
         {
             if *time_samples < end_samples {
-                let event = self.scheduled_event_arena[*event_i as usize]
-                    .as_ref()
-                    .unwrap();
+                let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if event.time.unwrap().is_musical() {
                     self.num_scheduled_musical_events -= 1;
@@ -386,7 +379,7 @@ impl EventScheduler {
                     self.num_scheduled_non_musical_events -= 1;
                 }
 
-                self.scheduled_event_arena_free_slots.push(*event_i);
+                self.scheduled_event_arena_free_slots.push(*slot);
 
                 if let Some(node_entry) = nodes.get_mut(event.node_id.0) {
                     if node_entry.event_data.num_scheduled_events_this_block == 0 {
@@ -399,7 +392,7 @@ impl EventScheduler {
                     // block to further optimize the linear search.
                     node_entry.event_data.num_scheduled_events_this_block += 1;
                 } else {
-                    self.scheduled_event_arena[*event_i as usize] = None;
+                    self.scheduled_event_arena[*slot as usize] = None;
                 }
 
                 self.num_elapsed_sorted_events += 1;
@@ -461,14 +454,14 @@ impl EventScheduler {
             let mut sub_chunk_frames = block_frames - frames_processed;
 
             // Add scheduled events to the processing queue.
-            let mut upcoming_event_i = None;
+            let mut upcoming_event_slot = None;
             while node_entry.event_data.num_scheduled_events_this_block > 0 {
-                let (event_i, time_samples) = self.sorted_event_buffer_indices[sorted_event_i];
-                let event = self.scheduled_event_arena[event_i as usize]
-                    .as_ref()
-                    .unwrap();
-
+                let (slot, time_samples) = self.sorted_event_buffer_indices[sorted_event_i];
                 sorted_event_i += 1;
+
+                let Some(event) = self.scheduled_event_arena[slot as usize].as_ref() else {
+                    continue;
+                };
 
                 if event.node_id != node_id {
                     continue;
@@ -484,14 +477,14 @@ impl EventScheduler {
                 if time_samples <= sub_clock_samples {
                     // If the scheduled event elapses on or before the start of this
                     // sub-chunk, add it to the processing queue.
-                    push_event(node_event_queue, NodeEventListIndex::Scheduled(event_i));
+                    push_event(node_event_queue, NodeEventListIndex::Scheduled(slot));
                 } else {
                     // Else set the length of this sub-chunk to process up to this event.
                     // Once this sub-chunk has been processed, add it to the processing
                     // queue for the next sub-chunk.
                     sub_chunk_frames =
                         ((time_samples - sub_clock_samples).0 as usize).min(sub_chunk_frames);
-                    upcoming_event_i = Some(event_i);
+                    upcoming_event_slot = Some(slot);
 
                     break;
                 }
@@ -522,21 +515,26 @@ impl EventScheduler {
                     break;
                 }
 
-                for (event_i, event) in self
+                for (event_i, maybe_event) in self
                     .immediate_event_buffer
                     .iter()
                     .enumerate()
                     .skip(*clump_event_start_i as usize + 1)
-                    .filter_map(|(event_i, event)| event.as_ref().map(|event| (event_i, event)))
                 {
-                    if event.node_id == node_id {
-                        push_event(
-                            node_event_queue,
-                            NodeEventListIndex::Immediate(event_i as u32),
-                        );
+                    if let Some(event) = maybe_event {
+                        if event.node_id == node_id {
+                            push_event(
+                                node_event_queue,
+                                NodeEventListIndex::Immediate(event_i as u32),
+                            );
 
-                        node_entry.event_data.num_immediate_events -= 1;
-                        if node_entry.event_data.num_immediate_events == 0 {
+                            node_entry.event_data.num_immediate_events -= 1;
+                            if node_entry.event_data.num_immediate_events == 0 {
+                                break;
+                            }
+                        } else if clump_i
+                            != node_entry.event_data.immediate_event_clump_indices.len() - 1
+                        {
                             break;
                         }
                     } else if clump_i
@@ -574,12 +572,12 @@ impl EventScheduler {
 
             // If there was an upcoming scheduled event, add it to the processing queue
             // for the next sub-chunk.
-            if let Some(event_i) = upcoming_event_i {
+            if let Some(slot) = upcoming_event_slot {
                 // Sanity check. There should be no upcoming event if this is the last
                 // sub-chunk.
                 assert_ne!(frames_processed + sub_chunk_frames, block_frames);
 
-                push_event(node_event_queue, NodeEventListIndex::Scheduled(event_i));
+                push_event(node_event_queue, NodeEventListIndex::Scheduled(slot));
             }
 
             // Advance to the next sub-chunk.

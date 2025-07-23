@@ -232,18 +232,15 @@ impl<'a> NodeEventList<'a> {
 
     /// Iterate over all events, draining the events from the list.
     pub fn drain<'b>(&'b mut self) -> impl IntoIterator<Item = NodeEventType> + use<'b> {
-        self.indices.drain(..).map(|i1| match i1 {
-            NodeEventListIndex::Immediate(i2) => {
-                self.immediate_event_buffer[i2 as usize]
+        self.indices.drain(..).map(|index_type| match index_type {
+            NodeEventListIndex::Immediate(i) => {
+                self.immediate_event_buffer[i as usize]
                     .take()
                     .unwrap()
                     .event
             }
-            NodeEventListIndex::Scheduled(i2) => {
-                self.scheduled_event_arena[i2 as usize]
-                    .take()
-                    .unwrap()
-                    .event
+            NodeEventListIndex::Scheduled(i) => {
+                self.scheduled_event_arena[i as usize].take().unwrap().event
             }
         })
     }
