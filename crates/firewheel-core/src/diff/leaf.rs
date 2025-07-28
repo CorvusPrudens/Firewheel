@@ -25,9 +25,9 @@ macro_rules! primitive_diff {
         impl Patch for $ty {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(value),
+                    ParamData::$variant(value) => Ok(value.clone()),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -48,9 +48,9 @@ macro_rules! primitive_diff {
         impl Patch for Option<$ty> {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Some(value)),
+                    ParamData::$variant(value) => Ok(Some(value.clone())),
                     ParamData::None => Ok(None),
                     _ => Err(PatchError::InvalidData),
                 }
@@ -72,9 +72,9 @@ macro_rules! primitive_diff {
         impl Patch for Notify<$ty> {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Notify::new(value)),
+                    ParamData::$variant(value) => Ok(Notify::new(value.clone())),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -97,9 +97,9 @@ macro_rules! primitive_diff {
         impl Patch for $ty {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(value as $ty),
+                    ParamData::$variant(value) => Ok(value.clone() as $ty),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -120,9 +120,9 @@ macro_rules! primitive_diff {
         impl Patch for Option<$ty> {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Some(value as $ty)),
+                    ParamData::$variant(value) => Ok(Some(value.clone() as $ty)),
                     ParamData::None => Ok(None),
                     _ => Err(PatchError::InvalidData),
                 }
@@ -144,9 +144,9 @@ macro_rules! primitive_diff {
         impl Patch for Notify<$ty> {
             type Patch = Self;
 
-            fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Notify::new(value as $ty)),
+                    ParamData::$variant(value) => Ok(Notify::new(value.clone() as $ty)),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -193,7 +193,7 @@ impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
 impl<A: ?Sized + Send + Sync + 'static> Patch for ArcGc<A> {
     type Patch = Self;
 
-    fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
         if let ParamData::Any(any) = data {
             if let Some(data) = any.downcast_ref::<Self>() {
                 return Ok(data.clone());
@@ -219,7 +219,7 @@ impl<T: ?Sized + Send + Sync + RealtimeClone + PartialEq + 'static> Diff for Opt
 impl<T: ?Sized + Send + Sync + RealtimeClone + PartialEq + 'static> Patch for Option<T> {
     type Patch = Self;
 
-    fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
         Ok(data.downcast_ref::<T>().cloned())
     }
 

@@ -136,12 +136,12 @@ macro_rules! param_data_from {
             }
         }
 
-        impl TryInto<$ty> for ParamData {
+        impl TryInto<$ty> for &ParamData {
             type Error = crate::diff::PatchError;
 
             fn try_into(self) -> Result<$ty, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(value),
+                    ParamData::$variant(value) => Ok(value.clone()),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
             }
@@ -157,12 +157,12 @@ macro_rules! param_data_from {
             }
         }
 
-        impl TryInto<Option<$ty>> for ParamData {
+        impl TryInto<Option<$ty>> for &ParamData {
             type Error = crate::diff::PatchError;
 
             fn try_into(self) -> Result<Option<$ty>, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(Some(value)),
+                    ParamData::$variant(value) => Ok(Some(value.clone())),
                     ParamData::None => Ok(None),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
@@ -175,12 +175,12 @@ macro_rules! param_data_from {
             }
         }
 
-        impl TryInto<Notify<$ty>> for ParamData {
+        impl TryInto<Notify<$ty>> for &ParamData {
             type Error = crate::diff::PatchError;
 
             fn try_into(self) -> Result<Notify<$ty>, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(Notify::new(value)),
+                    ParamData::$variant(value) => Ok(Notify::new(value.clone())),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
             }
@@ -306,7 +306,7 @@ impl<'a> NodeEventList<'a> {
         // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>`
         // but it would require a marker trait for the `diff::Patch::Patch` assoc type to
         // prevent overlapping impls.
-        self.drain().into_iter().filter_map(|e| T::patch_event(e))
+        self.drain().into_iter().filter_map(|e| T::patch_event(&e))
     }
 
     /// Iterate over patches for `T`, draining the events from the list, while also
@@ -354,7 +354,7 @@ impl<'a> NodeEventList<'a> {
         // prevent overlapping impls.
         self.drain_with_timestamps()
             .into_iter()
-            .filter_map(|(e, timestamp)| T::patch_event(e).map(|patch| (patch, timestamp)))
+            .filter_map(|(e, timestamp)| T::patch_event(&e).map(|patch| (patch, timestamp)))
     }
 }
 

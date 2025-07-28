@@ -589,15 +589,15 @@ pub trait Patch {
     /// });
     /// # }
     /// ```
-    fn patch(data: ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
+    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
 
     /// Construct a patch from a node event.
     ///
     /// This is a convenience wrapper around [`patch`][Patch::patch], discarding
     /// errors and node events besides [`NodeEventType::Param`].
-    fn patch_event(event: NodeEventType) -> Option<Self::Patch> {
+    fn patch_event(event: &NodeEventType) -> Option<Self::Patch> {
         match event {
-            NodeEventType::Param { data, path } => Some(Self::patch(data, &path).ok()?),
+            NodeEventType::Param { data, path } => Some(Self::patch(data, path).ok()?),
             _ => None,
         }
     }
@@ -740,7 +740,7 @@ mod test {
 
         assert_eq!(patches.len(), 1);
 
-        for patch in patches {
+        for patch in patches.iter() {
             let patch = StructDiff::patch_event(patch).unwrap();
 
             assert!(matches!(patch, StructDiffPatch::A(a) if a == 0.5));
@@ -767,7 +767,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        baseline.apply(DiffingExample::patch_event(messages.pop().unwrap()).unwrap());
+        baseline.apply(DiffingExample::patch_event(&messages.pop().unwrap()).unwrap());
         assert_eq!(baseline, value);
     }
 
@@ -780,7 +780,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        baseline.apply(DiffingExample::patch_event(messages.pop().unwrap()).unwrap());
+        baseline.apply(DiffingExample::patch_event(&messages.pop().unwrap()).unwrap());
         assert_eq!(baseline, value);
     }
 }

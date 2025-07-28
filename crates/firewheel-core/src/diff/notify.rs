@@ -131,7 +131,7 @@ impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
 impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
     type Patch = Self;
 
-    fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
         data.downcast_ref()
             .ok_or(super::PatchError::InvalidData)
             .cloned()

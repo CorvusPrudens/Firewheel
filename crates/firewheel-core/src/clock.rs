@@ -92,11 +92,11 @@ impl Diff for EventInstant {
 impl Patch for EventInstant {
     type Patch = Self;
 
-    fn patch(data: ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
         match data {
-            ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(s)),
-            ParamData::InstantSamples(s) => Ok(EventInstant::Samples(s)),
-            ParamData::InstantMusical(s) => Ok(EventInstant::Musical(s)),
+            ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(*s)),
+            ParamData::InstantSamples(s) => Ok(EventInstant::Samples(*s)),
+            ParamData::InstantMusical(s) => Ok(EventInstant::Musical(*s)),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
     }
@@ -127,11 +127,11 @@ impl Diff for Option<EventInstant> {
 impl Patch for Option<EventInstant> {
     type Patch = Self;
 
-    fn patch(data: ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
         match data {
-            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::Seconds(s))),
-            ParamData::InstantSamples(s) => Ok(Some(EventInstant::Samples(s))),
-            ParamData::InstantMusical(s) => Ok(Some(EventInstant::Musical(s))),
+            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::Seconds(*s))),
+            ParamData::InstantSamples(s) => Ok(Some(EventInstant::Samples(*s))),
+            ParamData::InstantMusical(s) => Ok(Some(EventInstant::Musical(*s))),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
     }
