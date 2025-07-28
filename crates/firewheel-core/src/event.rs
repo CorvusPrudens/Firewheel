@@ -245,6 +245,30 @@ impl<'a> NodeEventList<'a> {
         })
     }
 
+    /// Iterate over all events and their timestamps, draining the
+    /// events from the list.
+    ///
+    /// The iterator returns `(event_type, Option<event_instant>)`
+    /// where `event_type` is the event, `event_instant` is the instant the
+    /// event was schedueld for. If the event was not scheduled, then
+    /// the latter will be `None`.
+    pub fn drain_with_timestamps<'b>(
+        &'b mut self,
+    ) -> impl IntoIterator<Item = (NodeEventType, Option<EventInstant>)> + use<'b> {
+        self.indices.drain(..).map(|index_type| match index_type {
+            NodeEventListIndex::Immediate(i) => {
+                let event = self.immediate_event_buffer[i as usize].take().unwrap();
+
+                (event.event, event.time)
+            }
+            NodeEventListIndex::Scheduled(i) => {
+                let event = self.scheduled_event_arena[i as usize].take().unwrap();
+
+                (event.event, event.time)
+            }
+        })
+    }
+
     /// Iterate over patches for `T`, draining the events from the list.
     ///
     /// ```
@@ -259,7 +283,7 @@ impl<'a> NodeEventList<'a> {
     /// let mut node = FilterNode::default();
     ///
     /// // You can match on individual patch variants.
-    /// for patch in event_list.iter_patch::<FilterNode>() {
+    /// for patch in event_list.drain_patches::<FilterNode>() {
     ///     match patch {
     ///         FilterNodePatch::Frequency(frequency) => {
     ///             node.frequency = frequency;
@@ -271,7 +295,7 @@ impl<'a> NodeEventList<'a> {
     /// }
     ///
     /// // Or simply apply all of them.
-    /// for patch in event_list.iter_patch::<FilterNode>() { node.apply(patch); }
+    /// for patch in event_list.drain_patches::<FilterNode>() { node.apply(patch); }
     /// # }
     /// ```
     ///
@@ -283,6 +307,54 @@ impl<'a> NodeEventList<'a> {
         // but it would require a marker trait for the `diff::Patch::Patch` assoc type to
         // prevent overlapping impls.
         self.drain().into_iter().filter_map(|e| T::patch_event(e))
+    }
+
+    /// Iterate over patches for `T`, draining the events from the list, while also
+    /// returning the timestamp the event was scheduled for.
+    ///
+    /// The iterator returns `(patch, Option<event_instant>)`
+    /// where `event_instant` is the instant the event was schedueld for. If the event
+    /// was not scheduled, then the latter will be `None`.
+    ///
+    /// ```
+    /// # use firewheel_core::{diff::*, event::NodeEventList};
+    /// # fn for_each_example(mut event_list: NodeEventList) {
+    /// #[derive(Patch, Default)]
+    /// struct FilterNode {
+    ///     frequency: f32,
+    ///     quality: f32,
+    /// }
+    ///
+    /// let mut node = FilterNode::default();
+    ///
+    /// // You can match on individual patch variants.
+    /// for (patch timestamp) in event_list.drain_patches_with_timestamps::<FilterNode>() {
+    ///     match patch {
+    ///         FilterNodePatch::Frequency(frequency) => {
+    ///             node.frequency = frequency;
+    ///         }
+    ///         FilterNodePatch::Quality(quality) => {
+    ///             node.quality = quality;
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// // Or simply apply all of them.
+    /// for (patch, timestamp) in event_list.drain_patches_with_timestamps::<FilterNode>() { node.apply(patch); }
+    /// # }
+    /// ```
+    ///
+    /// Errors produced while constructing patches are simply skipped.
+    pub fn drain_patches_with_timestamps<'b, T: crate::diff::Patch>(
+        &'b mut self,
+    ) -> impl IntoIterator<Item = (<T as crate::diff::Patch>::Patch, Option<EventInstant>)> + use<'b, T>
+    {
+        // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>`
+        // but it would require a marker trait for the `diff::Patch::Patch` assoc type to
+        // prevent overlapping impls.
+        self.drain_with_timestamps()
+            .into_iter()
+            .filter_map(|(e, timestamp)| T::patch_event(e).map(|patch| (patch, timestamp)))
     }
 }
 
