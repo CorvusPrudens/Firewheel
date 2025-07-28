@@ -99,6 +99,9 @@ pub struct SamplerNode {
     ///
     /// Note, this gain parameter is *NOT* smoothed! If you need the gain to be
     /// smoothed, please use a [`VolumeNode`] or a [`VolumePanNode`].
+    ///
+    /// [`VolumeNode`]: crate::volume::VolumeNode
+    /// [`VolumePanNode`]: crate::volume_pan::VolumePanNode
     pub volume: Volume,
 
     /// The current playback state.

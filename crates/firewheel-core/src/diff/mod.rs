@@ -607,7 +607,7 @@ pub trait Patch {
     /// This will generally be called from within
     /// the audio thread, so real-time constraints should be respected.
     ///
-    /// Typically, you'll call this within [`for_each_patch`].
+    /// Typically, you'll call this within [`drain_patches`].
     ///
     /// ```
     /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
@@ -619,11 +619,11 @@ pub trait Patch {
     /// }
     ///
     /// let mut filter_params = FilterParams::default();
-    /// event_list.for_each_patch::<FilterParams>(|patch| filter_params.apply(patch.event));
+    /// for patch in event_list.drain_patches::<FilterParams>() { filter_params.apply(patch.event); }
     /// # }
     /// ```
     ///
-    /// [`for_each_patch`]: crate::event::NodeEventList::for_each_patch
+    /// [`drain_patches`]: crate::event::NodeEventList::drain_patches
     fn apply(&mut self, patch: Self::Patch);
 }
 

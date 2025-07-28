@@ -107,7 +107,7 @@ impl ParamData {
         Self::Any(ArcGc::new_any(value))
     }
 
-    /// Construct a [`ParamData::OptAny`] variant.
+    /// Construct an optional [`ParamData::Any`] variant.
     pub fn opt_any<T: Any + Send + Sync + 'static>(value: Option<T>) -> Self {
         if let Some(value) = value {
             Self::any(value)

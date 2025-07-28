@@ -68,6 +68,8 @@ pub struct FirewheelConfig {
     /// to [`AudioNodeProcessor::process`].
     ///
     /// By default this is set to `128`.
+    ///
+    /// [`AudioNodeProcessor::process`]: firewheel_core::node::AudioNodeProcessor::process
     pub event_queue_capacity: usize,
     /// The maximum number of immediate events (events that do *NOT* have a
     /// scheduled time component) that can be stored at once in the audio
