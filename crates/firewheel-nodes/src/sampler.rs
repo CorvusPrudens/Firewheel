@@ -797,7 +797,17 @@ impl AudioNodeProcessor for SamplerProcessor {
         if sample_changed {
             if !playback_changed {
                 playback_changed = true;
-                playback_instant = self.queued_playback_instant.take();
+
+                if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
+                    if queued_playback_instant.to_samples(proc_info).is_some() {
+                        playback_instant = Some(queued_playback_instant);
+                    } else {
+                        // Handle an edge case where the user sent a scheduled play event at
+                        // a musical time, but there is no sample and a musical transport
+                        // is not playing.
+                        playback_changed = false;
+                    }
+                }
             }
 
             self.stop(
@@ -856,8 +866,9 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         let mut new_playhead_frames =
                             if let Some(playback_instant) = playback_instant {
-                                let playback_instant_samples =
-                                    playback_instant.to_samples(proc_info).unwrap();
+                                let playback_instant_samples = playback_instant
+                                    .to_samples(proc_info)
+                                    .unwrap_or(proc_info.clock_samples);
                                 let delay = if playback_instant_samples < proc_info.clock_samples {
                                     (proc_info.clock_samples - playback_instant_samples).0 as u64
                                 } else {
