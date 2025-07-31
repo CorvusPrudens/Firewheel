@@ -201,6 +201,8 @@
 //! However, if your invariants are safety-critical, you _must_
 //! implement [`Patch`] manually.
 
+use bevy_platform::sync::Arc;
+
 use crate::{
     collector::ArcGc,
     event::{NodeEventType, ParamData},
@@ -217,7 +219,7 @@ pub use memo::Memo;
 pub use notify::Notify;
 
 /// Derive macros for diffing and patching.
-pub use firewheel_macros::{Diff, Patch};
+pub use firewheel_macros::{Diff, Patch, RealtimeClone};
 
 /// Fine-grained parameter diffing.
 ///
@@ -377,7 +379,7 @@ pub enum ParamPath {
     /// When paths are more than one element, this variant keeps
     /// the stack size to two pointers while avoiding double-indirection
     /// in the range 2..=4.
-    Multi(ArcGc<SmallVec<[u32; 4]>>),
+    Multi(ArcGc<[u32]>),
 }
 
 impl core::ops::Deref for ParamPath {
@@ -423,7 +425,7 @@ impl core::ops::Deref for ParamPath {
 ///         mut events: NodeEventList,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
-///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch));
+///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch.event));
 ///
 ///         // ...
 ///
@@ -455,7 +457,7 @@ impl core::ops::Deref for ParamPath {
 ///         events.for_each_patch::<MyParams>(|mut patch| {
 ///             // When you derive `Patch`, it creates an enum with variants
 ///             // for each field.
-///             match &mut patch {
+///             match &mut patch.event {
 ///                 MyParamsPatch::A(a) => {
 ///                     // You can mutate the patch itself if you want
 ///                     // to constrain or modify values.
@@ -465,7 +467,7 @@ impl core::ops::Deref for ParamPath {
 ///             }
 ///
 ///             // And / or apply it directly.
-///             self.params.apply(patch);
+///             self.params.apply(patch.event);
 ///         });
 ///
 ///         // ...
@@ -563,7 +565,7 @@ pub trait Patch {
     /// let mut filter_params = FilterParams::default();
     ///
     /// event_list.for_each(|e| {
-    ///     match e {
+    ///     match e.event {
     ///         NodeEventType::Param { data, path } => {
     ///             let Ok(patch) = FilterParams::patch(data, path) else {
     ///                 return;
@@ -605,7 +607,7 @@ pub trait Patch {
     /// This will generally be called from within
     /// the audio thread, so real-time constraints should be respected.
     ///
-    /// Typically, you'll call this within [`for_each_patch`].
+    /// Typically, you'll call this within [`drain_patches`].
     ///
     /// ```
     /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
@@ -617,13 +619,20 @@ pub trait Patch {
     /// }
     ///
     /// let mut filter_params = FilterParams::default();
-    /// event_list.for_each_patch::<FilterParams>(|patch| filter_params.apply(patch));
+    /// for patch in event_list.drain_patches::<FilterParams>() { filter_params.apply(patch.event); }
     /// # }
     /// ```
     ///
-    /// [`for_each_patch`]: crate::event::NodeEventList::for_each_patch
+    /// [`drain_patches`]: crate::event::NodeEventList::drain_patches
     fn apply(&mut self, patch: Self::Patch);
 }
+
+/// A trait which signifies that a struct implements `Clone`, cloning
+/// does not allocate or deallocate data, and the data will not be
+/// dropped on the audio thread if the struct is dropped.
+pub trait RealtimeClone: Clone {}
+
+impl<T: ?Sized + Send + Sync + 'static> RealtimeClone for ArcGc<T> {}
 
 // NOTE: Using a `SmallVec` instead of a `Box<[u32]>` yields
 // around an 8% performance uplift for cases where the path
@@ -669,7 +678,7 @@ impl PathBuilder {
         if self.0.len() == 1 {
             ParamPath::Single(self.0[0])
         } else {
-            ParamPath::Multi(ArcGc::new(self.0.clone()))
+            ParamPath::Multi(ArcGc::new_unsized(|| Arc::<[u32]>::from(self.0.as_slice())))
         }
     }
 }
@@ -731,7 +740,7 @@ mod test {
 
         assert_eq!(patches.len(), 1);
 
-        for patch in &patches {
+        for patch in patches.iter() {
             let patch = StructDiff::patch_event(patch).unwrap();
 
             assert!(matches!(patch, StructDiffPatch::A(a) if a == 0.5));
@@ -758,7 +767,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        baseline.apply(DiffingExample::patch_event(&messages[0]).unwrap());
+        baseline.apply(DiffingExample::patch_event(&messages.pop().unwrap()).unwrap());
         assert_eq!(baseline, value);
     }
 
@@ -771,7 +780,7 @@ mod test {
         value.diff(&baseline, PathBuilder::default(), &mut messages);
 
         assert_eq!(messages.len(), 1);
-        baseline.apply(DiffingExample::patch_event(&messages[0]).unwrap());
+        baseline.apply(DiffingExample::patch_event(&messages.pop().unwrap()).unwrap());
         assert_eq!(baseline, value);
     }
 }

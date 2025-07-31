@@ -104,7 +104,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("patching shallow", |b| {
         b.iter(|| {
-            for message in &messages {
+            for message in messages.iter() {
                 target.apply(ShallowParams::patch_event(message).unwrap());
                 black_box(&target);
             }
@@ -125,7 +125,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("patching three", |b| {
         b.iter(|| {
-            for message in &messages {
+            for message in messages.iter() {
                 target.apply(DoubleNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
@@ -148,8 +148,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 source.diff(&target, PathBuilder::default(), &mut messages);
             }
 
-            for message in messages.drain(..) {
-                target.apply(ShallowParams::patch_event(&message).unwrap());
+            for message in messages.iter() {
+                target.apply(ShallowParams::patch_event(message).unwrap());
                 black_box(&target);
             }
         })
@@ -170,8 +170,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 source.diff(&target, PathBuilder::default(), &mut messages);
             }
 
-            for message in messages.drain(..) {
-                target.apply(DoubleNesting::patch_event(&message).unwrap());
+            for message in messages.iter() {
+                target.apply(DoubleNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
         })
@@ -192,8 +192,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 source.diff(&target, PathBuilder::default(), &mut messages);
             }
 
-            for message in messages.drain(..) {
-                target.apply(QuadNesting::patch_event(&message).unwrap());
+            for message in messages.iter() {
+                target.apply(QuadNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
         })
