@@ -1,5 +1,7 @@
 /// A two-dimensional vector type.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -13,6 +15,8 @@ impl Vec2 {
 
 /// A three-dimensional vector type.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,

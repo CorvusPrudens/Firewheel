@@ -34,7 +34,7 @@ peak_meter = []
 # Enables the sampler node
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
-spatial_basic = ["bevy_reflect?/glam"]
+spatial_basic = []
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
 fast_filters = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode

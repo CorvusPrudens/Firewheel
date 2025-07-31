@@ -128,7 +128,7 @@ impl App for DemoApp {
             updated |= ui
                 .add(egui::Checkbox::new(
                     &mut self.audio_system.spatial_basic_node.downmix,
-                    "downmix",
+                    "downmix stereo to mono",
                 ))
                 .changed();
 
