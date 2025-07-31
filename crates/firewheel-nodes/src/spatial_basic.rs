@@ -10,12 +10,13 @@ use firewheel_core::{
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
-    event::{NodeEventList, Vec3},
+    event::NodeEventList,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
+    vector::Vec3,
     ConnectedMask, SilenceMask,
 };
 
@@ -129,14 +130,14 @@ impl Default for SpatialBasicNode {
 
 impl SpatialBasicNode {
     pub fn compute_values(&self, amp_epsilon: f32) -> ComputedValues {
-        let x2_z2 = (self.offset[0] * self.offset[0]) + (self.offset[2] * self.offset[2]);
-        let xyz_distance = (x2_z2 + (self.offset[1] * self.offset[1])).sqrt();
+        let x2_z2 = (self.offset.x * self.offset.x) + (self.offset.z * self.offset.z);
+        let xyz_distance = (x2_z2 + (self.offset.y * self.offset.y)).sqrt();
         let xz_distance = x2_z2.sqrt();
 
         let distance_gain = 10.0f32.powf(-0.03 * xyz_distance);
 
         let pan = if xz_distance > 0.0 {
-            (self.offset[0] / xz_distance) * self.panning_threshold.clamp(0.0, 1.0)
+            (self.offset.x / xz_distance) * self.panning_threshold.clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -284,7 +285,7 @@ impl AudioNodeProcessor for Processor {
         for mut patch in events.drain_patches::<SpatialBasicNode>() {
             match &mut patch {
                 SpatialBasicNodePatch::Offset(offset) => {
-                    if !offset.is_finite() {
+                    if !(offset.x.is_finite() && offset.y.is_finite() && offset.z.is_finite()) {
                         *offset = Vec3::default();
                     }
                 }
