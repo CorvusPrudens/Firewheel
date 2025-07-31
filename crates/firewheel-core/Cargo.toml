@@ -17,8 +17,24 @@ all-features = true
 
 [features]
 # Enables scheduling events for audio nodes.
+#
+# NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
+# unless your node internally uses the `EventInstant` type in processing.
+# Users can still schedule events for your node even if you have this
+# feature disabled in your library.
+#
+# If your node makes use of `NodeEventList::drain_with_timestamps` or
+# `NodeEventLIst::drain_patches_with_timestamps`, please consider adding
+# a "scheduled_events" feature to your library that can also be disabled.
+# For an example of this, see
+# https://github.com/BillyDM/Firewheel/blob/4b06aa276d99b66e1b488d14a0fd3a6217149daa/crates/firewheel-nodes/src/sampler.rs#L771
 scheduled_events = []
 # Enables the musical transport feature.
+#
+# NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
+# unless your node internally uses the musical types in processing. Users
+# can still schedule musical events for your node even if you have this
+# feature disabled in your library.
 musical_transport = ["scheduled_events"]
 symphonium = ["dep:symphonium"]
 resampler = ["dep:fixed-resample", "symphonium?/resampler"]
