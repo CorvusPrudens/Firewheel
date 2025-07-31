@@ -7,6 +7,8 @@ pub const MAX_CHANNELS: usize = 64;
 /// This number cannot be greater than `64`.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
 pub struct ChannelCount(u32);
 
 impl ChannelCount {
@@ -65,6 +67,8 @@ impl Into<usize> for ChannelCount {
 /// This number cannot be `0` or greater than `64`.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
 pub struct NonZeroChannelCount(NonZeroU32);
 
 impl NonZeroChannelCount {

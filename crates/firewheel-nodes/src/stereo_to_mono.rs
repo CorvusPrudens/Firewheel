@@ -9,6 +9,7 @@ use firewheel_core::{
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct StereoToMonoNode;
 
 impl AudioNode for StereoToMonoNode {

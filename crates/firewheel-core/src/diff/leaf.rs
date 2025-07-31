@@ -208,7 +208,7 @@ impl<A: ?Sized + Send + Sync + 'static> Patch for ArcGc<A> {
     }
 }
 
-impl<T: ?Sized + Send + Sync + RealtimeClone + PartialEq + 'static> Diff for Option<T> {
+impl<T: Send + Sync + RealtimeClone + PartialEq + 'static> Diff for Option<T> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
             event_queue.push_param(ParamData::opt_any(self.clone()), path);
@@ -216,7 +216,7 @@ impl<T: ?Sized + Send + Sync + RealtimeClone + PartialEq + 'static> Diff for Opt
     }
 }
 
-impl<T: ?Sized + Send + Sync + RealtimeClone + PartialEq + 'static> Patch for Option<T> {
+impl<T: Send + Sync + RealtimeClone + PartialEq + 'static> Patch for Option<T> {
     type Patch = Self;
 
     fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {

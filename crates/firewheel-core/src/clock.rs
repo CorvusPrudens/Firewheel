@@ -144,6 +144,7 @@ impl Patch for Option<EventInstant> {
 /// An absolute audio clock instant in units of seconds.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct InstantSeconds(pub f64);
 
 impl InstantSeconds {
@@ -189,6 +190,7 @@ impl InstantSeconds {
 /// An audio clock duration in units of seconds.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct DurationSeconds(pub f64);
 
 impl DurationSeconds {
@@ -322,6 +324,7 @@ impl Into<f64> for DurationSeconds {
 /// An absolute audio clock instant in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct InstantSamples(pub i64);
 
 impl InstantSamples {
@@ -379,6 +382,7 @@ impl InstantSamples {
 /// An audio clock duration in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct DurationSamples(pub i64);
 
 impl DurationSamples {
@@ -548,6 +552,7 @@ impl Into<i64> for DurationSamples {
 
 /// An absolute audio clock instant in units of musical beats.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct InstantMusical(pub f64);
 
 impl InstantMusical {
@@ -586,6 +591,7 @@ impl InstantMusical {
 /// An audio clock duration in units of musical beats.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct DurationMusical(pub f64);
 
 impl DurationMusical {

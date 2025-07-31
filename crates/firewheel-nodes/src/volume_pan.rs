@@ -17,6 +17,7 @@ pub use super::volume::VolumeNodeConfig;
 
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumePanNode {
     /// The overall volume.
     pub volume: Volume,
@@ -29,6 +30,7 @@ pub struct VolumePanNode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumePanNodeConfig {
     /// The time in seconds of the internal smoothing filter.
     ///

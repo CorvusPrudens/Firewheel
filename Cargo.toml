@@ -88,6 +88,8 @@ stream_nodes = ["firewheel-nodes/stream"]
 noise_gen_nodes = ["firewheel-nodes/noise_generators"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
+# Enables `Reflect` derive macros for node parameters
+bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 
