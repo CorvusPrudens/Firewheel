@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, time::Duration};
+use core::{num::NonZeroU32, time::Duration};
 
 use arrayvec::ArrayVec;
 use firewheel_core::{

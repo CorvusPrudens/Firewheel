@@ -1,6 +1,6 @@
+use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
-use std::ops::Range;
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},

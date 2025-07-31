@@ -23,24 +23,6 @@ categories = ["game-development", "multimedia::audio"]
 exclude = ["assets/"]
 repository = "https://github.com/BillyDM/firewheel"
 
-[workspace]
-members = [
-    "crates/firewheel-core",
-    "crates/firewheel-cpal",
-    "crates/firewheel-graph",
-    "crates/firewheel-nodes",
-    "crates/firewheel-macros",
-    "examples/beep_test",
-    "examples/cpal_input",
-    "examples/custom_nodes",
-    "examples/play_sample",
-    "examples/sampler_pool",
-    "examples/sampler_test",
-    "examples/spatial_basic",
-    "examples/stream_nodes",
-    "examples/visual_node_graph",
-]
-
 [features]
 default = [
     "cpal",
@@ -48,13 +30,13 @@ default = [
     "symphonium_resample",
     "sampler_node"
 ]
-# Enables scheduling events for nodes.
+# Enables scheduling events for nodes
 scheduled_events = [
     "firewheel-core/scheduled_events",
     "firewheel-graph/scheduled_events",
     "firewheel-nodes/scheduled_events"
 ]
-# Enables the musical transport feature.
+# Enables the musical transport feature
 musical_transport = [
     "scheduled_events",
     "firewheel-core/musical_transport",
@@ -103,14 +85,23 @@ bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 
-[dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.6.0-beta.0" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.6.0-beta.0" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.6.0-beta.0", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.6.0-beta.0", default-features = false }
-thunderdome = { workspace = true, optional = true }
-smallvec = { workspace = true, optional = true }
-thiserror.workspace = true
+[workspace]
+members = [
+    "crates/firewheel-core",
+    "crates/firewheel-cpal",
+    "crates/firewheel-graph",
+    "crates/firewheel-nodes",
+    "crates/firewheel-macros",
+    "examples/beep_test",
+    "examples/cpal_input",
+    "examples/custom_nodes",
+    "examples/play_sample",
+    "examples/sampler_pool",
+    "examples/sampler_test",
+    "examples/spatial_basic",
+    "examples/stream_nodes",
+    "examples/visual_node_graph",
+]
 
 [workspace.dependencies]
 log = "0.4"
@@ -125,6 +116,15 @@ crossbeam-utils = "0.8"
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.2.0" }
 bevy_platform = "0.16.0"
+
+[dependencies]
+firewheel-core = { path = "crates/firewheel-core", version = "0.6.0-beta.0" }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.6.0-beta.0" }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.6.0-beta.0", default-features = false, optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.6.0-beta.0", default-features = false }
+thunderdome = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
+thiserror.workspace = true
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

@@ -1,5 +1,4 @@
-use core::{num::NonZeroU32, time::Duration};
-use std::usize;
+use core::{num::NonZeroU32, time::Duration, usize};
 
 use ringbuf::traits::Producer;
 use thunderdome::Arena;

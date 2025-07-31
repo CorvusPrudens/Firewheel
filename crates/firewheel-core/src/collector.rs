@@ -1,8 +1,8 @@
 //! Garbage-collected smart pointer.
 
-use core::cell::UnsafeCell;
-use std::{
+use core::{
     any::Any,
+    cell::UnsafeCell,
     fmt::Debug,
     ops::{Deref, DerefMut},
 };
@@ -211,7 +211,7 @@ impl<T: ?Sized + Send + 'static> DerefMut for OwnedGc<T> {
 }
 
 impl<T: Debug + ?Sized + Send + 'static> Debug for OwnedGc<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         Debug::fmt(self.get(), f)
     }
 }
