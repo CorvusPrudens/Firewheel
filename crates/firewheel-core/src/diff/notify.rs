@@ -157,7 +157,7 @@ mod test {
     #[test]
     fn test_identical_write() {
         let baseline = Notify::new(0.5f32);
-        let mut value = baseline.clone();
+        let mut value = baseline;
 
         let mut events = Vec::new();
         value.diff(&baseline, PathBuilder::default(), &mut events);
@@ -167,5 +167,360 @@ mod test {
 
         value.diff(&baseline, PathBuilder::default(), &mut events);
         assert_eq!(events.len(), 1);
+    }
+}
+
+#[cfg(feature = "bevy_reflect")]
+mod reflect {
+    use super::Notify;
+
+    impl<T> bevy_reflect::GetTypeRegistration for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Clone
+            + Default
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        fn get_type_registration() -> bevy_reflect::TypeRegistration {
+            let mut registration = bevy_reflect::TypeRegistration::of::<Self>();
+            registration.insert:: <bevy_reflect::ReflectFromPtr>(bevy_reflect::FromType:: <Self> ::from_type());
+            registration.insert::<bevy_reflect::ReflectFromReflect>(
+                bevy_reflect::FromType::<Self>::from_type(),
+            );
+            registration
+                .insert::<bevy_reflect::prelude::ReflectDefault>(
+                    bevy_reflect::FromType::<Self>::from_type(),
+                );
+            registration
+        }
+
+        #[inline(never)]
+        fn register_type_dependencies(registry: &mut bevy_reflect::TypeRegistry) {
+            <T as bevy_reflect::__macro_exports::RegisterForReflection>::__register(registry);
+            <u64 as bevy_reflect::__macro_exports::RegisterForReflection>::__register(registry);
+        }
+    }
+
+    impl<T> bevy_reflect::Typed for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Clone
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        #[inline]
+        fn type_info() -> &'static bevy_reflect::TypeInfo {
+            static CELL: bevy_reflect::utility::GenericTypeInfoCell =
+                bevy_reflect::utility::GenericTypeInfoCell::new();
+            CELL.get_or_insert::<Self, _>(|| {
+                bevy_reflect::TypeInfo::Struct(
+                    bevy_reflect::StructInfo::new::<Self>(&[
+                        bevy_reflect::NamedField::new::<T>("value").with_custom_attributes(
+                            bevy_reflect::attributes::CustomAttributes::default(),
+                        ),
+                    ])
+                    .with_custom_attributes(bevy_reflect::attributes::CustomAttributes::default())
+                    .with_generics(bevy_reflect::Generics::from_iter([
+                        bevy_reflect::GenericInfo::Type(bevy_reflect::TypeParamInfo::new::<T>(
+                            std::borrow::Cow::Borrowed("T"),
+                        )),
+                    ])),
+                )
+            })
+        }
+    }
+
+    extern crate alloc;
+    impl<T> bevy_reflect::TypePath for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: bevy_reflect::TypePath,
+    {
+        fn type_path() -> &'static str {
+            static CELL: bevy_reflect::utility::GenericTypePathCell =
+                bevy_reflect::utility::GenericTypePathCell::new();
+            CELL.get_or_insert::<Self, _>(|| {
+                ::core::ops::Add::<&str>::add(
+                    ::core::ops::Add::<&str>::add(
+                        ToString::to_string(::core::concat!(
+                            ::core::concat!(
+                                ::core::concat!(::core::module_path!(), "::"),
+                                "Notify"
+                            ),
+                            "<"
+                        )),
+                        <T as bevy_reflect::TypePath>::type_path(),
+                    ),
+                    ">",
+                )
+            })
+        }
+        fn short_type_path() -> &'static str {
+            static CELL: bevy_reflect::utility::GenericTypePathCell =
+                bevy_reflect::utility::GenericTypePathCell::new();
+            CELL.get_or_insert::<Self, _>(|| {
+                ::core::ops::Add::<&str>::add(
+                    ::core::ops::Add::<&str>::add(
+                        ToString::to_string(::core::concat!("Notify", "<")),
+                        <T as bevy_reflect::TypePath>::short_type_path(),
+                    ),
+                    ">",
+                )
+            })
+        }
+        fn type_ident() -> Option<&'static str> {
+            Some("Notify")
+        }
+        fn crate_name() -> Option<&'static str> {
+            Some(::core::module_path!().split(':').next().unwrap())
+        }
+        fn module_path() -> Option<&'static str> {
+            Some(::core::module_path!())
+        }
+    }
+
+    impl<T> bevy_reflect::Reflect for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Clone
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        #[inline]
+        fn into_any(self: Box<Self>) -> Box<dyn ::core::any::Any> {
+            self
+        }
+        #[inline]
+        fn as_any(&self) -> &dyn ::core::any::Any {
+            self
+        }
+        #[inline]
+        fn as_any_mut(&mut self) -> &mut dyn ::core::any::Any {
+            self
+        }
+        #[inline]
+        fn into_reflect(self: Box<Self>) -> Box<dyn bevy_reflect::Reflect> {
+            self
+        }
+        #[inline]
+        fn as_reflect(&self) -> &dyn bevy_reflect::Reflect {
+            self
+        }
+        #[inline]
+        fn as_reflect_mut(&mut self) -> &mut dyn bevy_reflect::Reflect {
+            self
+        }
+        #[inline]
+        fn set(
+            &mut self,
+            value: Box<dyn bevy_reflect::Reflect>,
+        ) -> Result<(), Box<dyn bevy_reflect::Reflect>> {
+            *self = <dyn bevy_reflect::Reflect>::take(value)?;
+            Ok(())
+        }
+    }
+
+    impl<T> bevy_reflect::Struct for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Clone
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        fn field(&self, name: &str) -> Option<&dyn bevy_reflect::PartialReflect> {
+            match name {
+                "value" => Some(&self.value),
+                _ => None,
+            }
+        }
+
+        fn field_mut(&mut self, name: &str) -> Option<&mut dyn bevy_reflect::PartialReflect> {
+            match name {
+                "value" => Some(self.as_mut()),
+                _ => None,
+            }
+        }
+
+        fn field_at(&self, index: usize) -> Option<&dyn bevy_reflect::PartialReflect> {
+            match index {
+                0usize => Some(&self.value),
+                _ => None,
+            }
+        }
+
+        fn field_at_mut(&mut self, index: usize) -> Option<&mut dyn bevy_reflect::PartialReflect> {
+            match index {
+                0usize => Some(self.as_mut()),
+                _ => None,
+            }
+        }
+
+        fn name_at(&self, index: usize) -> Option<&str> {
+            match index {
+                0usize => Some("value"),
+                _ => None,
+            }
+        }
+
+        fn field_len(&self) -> usize {
+            1usize
+        }
+
+        fn iter_fields(&self) -> bevy_reflect::FieldIter {
+            bevy_reflect::FieldIter::new(self)
+        }
+
+        fn to_dynamic_struct(&self) -> bevy_reflect::DynamicStruct {
+            let mut dynamic: bevy_reflect::DynamicStruct = Default::default();
+            dynamic.set_represented_type(bevy_reflect::PartialReflect::get_represented_type_info(
+                self,
+            ));
+            dynamic.insert_boxed(
+                "value",
+                bevy_reflect::PartialReflect::to_dynamic(&self.value),
+            );
+            dynamic
+        }
+    }
+
+    impl<T> bevy_reflect::PartialReflect for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Clone
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        #[inline]
+        fn get_represented_type_info(&self) -> Option<&'static bevy_reflect::TypeInfo> {
+            Some(<Self as bevy_reflect::Typed>::type_info())
+        }
+
+        #[inline]
+        fn try_apply(
+            &mut self,
+            value: &dyn bevy_reflect::PartialReflect,
+        ) -> Result<(), bevy_reflect::ApplyError> {
+            if let bevy_reflect::ReflectRef::Struct(struct_value) =
+                bevy_reflect::PartialReflect::reflect_ref(value)
+            {
+                for (i, value) in ::core::iter::Iterator::enumerate(
+                    bevy_reflect::Struct::iter_fields(struct_value),
+                ) {
+                    let name = bevy_reflect::Struct::name_at(struct_value, i).unwrap();
+                    if let Some(v) = bevy_reflect::Struct::field_mut(self, name) {
+                        bevy_reflect::PartialReflect::try_apply(v, value)?;
+                    }
+                }
+            } else {
+                return Result::Err(bevy_reflect::ApplyError::MismatchedKinds {
+                    from_kind: bevy_reflect::PartialReflect::reflect_kind(value),
+                    to_kind: bevy_reflect::ReflectKind::Struct,
+                });
+            }
+            Ok(())
+        }
+
+        #[inline]
+        fn reflect_kind(&self) -> bevy_reflect::ReflectKind {
+            bevy_reflect::ReflectKind::Struct
+        }
+
+        #[inline]
+        fn reflect_ref(&self) -> bevy_reflect::ReflectRef {
+            bevy_reflect::ReflectRef::Struct(self)
+        }
+
+        #[inline]
+        fn reflect_mut(&mut self) -> bevy_reflect::ReflectMut {
+            bevy_reflect::ReflectMut::Struct(self)
+        }
+
+        #[inline]
+        fn reflect_owned(self: Box<Self>) -> bevy_reflect::ReflectOwned {
+            bevy_reflect::ReflectOwned::Struct(self)
+        }
+
+        #[inline]
+        fn try_into_reflect(
+            self: Box<Self>,
+        ) -> Result<Box<dyn bevy_reflect::Reflect>, Box<dyn bevy_reflect::PartialReflect>> {
+            Ok(self)
+        }
+
+        #[inline]
+        fn try_as_reflect(&self) -> Option<&dyn bevy_reflect::Reflect> {
+            Some(self)
+        }
+
+        #[inline]
+        fn try_as_reflect_mut(&mut self) -> Option<&mut dyn bevy_reflect::Reflect> {
+            Some(self)
+        }
+
+        #[inline]
+        fn into_partial_reflect(self: Box<Self>) -> Box<dyn bevy_reflect::PartialReflect> {
+            self
+        }
+
+        #[inline]
+        fn as_partial_reflect(&self) -> &dyn bevy_reflect::PartialReflect {
+            self
+        }
+
+        #[inline]
+        fn as_partial_reflect_mut(&mut self) -> &mut dyn bevy_reflect::PartialReflect {
+            self
+        }
+
+        fn reflect_partial_eq(&self, value: &dyn bevy_reflect::PartialReflect) -> Option<bool> {
+            (bevy_reflect::struct_partial_eq)(self, value)
+        }
+
+        #[inline]
+        fn reflect_clone(
+            &self,
+        ) -> Result<Box<dyn bevy_reflect::Reflect>, bevy_reflect::ReflectCloneError> {
+            Ok(Box::new(Clone::clone(self)))
+        }
+    }
+
+    impl<T> bevy_reflect::FromReflect for Notify<T>
+    where
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        T: Default
+            + Clone
+            + bevy_reflect::FromReflect
+            + bevy_reflect::TypePath
+            + bevy_reflect::MaybeTyped
+            + bevy_reflect::__macro_exports::RegisterForReflection,
+    {
+        fn from_reflect(reflect: &dyn bevy_reflect::PartialReflect) -> Option<Self> {
+            if let bevy_reflect::ReflectRef::Struct(ref_struct) =
+                bevy_reflect::PartialReflect::reflect_ref(reflect)
+            {
+                let mut this = <Self as ::core::default::Default>::default();
+                if let Some(field) = (|| {
+                    <T as bevy_reflect::FromReflect>::from_reflect(bevy_reflect::Struct::field(
+                        ref_struct, "value",
+                    )?)
+                })() {
+                    this.value = field;
+                }
+                Some(this)
+            } else {
+                None
+            }
+        }
     }
 }

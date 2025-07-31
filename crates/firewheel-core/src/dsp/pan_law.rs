@@ -5,6 +5,7 @@ use crate::diff::{Diff, Patch};
 /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
 /// to the corresponding gain values for the left and right channels.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[repr(u32)]
 pub enum PanLaw {
     /// This pan law makes the signal appear to play at a constant volume across

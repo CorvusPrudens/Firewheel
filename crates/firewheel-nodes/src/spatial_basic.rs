@@ -25,6 +25,7 @@ const CALC_FILTER_COEFF_INTERVAL: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct SpatialBasicConfig {
     /// The time in seconds of the internal smoothing filter.
     ///
@@ -50,6 +51,7 @@ impl Default for SpatialBasicConfig {
 /// panning and filtering.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct SpatialBasicNode {
     /// The overall volume. This is applied before the spatialization algorithm.
     pub volume: Volume,

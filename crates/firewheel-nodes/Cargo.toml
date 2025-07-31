@@ -23,7 +23,7 @@ default = [
     "spatial_basic",
     "stream",
     "fast_filters",
-    "noise_generators"
+    "noise_generators",
 ]
 all_nodes = [
     "beep_test",
@@ -32,7 +32,7 @@ all_nodes = [
     "spatial_basic",
     "stream",
     "fast_filters",
-    "noise_generators"
+    "noise_generators",
 ]
 # Enables the "beep test" node
 beep_test = []
@@ -51,11 +51,17 @@ noise_generators = []
 stream = ["dep:fixed-resample"]
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs"]
+# Enables `Reflect` derive macros
+bevy_reflect = ["dep:bevy_reflect"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.6.0-beta.0" }
 bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
-fixed-resample = { version = "0.9.1", features = ["fft-resampler", "channel"], optional = true }
+fixed-resample = { version = "0.9.1", features = [
+    "fft-resampler",
+    "channel",
+], optional = true }
 bevy_ecs = { version = "0.16", optional = true }
+bevy_reflect = { version = "0.16", optional = true }

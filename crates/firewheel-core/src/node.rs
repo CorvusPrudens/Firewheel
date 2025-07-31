@@ -15,6 +15,8 @@ pub mod dummy;
 
 /// A globally unique identifier for a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
 pub struct NodeID(pub thunderdome::Index);
 
 impl NodeID {
@@ -312,8 +314,9 @@ impl<'a> UpdateContext<'a> {
 /// This should be preferred over `()` because it implements
 /// Bevy's `Component` trait, making the
 /// [`AudioNode`] implementor trivially Bevy-compatible.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct EmptyConfig;
 
 /// A type-erased dyn-compatible [`AudioNode`].
