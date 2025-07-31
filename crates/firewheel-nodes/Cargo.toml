@@ -16,15 +16,6 @@ exclude.workspace = true
 all-features = true
 
 [features]
-default = [
-    "beep_test",
-    "peak_meter",
-    "sampler",
-    "spatial_basic",
-    "stream",
-    "fast_filters",
-    "noise_generators",
-]
 all_nodes = [
     "beep_test",
     "peak_meter",
@@ -34,6 +25,8 @@ all_nodes = [
     "fast_filters",
     "noise_generators",
 ]
+# Enables event scheduling support in some nodes.
+scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the "beep test" node
 beep_test = []
 # Enables the peak meter node

@@ -16,6 +16,10 @@ exclude.workspace = true
 all-features = true
 
 [features]
+# Enables scheduling events for audio nodes.
+scheduled_events = []
+# Enables the musical transport feature.
+musical_transport = ["scheduled_events"]
 symphonium = ["dep:symphonium"]
 resampler = ["dep:fixed-resample", "symphonium?/resampler"]
 # Enables the "arbitrary sinc" resampler in Symphonium for changing the

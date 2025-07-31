@@ -46,9 +46,19 @@ default = [
     "cpal",
     "symphonium",
     "symphonium_resample",
-    "symphonium_stretch",
-    "peak_meter_node",
-    "sampler_node",
+    "sampler_node"
+]
+# Enables scheduling events for nodes.
+scheduled_events = [
+    "firewheel-core/scheduled_events",
+    "firewheel-graph/scheduled_events",
+    "firewheel-nodes/scheduled_events"
+]
+# Enables the musical transport feature.
+musical_transport = [
+    "scheduled_events",
+    "firewheel-core/musical_transport",
+    "firewheel-graph/musical_transport"
 ]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]

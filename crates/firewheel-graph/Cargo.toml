@@ -15,6 +15,12 @@ exclude.workspace = true
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# Enables scheduling events for audio nodes.
+scheduled_events = ["firewheel-core/scheduled_events"]
+# Enables the musical transport feature.
+musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
+
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.6.0-beta.0" }
 log.workspace = true

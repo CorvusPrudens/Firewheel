@@ -2,15 +2,15 @@
 
 use super::{Diff, EventQueue, Patch, PatchError, PathBuilder};
 use crate::{
-    clock::{
-        DurationMusical, DurationSamples, DurationSeconds, InstantMusical, InstantSamples,
-        InstantSeconds,
-    },
+    clock::{DurationSamples, DurationSeconds, InstantSamples, InstantSeconds},
     collector::ArcGc,
     diff::{Notify, RealtimeClone},
     dsp::volume::Volume,
     event::{NodeEventType, ParamData, Vec2, Vec3},
 };
+
+#[cfg(feature = "musical_transport")]
+use crate::clock::{DurationMusical, InstantMusical};
 
 macro_rules! primitive_diff {
     ($ty:ty, $variant:ident) => {
@@ -174,7 +174,9 @@ primitive_diff!(InstantSamples, InstantSamples);
 primitive_diff!(DurationSamples, DurationSamples);
 primitive_diff!(InstantSeconds, InstantSeconds);
 primitive_diff!(DurationSeconds, DurationSeconds);
+#[cfg(feature = "musical_transport")]
 primitive_diff!(InstantMusical, InstantMusical);
+#[cfg(feature = "musical_transport")]
 primitive_diff!(DurationMusical, DurationMusical);
 primitive_diff!(Vec2, Vector2D);
 primitive_diff!(Vec3, Vector3D);

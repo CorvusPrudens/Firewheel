@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
-    clock::{EventInstant, InstantSeconds},
+    clock::InstantSeconds,
     collector::ArcGc,
     diff::{Diff, Notify, ParamPath, Patch},
     dsp::{
@@ -28,6 +28,9 @@ use firewheel_core::{
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
 };
+
+#[cfg(feature = "scheduled_events")]
+use firewheel_core::clock::EventInstant;
 
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
@@ -482,6 +485,7 @@ impl AudioNode for SamplerNode {
             resampler: Some(Resampler::new(config.speed_quality)),
             speed: self.speed.max(MIN_PLAYBACK_SPEED),
             playback_state: *self.playback,
+            #[cfg(feature = "scheduled_events")]
             queued_playback_instant: None,
             amp_epsilon: config.amp_epsilon,
             is_first_process: true,
@@ -508,6 +512,7 @@ pub struct SamplerProcessor {
     resampler: Option<Resampler>,
     speed: f64,
 
+    #[cfg(feature = "scheduled_events")]
     queued_playback_instant: Option<EventInstant>,
 
     amp_epsilon: f32,
@@ -756,11 +761,29 @@ impl AudioNodeProcessor for SamplerProcessor {
     ) -> ProcessStatus {
         let mut sample_changed = self.is_first_process;
         let mut playback_changed = false;
-        let mut playback_instant: Option<EventInstant> = None;
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
         let mut volume_changed = false;
 
+        #[cfg(feature = "scheduled_events")]
+        let mut playback_instant: Option<EventInstant> = None;
+
+        #[cfg(not(feature = "scheduled_events"))]
+        for patch in events.drain_patches::<SamplerNode>() {
+            match patch {
+                SamplerNodePatch::Sample(_) => sample_changed = true,
+                SamplerNodePatch::Volume(_) => volume_changed = true,
+                SamplerNodePatch::Playback(_) => {
+                    playback_changed = true;
+                }
+                SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
+                SamplerNodePatch::Speed(_) => speed_changed = true,
+            }
+
+            self.params.apply(patch);
+        }
+
+        #[cfg(feature = "scheduled_events")]
         for (patch, timestamp) in events.drain_patches_with_timestamps::<SamplerNode>() {
             match patch {
                 SamplerNodePatch::Sample(_) => sample_changed = true,
@@ -803,6 +826,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             if !playback_changed {
                 playback_changed = true;
 
+                #[cfg(feature = "scheduled_events")]
                 if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
                     if queued_playback_instant.to_samples(proc_info).is_some() {
                         playback_instant = Some(queued_playback_instant);
@@ -853,7 +877,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                 PlaybackState::Play { playhead } => {
                     if self.playback_state.is_playing() && playhead.is_none() {
                         // Sample is already playing, no need to do anything.
-                        self.queued_playback_instant = None;
+                        #[cfg(feature = "scheduled_events")]
+                        {
+                            self.queued_playback_instant = None;
+                        }
                     } else if self.loaded_sample_state.is_some() {
                         let loaded_sample_state = self.loaded_sample_state.as_mut().unwrap();
                         let prev_playhead_frames = loaded_sample_state.playhead_frames;
@@ -869,6 +896,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                                 _ => prev_playhead_frames,
                             });
 
+                        #[cfg(feature = "scheduled_events")]
                         let mut new_playhead_frames =
                             if let Some(playback_instant) = playback_instant {
                                 let playback_instant_samples = playback_instant
@@ -884,6 +912,9 @@ impl AudioNodeProcessor for SamplerProcessor {
                             } else {
                                 playhead_frames_at_play_instant
                             };
+
+                        #[cfg(not(feature = "scheduled_events"))]
+                        let mut new_playhead_frames = playhead_frames_at_play_instant;
 
                         if new_playhead_frames >= loaded_sample_state.sample_len_frames {
                             match self.params.repeat_mode {
@@ -954,10 +985,17 @@ impl AudioNodeProcessor for SamplerProcessor {
                             self.playback_state = PlaybackState::Play { playhead };
                         }
 
-                        self.queued_playback_instant = None;
+                        #[cfg(feature = "scheduled_events")]
+                        {
+                            self.queued_playback_instant = None;
+                        }
                     } else {
                         self.playback_state = PlaybackState::Stop;
-                        self.queued_playback_instant = playback_instant;
+
+                        #[cfg(feature = "scheduled_events")]
+                        {
+                            self.queued_playback_instant = playback_instant;
+                        }
                     }
                 }
             }

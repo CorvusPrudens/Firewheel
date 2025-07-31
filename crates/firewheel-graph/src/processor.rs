@@ -2,30 +2,40 @@ use core::{num::NonZeroU32, time::Duration};
 use std::usize;
 
 use ringbuf::traits::Producer;
-use smallvec::SmallVec;
 use thunderdome::Arena;
+
+use firewheel_core::{
+    clock::InstantSamples,
+    dsp::{buffer::ChannelBuffer, declick::DeclickValues},
+    event::{NodeEvent, NodeEventListIndex},
+    node::{AudioNodeProcessor, StreamStatus, NUM_SCRATCH_BUFFERS},
+    StreamInfo,
+};
 
 use crate::{
     backend::AudioBackend,
-    context::ClearScheduledEventsType,
     graph::ScheduleHeapData,
-    processor::{
-        event_scheduler::{EventScheduler, NodeEventSchedulerData},
-        transport::ProcTransportState,
-    },
+    processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
 };
-use firewheel_core::{
-    clock::{InstantMusical, InstantSamples, TransportState},
-    dsp::{buffer::ChannelBuffer, declick::DeclickValues},
-    event::{NodeEvent, NodeEventListIndex},
-    node::{AudioNodeProcessor, NodeID, StreamStatus, NUM_SCRATCH_BUFFERS},
-    StreamInfo,
-};
+
+#[cfg(feature = "scheduled_events")]
+use crate::context::ClearScheduledEventsType;
+#[cfg(feature = "scheduled_events")]
+use firewheel_core::node::NodeID;
+#[cfg(feature = "scheduled_events")]
+use smallvec::SmallVec;
+
+#[cfg(feature = "musical_transport")]
+use firewheel_core::clock::{InstantMusical, TransportState};
 
 mod event_scheduler;
 mod handle_messages;
 mod process;
+
+#[cfg(feature = "musical_transport")]
 mod transport;
+#[cfg(feature = "musical_transport")]
+use transport::ProcTransportState;
 
 pub struct FirewheelProcessor<B: AudioBackend> {
     inner: Option<FirewheelProcessorInner<B>>,
@@ -106,6 +116,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     clock_samples: InstantSamples,
     shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
 
+    #[cfg(feature = "musical_transport")]
     proc_transport_state: ProcTransportState,
 
     hard_clip_outputs: bool,
@@ -126,7 +137,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
         shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
         immediate_event_buffer_capacity: usize,
-        scheduled_event_buffer_capacity: usize,
+        #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
         node_event_buffer_capacity: usize,
         stream_info: &StreamInfo,
         hard_clip_outputs: bool,
@@ -139,6 +150,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             to_graph_tx,
             event_scheduler: EventScheduler::new(
                 immediate_event_buffer_capacity,
+                #[cfg(feature = "scheduled_events")]
                 scheduled_event_buffer_capacity,
                 buffer_out_of_space_mode,
             ),
@@ -148,6 +160,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: InstantSamples(0),
             shared_clock_input,
+            #[cfg(feature = "musical_transport")]
             proc_transport_state: ProcTransportState::new(),
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
@@ -167,17 +180,22 @@ pub(crate) enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
     HardClipOutputs(bool),
+    #[cfg(feature = "musical_transport")]
     SetTransportState(Box<TransportState>),
+    #[cfg(feature = "scheduled_events")]
     ClearScheduledEvents(SmallVec<[ClearScheduledEventsEvent; 1]>),
 }
 
 pub(crate) enum ProcessorToContextMsg {
     ReturnEventGroup(Vec<NodeEvent>),
     ReturnSchedule(Box<ScheduleHeapData>),
+    #[cfg(feature = "musical_transport")]
     ReturnTransportState(Box<TransportState>),
+    #[cfg(feature = "scheduled_events")]
     ReturnClearScheduledEvents(SmallVec<[ClearScheduledEventsEvent; 1]>),
 }
 
+#[cfg(feature = "scheduled_events")]
 pub(crate) struct ClearScheduledEventsEvent {
     /// If `None`, then clear events for all nodes.
     pub node_id: Option<NodeID>,
@@ -187,7 +205,9 @@ pub(crate) struct ClearScheduledEventsEvent {
 #[derive(Clone)]
 pub(crate) struct SharedClock<I: Clone> {
     pub clock_samples: InstantSamples,
+    #[cfg(feature = "musical_transport")]
     pub musical_time: Option<InstantMusical>,
+    #[cfg(feature = "musical_transport")]
     pub transport_is_playing: bool,
     pub process_timestamp: Option<I>,
 }
@@ -196,7 +216,9 @@ impl<I: Clone> Default for SharedClock<I> {
     fn default() -> Self {
         Self {
             clock_samples: InstantSamples(0),
+            #[cfg(feature = "musical_transport")]
             musical_time: None,
+            #[cfg(feature = "musical_transport")]
             transport_is_playing: false,
             process_timestamp: None,
         }

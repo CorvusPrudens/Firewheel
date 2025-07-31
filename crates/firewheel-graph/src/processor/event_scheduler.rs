@@ -1,17 +1,28 @@
-use std::{num::NonZeroU32, ops::Range};
+use core::ops::Range;
 
 use arrayvec::ArrayVec;
 use firewheel_core::{
-    clock::{DurationSamples, EventInstant, InstantSamples, MusicalTransport},
+    clock::{DurationSamples, InstantSamples},
     event::{NodeEvent, NodeEventList, NodeEventListIndex},
     node::{NodeID, ProcBuffers, ProcInfo},
 };
 use thunderdome::Arena;
 
-use crate::{
-    context::ClearScheduledEventsType,
-    processor::{BufferOutOfSpaceMode, ClearScheduledEventsEvent, NodeEntry, ProcTransportState},
-};
+use crate::processor::{BufferOutOfSpaceMode, NodeEntry};
+
+#[cfg(feature = "scheduled_events")]
+use crate::context::ClearScheduledEventsType;
+#[cfg(feature = "scheduled_events")]
+use crate::processor::ClearScheduledEventsEvent;
+#[cfg(feature = "scheduled_events")]
+use core::num::NonZeroU32;
+#[cfg(feature = "scheduled_events")]
+use firewheel_core::clock::EventInstant;
+
+#[cfg(feature = "musical_transport")]
+use crate::processor::ProcTransportState;
+#[cfg(feature = "musical_transport")]
+use firewheel_core::clock::MusicalTransport;
 
 const MAX_CLUMP_INDICES: usize = 8;
 
@@ -20,16 +31,23 @@ pub(super) struct EventScheduler {
     immediate_event_buffer_capacity: usize,
 
     // A slab allocator arena for scheduled node events.
+    #[cfg(feature = "scheduled_events")]
     scheduled_event_arena: Vec<Option<NodeEvent>>,
+    #[cfg(feature = "scheduled_events")]
     scheduled_event_arena_free_slots: Vec<u32>,
 
     // Sorting this Vec is much faster than sorting `scheduled_event_arena`
     // directly since its data type is smaller and it implements `Copy`.
+    #[cfg(feature = "scheduled_events")]
     sorted_event_buffer_indices: Vec<(u32, InstantSamples)>,
+    #[cfg(feature = "scheduled_events")]
     scheduled_events_need_sorting: bool,
+    #[cfg(feature = "scheduled_events")]
     num_elapsed_sorted_events: usize,
 
+    #[cfg(feature = "musical_transport")]
     num_scheduled_musical_events: usize,
+    #[cfg(feature = "scheduled_events")]
     num_scheduled_non_musical_events: usize,
 
     buffer_out_of_space_mode: BufferOutOfSpaceMode,
@@ -38,26 +56,35 @@ pub(super) struct EventScheduler {
 impl EventScheduler {
     pub fn new(
         immediate_event_buffer_capacity: usize,
-        scheduled_event_buffer_capacity: usize,
+        #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
     ) -> Self {
+        #[cfg(feature = "scheduled_events")]
         let mut scheduled_event_arena = Vec::new();
+        #[cfg(feature = "scheduled_events")]
         scheduled_event_arena.resize_with(scheduled_event_buffer_capacity, || None);
 
         Self {
             immediate_event_buffer: Vec::with_capacity(immediate_event_buffer_capacity),
             immediate_event_buffer_capacity,
 
+            #[cfg(feature = "scheduled_events")]
             scheduled_event_arena,
+            #[cfg(feature = "scheduled_events")]
             scheduled_event_arena_free_slots: (0..scheduled_event_buffer_capacity as u32)
                 .rev()
                 .collect(),
 
+            #[cfg(feature = "scheduled_events")]
             sorted_event_buffer_indices: Vec::with_capacity(scheduled_event_buffer_capacity),
+            #[cfg(feature = "scheduled_events")]
             scheduled_events_need_sorting: false,
+            #[cfg(feature = "scheduled_events")]
             num_scheduled_non_musical_events: 0,
 
+            #[cfg(feature = "scheduled_events")]
             num_elapsed_sorted_events: 0,
+            #[cfg(feature = "musical_transport")]
             num_scheduled_musical_events: 0,
 
             buffer_out_of_space_mode,
@@ -68,9 +95,10 @@ impl EventScheduler {
         &mut self,
         event_group: &mut Vec<NodeEvent>,
         nodes: &mut Arena<NodeEntry>,
-        sample_rate: NonZeroU32,
-        proc_transport_state: &ProcTransportState,
+        #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
+        #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
+        #[cfg(feature = "scheduled_events")]
         self.truncate_elapsed_events();
 
         for event in event_group.drain(..) {
@@ -78,7 +106,9 @@ impl EventScheduler {
                 self.push_event(
                     event,
                     &mut node_entry.event_data,
+                    #[cfg(feature = "scheduled_events")]
                     sample_rate,
+                    #[cfg(feature = "musical_transport")]
                     proc_transport_state,
                 );
             }
@@ -89,9 +119,10 @@ impl EventScheduler {
         &mut self,
         event: NodeEvent,
         node_data: &mut NodeEventSchedulerData,
-        sample_rate: NonZeroU32,
-        proc_transport_state: &ProcTransportState,
+        #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
+        #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
+        #[cfg(feature = "scheduled_events")]
         if let Some(event_instant) = event.time {
             let slot = if let Some(slot) = self.scheduled_event_arena_free_slots.pop() {
                 slot
@@ -117,6 +148,7 @@ impl EventScheduler {
 
                     seconds.to_samples(sample_rate)
                 }
+                #[cfg(feature = "musical_transport")]
                 EventInstant::Musical(musical) => {
                     self.num_scheduled_musical_events += 1;
                     node_data.num_scheduled_musical_events += 1;
@@ -139,54 +171,62 @@ impl EventScheduler {
             self.scheduled_event_arena[slot as usize] = Some(event);
 
             self.sorted_event_buffer_indices.push((slot, time_samples));
-        } else {
-            if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
-                match self.buffer_out_of_space_mode {
-                    BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                        // TODO: Realtime-safe logging
-                        log::warn!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid allocations on the audio thread.");
-                        self.immediate_event_buffer
-                            .reserve(self.immediate_event_buffer_capacity);
-                        self.immediate_event_buffer_capacity *= 2;
-                    }
-                    BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
-                    }
-                    BufferOutOfSpaceMode::DropEvents => {
-                        // TODO: Realtime-safe logging
-                        log::warn!(
-                            "Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity."
-                        );
-                        return;
-                    }
+
+            return;
+        }
+
+        if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
+            match self.buffer_out_of_space_mode {
+                BufferOutOfSpaceMode::AllocateOnAudioThread => {
+                    // TODO: Realtime-safe logging
+                    log::warn!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid allocations on the audio thread.");
+                    self.immediate_event_buffer
+                        .reserve(self.immediate_event_buffer_capacity);
+                    self.immediate_event_buffer_capacity *= 2;
+                }
+                BufferOutOfSpaceMode::Panic => {
+                    panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
+                }
+                BufferOutOfSpaceMode::DropEvents => {
+                    // TODO: Realtime-safe logging
+                    log::warn!(
+                        "Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity."
+                    );
+                    return;
                 }
             }
-
-            // Because immediate events for a node are likely to be clumped together,
-            // the linear search is optimized by storing the starting index of each
-            // new clump.
-            let is_new_clump = self
-                .immediate_event_buffer
-                .last()
-                .map(|prev_event| prev_event.as_ref().unwrap().node_id != event.node_id)
-                .unwrap_or(true);
-            if is_new_clump {
-                let _ = node_data
-                    .immediate_event_clump_indices
-                    .try_push(self.immediate_event_buffer.len() as u32);
-            }
-
-            node_data.num_immediate_events += 1;
-
-            self.immediate_event_buffer.push(Some(event));
         }
+
+        // Because immediate events for a node are likely to be clumped together,
+        // the linear search is optimized by storing the starting index of each
+        // new clump.
+        let is_new_clump = self
+            .immediate_event_buffer
+            .last()
+            .map(|prev_event| prev_event.as_ref().unwrap().node_id != event.node_id)
+            .unwrap_or(true);
+        if is_new_clump {
+            let _ = node_data
+                .immediate_event_clump_indices
+                .try_push(self.immediate_event_buffer.len() as u32);
+        }
+
+        node_data.num_immediate_events += 1;
+
+        self.immediate_event_buffer.push(Some(event));
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn node_has_scheduled_events(&self, node_entry: &NodeEntry) -> bool {
-        node_entry.event_data.num_scheduled_musical_events > 0
-            || node_entry.event_data.num_scheduled_non_musical_events > 0
+        #[cfg(feature = "musical_transport")]
+        return node_entry.event_data.num_scheduled_musical_events > 0
+            || node_entry.event_data.num_scheduled_non_musical_events > 0;
+
+        #[cfg(not(feature = "musical_transport"))]
+        return node_entry.event_data.num_scheduled_non_musical_events > 0;
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn remove_events_from_removed_nodes(&mut self, nodes: &Arena<NodeEntry>) {
         self.truncate_elapsed_events();
 
@@ -196,9 +236,15 @@ impl EventScheduler {
             if nodes.contains(event.node_id.0) {
                 true
             } else {
+                #[cfg(feature = "musical_transport")]
                 if event.time.unwrap().is_musical() {
                     self.num_scheduled_musical_events -= 1;
                 } else {
+                    self.num_scheduled_non_musical_events -= 1;
+                }
+
+                #[cfg(not(feature = "musical_transport"))]
+                {
                     self.num_scheduled_non_musical_events -= 1;
                 }
 
@@ -212,6 +258,7 @@ impl EventScheduler {
         });
     }
 
+    #[cfg(feature = "musical_transport")]
     pub fn sync_scheduled_events_to_transport(
         &mut self,
         transport_and_start_clock_samples: Option<(&MusicalTransport, InstantSamples)>,
@@ -246,6 +293,7 @@ impl EventScheduler {
         self.scheduled_events_need_sorting = true;
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn handle_clear_scheduled_events_event(
         &mut self,
         msgs: &[ClearScheduledEventsEvent],
@@ -261,6 +309,7 @@ impl EventScheduler {
                     continue;
                 };
 
+                #[cfg(feature = "musical_transport")]
                 match msg.event_type {
                     ClearScheduledEventsType::All => {
                         if node_entry.event_data.num_scheduled_musical_events == 0
@@ -280,8 +329,27 @@ impl EventScheduler {
                         }
                     }
                 }
+
+                #[cfg(not(feature = "musical_transport"))]
+                match msg.event_type {
+                    ClearScheduledEventsType::All => {
+                        if node_entry.event_data.num_scheduled_non_musical_events == 0 {
+                            continue;
+                        }
+                    }
+                    ClearScheduledEventsType::MusicalOnly => {
+                        continue;
+                    }
+                    ClearScheduledEventsType::NonMusicalOnly => {
+                        if node_entry.event_data.num_scheduled_non_musical_events == 0 {
+                            continue;
+                        }
+                    }
+                }
             } else {
                 // Else `None` means to clear scheduled events for all nodes.
+
+                #[cfg(feature = "musical_transport")]
                 match msg.event_type {
                     ClearScheduledEventsType::All => {
                         if self.num_scheduled_musical_events == 0
@@ -294,6 +362,23 @@ impl EventScheduler {
                         if self.num_scheduled_musical_events == 0 {
                             continue;
                         }
+                    }
+                    ClearScheduledEventsType::NonMusicalOnly => {
+                        if self.num_scheduled_non_musical_events == 0 {
+                            continue;
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "musical_transport"))]
+                match msg.event_type {
+                    ClearScheduledEventsType::All => {
+                        if self.num_scheduled_non_musical_events == 0 {
+                            continue;
+                        }
+                    }
+                    ClearScheduledEventsType::MusicalOnly => {
+                        continue;
                     }
                     ClearScheduledEventsType::NonMusicalOnly => {
                         if self.num_scheduled_non_musical_events == 0 {
@@ -318,10 +403,13 @@ impl EventScheduler {
                         return true;
                     }
 
-                    self.num_scheduled_musical_events -= 1;
-                    nodes[event.node_id.0]
-                        .event_data
-                        .num_scheduled_musical_events -= 1;
+                    #[cfg(feature = "musical_transport")]
+                    {
+                        self.num_scheduled_musical_events -= 1;
+                        nodes[event.node_id.0]
+                            .event_data
+                            .num_scheduled_musical_events -= 1;
+                    }
                 } else {
                     if let ClearScheduledEventsType::MusicalOnly = msg.event_type {
                         return true;
@@ -343,6 +431,7 @@ impl EventScheduler {
         }
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn sample_rate_changed(
         &mut self,
         old_sample_rate: NonZeroU32,
@@ -359,6 +448,7 @@ impl EventScheduler {
     }
 
     /// Find scheduled events that have elapsed this processing block
+    #[cfg(feature = "scheduled_events")]
     pub fn prepare_process_block(&mut self, proc_info: &ProcInfo, nodes: &mut Arena<NodeEntry>) {
         self.sort_events();
 
@@ -373,9 +463,15 @@ impl EventScheduler {
             if *time_samples < end_samples {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
+                #[cfg(feature = "musical_transport")]
                 if event.time.unwrap().is_musical() {
                     self.num_scheduled_musical_events -= 1;
                 } else {
+                    self.num_scheduled_non_musical_events -= 1;
+                }
+
+                #[cfg(not(feature = "musical_transport"))]
+                {
                     self.num_scheduled_non_musical_events -= 1;
                 }
 
@@ -446,15 +542,19 @@ impl EventScheduler {
 
         // Optimize the linear search a bit by starting at the index of the
         // first known scheduled event for this node.
+        #[cfg(feature = "scheduled_events")]
         let mut sorted_event_i = node_entry.event_data.first_sorted_event_index;
 
         let mut sub_clock_samples = clock_samples;
         let mut frames_processed = 0;
         while frames_processed < block_frames {
+            #[allow(unused_mut)]
             let mut sub_chunk_frames = block_frames - frames_processed;
 
             // Add scheduled events to the processing queue.
+            #[cfg(feature = "scheduled_events")]
             let mut upcoming_event_slot = None;
+            #[cfg(feature = "scheduled_events")]
             while node_entry.event_data.num_scheduled_events_this_block > 0 {
                 let (slot, time_samples) = self.sorted_event_buffer_indices[sorted_event_i];
                 sorted_event_i += 1;
@@ -468,9 +568,16 @@ impl EventScheduler {
                 }
 
                 node_entry.event_data.num_scheduled_events_this_block -= 1;
+
+                #[cfg(feature = "musical_transport")]
                 if event.time.unwrap().is_musical() {
                     node_entry.event_data.num_scheduled_musical_events -= 1;
                 } else {
+                    node_entry.event_data.num_scheduled_non_musical_events -= 1;
+                }
+
+                #[cfg(not(feature = "musical_transport"))]
+                {
                     node_entry.event_data.num_scheduled_non_musical_events -= 1;
                 }
 
@@ -548,6 +655,7 @@ impl EventScheduler {
 
             let mut node_event_list = NodeEventList::new(
                 &mut self.immediate_event_buffer,
+                #[cfg(feature = "scheduled_events")]
                 &mut self.scheduled_event_arena,
                 node_event_queue,
             );
@@ -572,6 +680,7 @@ impl EventScheduler {
 
             // If there was an upcoming scheduled event, add it to the processing queue
             // for the next sub-chunk.
+            #[cfg(feature = "scheduled_events")]
             if let Some(slot) = upcoming_event_slot {
                 // Sanity check. There should be no upcoming event if this is the last
                 // sub-chunk.
@@ -586,6 +695,7 @@ impl EventScheduler {
         }
 
         // Sanity check. There should be no scheduled events left.
+        #[cfg(feature = "scheduled_events")]
         assert_eq!(node_entry.event_data.num_scheduled_events_this_block, 0);
     }
 
@@ -594,6 +704,7 @@ impl EventScheduler {
         self.immediate_event_buffer.clear();
     }
 
+    #[cfg(feature = "scheduled_events")]
     fn sort_events(&mut self) {
         if !self.scheduled_events_need_sorting {
             return;
@@ -611,6 +722,7 @@ impl EventScheduler {
     }
 
     /// Truncate elapsed event slots from the sorted event buffer.
+    #[cfg(feature = "scheduled_events")]
     fn truncate_elapsed_events(&mut self) {
         if self.num_elapsed_sorted_events == 0 {
             return;
@@ -627,6 +739,7 @@ impl EventScheduler {
     }
 
     /// Returns `true` if the event should be dropped.
+    #[cfg(feature = "scheduled_events")]
     fn extend_scheduled_event_buffer(&mut self) -> bool {
         match self.buffer_out_of_space_mode {
             BufferOutOfSpaceMode::AllocateOnAudioThread => {
@@ -664,10 +777,14 @@ pub(super) struct NodeEventSchedulerData {
     /// Events for a single node are likely to be clumped together.
     immediate_event_clump_indices: ArrayVec<u32, MAX_CLUMP_INDICES>,
 
+    #[cfg(feature = "musical_transport")]
     num_scheduled_musical_events: usize,
+    #[cfg(feature = "scheduled_events")]
     num_scheduled_non_musical_events: usize,
 
+    #[cfg(feature = "scheduled_events")]
     num_scheduled_events_this_block: usize,
+    #[cfg(feature = "scheduled_events")]
     first_sorted_event_index: usize,
 }
 

@@ -1,15 +1,24 @@
 use bevy_platform::time::Instant;
 use core::num::NonZeroU32;
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use crate::diff::{Diff, Notify, Patch};
+#[cfg(feature = "musical_transport")]
+use crate::diff::Notify;
+#[cfg(feature = "scheduled_events")]
+use crate::diff::{Diff, Patch};
+#[cfg(feature = "scheduled_events")]
 use crate::event::ParamData;
+#[cfg(feature = "scheduled_events")]
 use crate::node::ProcInfo;
+
+#[cfg(feature = "musical_transport")]
+use core::ops::Range;
 
 pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
 
 /// When a particular audio event should occur, in units of absolute
 /// audio clock time.
+#[cfg(feature = "scheduled_events")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EventInstant {
     /// The event should happen when the clock reaches the given time in
@@ -28,16 +37,22 @@ pub enum EventInstant {
 
     /// The event should happen when the musical clock reaches the given
     /// musical time.
+    #[cfg(feature = "musical_transport")]
     Musical(InstantMusical),
 }
 
+#[cfg(feature = "scheduled_events")]
 impl EventInstant {
     pub fn is_musical(&self) -> bool {
+        #[cfg(feature = "musical_transport")]
         if let EventInstant::Musical(_) = self {
-            true
+            return true;
         } else {
-            false
+            return false;
         }
+
+        #[cfg(not(feature = "musical_transport"))]
+        return false;
     }
 
     /// Convert the instant to the given time in samples.
@@ -49,29 +64,34 @@ impl EventInstant {
         match self {
             EventInstant::Samples(samples) => Some(*samples),
             EventInstant::Seconds(seconds) => Some(seconds.to_samples(proc_info.sample_rate)),
+            #[cfg(feature = "musical_transport")]
             EventInstant::Musical(musical) => proc_info.musical_to_samples(*musical),
         }
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl From<InstantSeconds> for EventInstant {
     fn from(value: InstantSeconds) -> Self {
         Self::Seconds(value)
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl From<InstantSamples> for EventInstant {
     fn from(value: InstantSamples) -> Self {
         Self::Samples(value)
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl From<InstantMusical> for EventInstant {
     fn from(value: InstantMusical) -> Self {
         Self::Musical(value)
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl Diff for EventInstant {
     fn diff<E: crate::diff::EventQueue>(
         &self,
@@ -83,12 +103,14 @@ impl Diff for EventInstant {
             match self {
                 EventInstant::Seconds(s) => event_queue.push_param(*s, path),
                 EventInstant::Samples(s) => event_queue.push_param(*s, path),
+                #[cfg(feature = "musical_transport")]
                 EventInstant::Musical(m) => event_queue.push_param(*m, path),
             }
         }
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl Patch for EventInstant {
     type Patch = Self;
 
@@ -96,6 +118,7 @@ impl Patch for EventInstant {
         match data {
             ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(*s)),
             ParamData::InstantSamples(s) => Ok(EventInstant::Samples(*s)),
+            #[cfg(feature = "musical_transport")]
             ParamData::InstantMusical(s) => Ok(EventInstant::Musical(*s)),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
@@ -106,6 +129,7 @@ impl Patch for EventInstant {
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl Diff for Option<EventInstant> {
     fn diff<E: crate::diff::EventQueue>(
         &self,
@@ -117,6 +141,7 @@ impl Diff for Option<EventInstant> {
             match self {
                 Some(EventInstant::Seconds(s)) => event_queue.push_param(*s, path),
                 Some(EventInstant::Samples(s)) => event_queue.push_param(*s, path),
+                #[cfg(feature = "musical_transport")]
                 Some(EventInstant::Musical(m)) => event_queue.push_param(*m, path),
                 None => event_queue.push_param(ParamData::None, path),
             }
@@ -124,6 +149,7 @@ impl Diff for Option<EventInstant> {
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl Patch for Option<EventInstant> {
     type Patch = Self;
 
@@ -131,6 +157,7 @@ impl Patch for Option<EventInstant> {
         match data {
             ParamData::InstantSeconds(s) => Ok(Some(EventInstant::Seconds(*s))),
             ParamData::InstantSamples(s) => Ok(Some(EventInstant::Samples(*s))),
+            #[cfg(feature = "musical_transport")]
             ParamData::InstantMusical(s) => Ok(Some(EventInstant::Musical(*s))),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
@@ -159,6 +186,7 @@ impl InstantSeconds {
     }
 
     /// Convert to the corresponding musical time.
+    #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
         transport: &MusicalTransport,
@@ -349,6 +377,7 @@ impl InstantSamples {
     }
 
     /// Convert to the corresponding musical time.
+    #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
         transport: &MusicalTransport,
@@ -553,8 +582,10 @@ impl Into<i64> for DurationSamples {
 /// An absolute audio clock instant in units of musical beats.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg(feature = "musical_transport")]
 pub struct InstantMusical(pub f64);
 
+#[cfg(feature = "musical_transport")]
 impl InstantMusical {
     pub const ZERO: Self = Self(0.0);
 
@@ -592,8 +623,10 @@ impl InstantMusical {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg(feature = "musical_transport")]
 pub struct DurationMusical(pub f64);
 
+#[cfg(feature = "musical_transport")]
 impl DurationMusical {
     pub const ZERO: Self = Self(0.0);
 
@@ -602,6 +635,7 @@ impl DurationMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Add<DurationMusical> for InstantMusical {
     type Output = InstantMusical;
     fn add(self, rhs: DurationMusical) -> Self::Output {
@@ -609,6 +643,7 @@ impl Add<DurationMusical> for InstantMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Sub<DurationMusical> for InstantMusical {
     type Output = InstantMusical;
     fn sub(self, rhs: DurationMusical) -> Self::Output {
@@ -616,18 +651,21 @@ impl Sub<DurationMusical> for InstantMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl AddAssign<DurationMusical> for InstantMusical {
     fn add_assign(&mut self, rhs: DurationMusical) {
         *self = *self + rhs;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl SubAssign<DurationMusical> for InstantMusical {
     fn sub_assign(&mut self, rhs: DurationMusical) {
         *self = *self - rhs;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Sub<InstantMusical> for InstantMusical {
     type Output = DurationMusical;
     fn sub(self, rhs: Self) -> Self::Output {
@@ -635,6 +673,7 @@ impl Sub<InstantMusical> for InstantMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Add for DurationMusical {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
@@ -642,6 +681,7 @@ impl Add for DurationMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Sub for DurationMusical {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
@@ -649,18 +689,21 @@ impl Sub for DurationMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl AddAssign for DurationMusical {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl SubAssign for DurationMusical {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Mul<f64> for DurationMusical {
     type Output = Self;
     fn mul(self, rhs: f64) -> Self::Output {
@@ -668,6 +711,7 @@ impl Mul<f64> for DurationMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Div<f64> for DurationMusical {
     type Output = Self;
     fn div(self, rhs: f64) -> Self::Output {
@@ -675,36 +719,42 @@ impl Div<f64> for DurationMusical {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl MulAssign<f64> for DurationMusical {
     fn mul_assign(&mut self, rhs: f64) {
         self.0 *= rhs;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl DivAssign<f64> for DurationMusical {
     fn div_assign(&mut self, rhs: f64) {
         self.0 /= rhs;
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl From<f64> for InstantMusical {
     fn from(value: f64) -> Self {
         Self(value)
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Into<f64> for InstantMusical {
     fn into(self) -> f64 {
         self.0
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl From<f64> for DurationMusical {
     fn from(value: f64) -> Self {
         Self(value)
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl Into<f64> for DurationMusical {
     fn into(self) -> f64 {
         self.0
@@ -713,17 +763,20 @@ impl Into<f64> for DurationMusical {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "musical_transport")]
 pub enum MusicalTransport {
     Static(StaticTransport),
     // TODO: Linearly automated tempo.
 }
 
+#[cfg(feature = "musical_transport")]
 impl Default for MusicalTransport {
     fn default() -> Self {
         Self::Static(StaticTransport::default())
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl MusicalTransport {
     pub fn musical_to_seconds(
         &self,
@@ -817,6 +870,7 @@ impl MusicalTransport {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProcTransportInfo {
     /// The number of frames in this processing block that this information
@@ -838,6 +892,7 @@ pub struct ProcTransportInfo {
     pub delta_beats_per_minute: f64,
 }
 
+#[cfg(feature = "musical_transport")]
 impl ProcTransportInfo {
     /// Get the BPM at the given frame.
     ///
@@ -849,11 +904,13 @@ impl ProcTransportInfo {
 }
 
 /// A musical transport with a single static tempo in beats per minute.
+#[cfg(feature = "musical_transport")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticTransport {
     pub beats_per_minute: f64,
 }
 
+#[cfg(feature = "musical_transport")]
 impl Default for StaticTransport {
     fn default() -> Self {
         Self {
@@ -862,6 +919,7 @@ impl Default for StaticTransport {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 impl StaticTransport {
     pub const fn new(beats_per_minute: f64) -> Self {
         Self { beats_per_minute }
@@ -1151,10 +1209,12 @@ pub struct AudioClock {
     /// does *NOT* account for any output underflows (underruns) that may have
     /// occured. For applications where the timing of audio events is critical (i.e.
     /// a rythm game), sync the game to this audio clock.
+    #[cfg(feature = "musical_transport")]
     pub musical: Option<InstantMusical>,
 
     /// This is `true` if a musical transport is present and it is not paused,
     /// `false` otherwise.
+    #[cfg(feature = "musical_transport")]
     pub transport_is_playing: bool,
 
     /// The instant the audio clock was last updated.
@@ -1168,6 +1228,7 @@ pub struct AudioClock {
 }
 
 /// The state of the musical transport in a Firewheel context.
+#[cfg(feature = "musical_transport")]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct TransportState {
@@ -1190,6 +1251,7 @@ pub struct TransportState {
     pub loop_range: Option<Range<InstantMusical>>,
 }
 
+#[cfg(feature = "musical_transport")]
 impl Default for TransportState {
     fn default() -> Self {
         Self {
@@ -1202,10 +1264,12 @@ impl Default for TransportState {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 pub fn seconds_per_beat(beats_per_minute: f64) -> f64 {
     60.0 / beats_per_minute
 }
 
+#[cfg(feature = "musical_transport")]
 pub fn beats_per_second(beats_per_minute: f64) -> f64 {
     beats_per_minute * (1.0 / 60.0)
 }

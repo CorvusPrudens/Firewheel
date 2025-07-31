@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
-use firewheel_core::clock::{DurationSeconds, EventInstant, TransportState};
+use firewheel_core::clock::DurationSeconds;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::AudioClock,
@@ -16,7 +16,7 @@ use firewheel_core::{
 use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
 
-use crate::processor::{BufferOutOfSpaceMode, ClearScheduledEventsEvent};
+use crate::processor::BufferOutOfSpaceMode;
 use crate::{
     backend::{AudioBackend, DeviceInfo},
     error::{AddEdgeError, StartStreamError, UpdateError},
@@ -26,6 +26,14 @@ use crate::{
         SharedClock,
     },
 };
+
+#[cfg(feature = "scheduled_events")]
+use crate::processor::ClearScheduledEventsEvent;
+#[cfg(feature = "scheduled_events")]
+use firewheel_core::clock::EventInstant;
+
+#[cfg(feature = "musical_transport")]
+use firewheel_core::clock::TransportState;
 
 /// The configuration of a Firewheel context.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,6 +92,7 @@ pub struct FirewheelConfig {
     /// scheduled events.
     ///
     /// By default this is set to `512`.
+    #[cfg(feature = "scheduled_events")]
     pub scheduled_event_capacity: usize,
     /// How to handle event buffers on the audio thread running out of space.
     ///
@@ -104,6 +113,7 @@ impl Default for FirewheelConfig {
             channel_capacity: 64,
             event_queue_capacity: 128,
             immediate_event_capacity: 512,
+            #[cfg(feature = "scheduled_events")]
             scheduled_event_capacity: 512,
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
         }
@@ -135,6 +145,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
 
+    #[cfg(feature = "musical_transport")]
     transport_state: TransportState,
 
     // Re-use the allocations for groups of events.
@@ -142,6 +153,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
     event_group: Vec<NodeEvent>,
     initial_event_group_capacity: usize,
 
+    #[cfg(feature = "scheduled_events")]
     queued_clear_scheduled_events: Vec<ClearScheduledEventsEvent>,
 
     config: FirewheelConfig,
@@ -175,10 +187,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
+            #[cfg(feature = "musical_transport")]
             transport_state: TransportState::default(),
             event_group_pool,
             event_group: Vec::with_capacity(initial_event_group_capacity),
             initial_event_group_capacity,
+            #[cfg(feature = "scheduled_events")]
             queued_clear_scheduled_events: Vec::new(),
             config,
         }
@@ -282,6 +296,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     to_context_tx,
                     shared_clock_input,
                     self.config.immediate_event_capacity,
+                    #[cfg(feature = "scheduled_events")]
                     self.config.scheduled_event_capacity,
                     self.config.event_queue_capacity,
                     &stream_info,
@@ -367,7 +382,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             seconds: clock
                 .clock_samples
                 .to_seconds(self.sample_rate, self.sample_rate_recip),
+            #[cfg(feature = "musical_transport")]
             musical: clock.musical_time,
+            #[cfg(feature = "musical_transport")]
             transport_is_playing: clock.transport_is_playing,
             update_instant,
         }
@@ -410,7 +427,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 seconds: clock
                     .clock_samples
                     .to_seconds(self.sample_rate, self.sample_rate_recip),
+                #[cfg(feature = "musical_transport")]
                 musical: clock.musical_time,
+                #[cfg(feature = "musical_transport")]
                 transport_is_playing: clock.transport_is_playing,
                 update_instant: None,
             };
@@ -421,6 +440,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
+        #[cfg(feature = "musical_transport")]
         let musical = clock.musical_time.map(|musical_time| {
             if clock.transport_is_playing && self.transport_state.transport.is_some() {
                 self.transport_state
@@ -436,7 +456,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         AudioClock {
             samples,
             seconds: samples.to_seconds(self.sample_rate, self.sample_rate_recip),
+            #[cfg(feature = "musical_transport")]
             musical,
+            #[cfg(feature = "musical_transport")]
             transport_is_playing: clock.transport_is_playing,
             update_instant: Some(update_instant),
         }
@@ -469,6 +491,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Sync the state of the musical transport.
     ///
     /// If the message channel is full, then this will return an error.
+    #[cfg(feature = "musical_transport")]
     pub fn sync_transport(
         &mut self,
         transport: &TransportState,
@@ -486,6 +509,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get the current transport state.
+    #[cfg(feature = "musical_transport")]
     pub fn transport(&self) -> &TransportState {
         &self.transport_state
     }
@@ -531,9 +555,11 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 ProcessorToContextMsg::ReturnSchedule(schedule_data) => {
                     let _ = schedule_data;
                 }
+                #[cfg(feature = "musical_transport")]
                 ProcessorToContextMsg::ReturnTransportState(transport_state) => {
                     let _ = transport_state;
                 }
+                #[cfg(feature = "scheduled_events")]
                 ProcessorToContextMsg::ReturnClearScheduledEvents(msgs) => {
                     let _ = msgs;
                 }
@@ -586,6 +612,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 }
             }
 
+            #[cfg(feature = "scheduled_events")]
             if !self.queued_clear_scheduled_events.is_empty() {
                 let msgs: SmallVec<[ClearScheduledEventsEvent; 1]> =
                     self.queued_clear_scheduled_events.drain(..).collect();
@@ -804,6 +831,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn queue_event_for(&mut self, node_id: NodeID, event: NodeEventType) {
         self.queue_event(NodeEvent {
             node_id,
+            #[cfg(feature = "scheduled_events")]
             time: None,
             event,
         });
@@ -813,6 +841,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// Note, this event will not be sent until the event queue is flushed
     /// in [`FirewheelCtx::update`].
+    #[cfg(feature = "scheduled_events")]
     pub fn schedule_event_for(
         &mut self,
         node_id: NodeID,
@@ -833,6 +862,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// to [`FirewheelCtx::update`] will not be canceled.
     ///
     /// This only takes effect once [`FirewheelCtx::update`] is called.
+    #[cfg(feature = "scheduled_events")]
     pub fn cancel_all_scheduled_events(&mut self, event_type: ClearScheduledEventsType) {
         self.queued_clear_scheduled_events
             .push(ClearScheduledEventsEvent {
@@ -848,6 +878,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// to [`FirewheelCtx::update`] will not be canceled.
     ///
     /// This only takes effect once [`FirewheelCtx::update`] is called.
+    #[cfg(feature = "scheduled_events")]
     pub fn cancel_scheduled_events_for(
         &mut self,
         node_id: NodeID,
@@ -925,6 +956,7 @@ pub struct ContextQueue<'a, B: AudioBackend> {
     id: NodeID,
 }
 
+#[cfg(feature = "scheduled_events")]
 pub struct TimedContextQueue<'a, B: AudioBackend> {
     time: EventInstant,
     context_queue: ContextQueue<'a, B>,
@@ -938,6 +970,7 @@ impl<'a, B: AudioBackend> ContextQueue<'a, B> {
         }
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn with_time<'b>(&'b mut self, time: EventInstant) -> TimedContextQueue<'b, B> {
         TimedContextQueue {
             time,
@@ -950,12 +983,14 @@ impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
     fn push(&mut self, data: NodeEventType) {
         self.context.queue_event(NodeEvent {
             event: data,
+            #[cfg(feature = "scheduled_events")]
             time: None,
             node_id: self.id,
         });
     }
 }
 
+#[cfg(feature = "scheduled_events")]
 impl<B: AudioBackend> firewheel_core::diff::EventQueue for TimedContextQueue<'_, B> {
     fn push(&mut self, data: NodeEventType) {
         self.context_queue.context.queue_event(NodeEvent {
@@ -967,6 +1002,7 @@ impl<B: AudioBackend> firewheel_core::diff::EventQueue for TimedContextQueue<'_,
 }
 
 /// The type of scheduled events to clear in a [`ClearScheduledEvents`] message.
+#[cfg(feature = "scheduled_events")]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClearScheduledEventsType {
     /// Clear both musical and non-musical scheduled events.

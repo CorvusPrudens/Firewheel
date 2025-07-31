@@ -2,16 +2,21 @@ use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 use std::ops::Range;
 
-use crate::clock::{DurationSamples, EventInstant, InstantMusical, InstantSeconds};
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{InstantSamples, MusicalTransport},
+    clock::{DurationSamples, InstantSamples, InstantSeconds},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventList, NodeEventType},
     SilenceMask, StreamInfo,
 };
 
 pub mod dummy;
+
+#[cfg(feature = "scheduled_events")]
+use crate::clock::EventInstant;
+
+#[cfg(feature = "musical_transport")]
+use crate::clock::{InstantMusical, MusicalTransport};
 
 /// A globally unique identifier for a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -271,6 +276,7 @@ impl<'a> UpdateContext<'a> {
     pub fn queue_event(&mut self, event: NodeEventType) {
         self.event_queue.push(NodeEvent {
             node_id: self.node_id,
+            #[cfg(feature = "scheduled_events")]
             time: None,
             event,
         });
@@ -284,6 +290,7 @@ impl<'a> UpdateContext<'a> {
     /// into chunks and process those chunks. If two events are scheduled too close to one
     /// another in time then that chunk may be too small for the audio processing to be
     /// fully vectorized.
+    #[cfg(feature = "scheduled_events")]
     pub fn schedule_event(&mut self, event: NodeEventType, time: EventInstant) {
         self.event_queue.push(NodeEvent {
             node_id: self.node_id,
@@ -488,6 +495,7 @@ pub struct ProcInfo<'a> {
     ///
     /// This will be `None` if no musical transport is currently active,
     /// or if the current transport is currently paused.
+    #[cfg(feature = "musical_transport")]
     pub transport_info: Option<TransportInfo<'a>>,
 
     /// Flags indicating the current status of the audio stream
@@ -546,6 +554,7 @@ impl<'a> ProcInfo<'a> {
     ///
     /// If there is no active transport, or if the transport is not currently
     /// playing, then this will return `None`.
+    #[cfg(feature = "musical_transport")]
     pub fn playhead(&self) -> Option<InstantMusical> {
         self.transport_info.as_ref().and_then(|transport_info| {
             transport_info
@@ -566,6 +575,7 @@ impl<'a> ProcInfo<'a> {
     ///
     /// If there is no active transport, or if the transport is not currently
     /// playing, then this will return `None`.
+    #[cfg(feature = "musical_transport")]
     pub fn playhead_range(&self) -> Option<Range<InstantMusical>> {
         self.transport_info.as_ref().and_then(|transport_info| {
             transport_info
@@ -589,6 +599,7 @@ impl<'a> ProcInfo<'a> {
 
     /// Returns `true` if there is a transport and that transport is playing,
     /// `false` otherwise.
+    #[cfg(feature = "musical_transport")]
     pub fn transport_is_playing(&self) -> bool {
         self.transport_info
             .as_ref()
@@ -600,6 +611,7 @@ impl<'a> ProcInfo<'a> {
     ///
     /// If there is no musical transport or the transport is not currently playing,
     /// then this will return `None`.
+    #[cfg(feature = "musical_transport")]
     pub fn musical_to_samples(&self, musical: InstantMusical) -> Option<InstantSamples> {
         self.transport_info.as_ref().and_then(|transport_info| {
             transport_info
@@ -615,6 +627,7 @@ impl<'a> ProcInfo<'a> {
     }
 }
 
+#[cfg(feature = "musical_transport")]
 pub struct TransportInfo<'a> {
     /// The current transport.
     pub transport: &'a MusicalTransport,
@@ -640,6 +653,7 @@ pub struct TransportInfo<'a> {
     pub delta_bpm_per_frame: f64,
 }
 
+#[cfg(feature = "musical_transport")]
 impl<'a> TransportInfo<'a> {
     /// Whether or not the transport is currently playing (true) or paused
     /// (false).

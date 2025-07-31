@@ -1,9 +1,11 @@
 use firewheel_core::{
-    clock::TransportState,
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     StreamInfo,
 };
 use ringbuf::traits::{Consumer, Producer};
+
+#[cfg(feature = "musical_transport")]
+use firewheel_core::clock::TransportState;
 
 use crate::{
     backend::AudioBackend,
@@ -22,7 +24,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     self.event_scheduler.push_event_group(
                         &mut event_group,
                         &mut self.nodes,
+                        #[cfg(feature = "scheduled_events")]
                         self.sample_rate,
+                        #[cfg(feature = "musical_transport")]
                         &self.proc_transport_state,
                     );
 
@@ -36,9 +40,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs) => {
                     self.hard_clip_outputs = hard_clip_outputs;
                 }
+                #[cfg(feature = "musical_transport")]
                 ContextToProcessorMsg::SetTransportState(new_transport_state) => {
                     self.set_transport_state(new_transport_state);
                 }
+                #[cfg(feature = "scheduled_events")]
                 ContextToProcessorMsg::ClearScheduledEvents(msgs) => {
                     self.event_scheduler
                         .handle_clear_scheduled_events_event(&msgs, &mut self.nodes);
@@ -67,7 +73,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             core::mem::swap(&mut self.nodes, new_arena);
         }
 
+        #[cfg(feature = "scheduled_events")]
         let mut remove_old_scheduled_events = false;
+
         if let Some(mut old_schedule_data) = self.schedule_data.take() {
             core::mem::swap(
                 &mut old_schedule_data.removed_nodes,
@@ -76,6 +84,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
             for node_id in new_schedule_data.nodes_to_remove.iter() {
                 if let Some(node_entry) = self.nodes.remove(node_id.0) {
+                    #[cfg(feature = "scheduled_events")]
                     if self.event_scheduler.node_has_scheduled_events(&node_entry) {
                         remove_old_scheduled_events = true;
                     }
@@ -107,6 +116,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 .is_none());
         }
 
+        #[cfg(feature = "scheduled_events")]
         if remove_old_scheduled_events {
             self.event_scheduler
                 .remove_events_from_removed_nodes(&self.nodes);
@@ -115,6 +125,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.schedule_data = Some(new_schedule_data);
     }
 
+    #[cfg(feature = "musical_transport")]
     fn set_transport_state(&mut self, new_transport_state: Box<TransportState>) {
         let old_transport_state = self.proc_transport_state.set_transport_state(
             new_transport_state,
@@ -158,12 +169,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 .to_seconds(self.sample_rate, self.sample_rate_recip)
                 .to_samples(stream_info.sample_rate);
 
+            #[cfg(feature = "musical_transport")]
             self.proc_transport_state.update_sample_rate(
                 self.sample_rate,
                 self.sample_rate_recip,
                 stream_info.sample_rate,
             );
 
+            #[cfg(feature = "scheduled_events")]
             self.event_scheduler.sample_rate_changed(
                 self.sample_rate,
                 self.sample_rate_recip,

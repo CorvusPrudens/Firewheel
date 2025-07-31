@@ -155,7 +155,7 @@ impl AudioSystem {
     pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
         self.cx.queue_event(NodeEvent {
             node_id,
-            time: None,
+            //time: None,
             event,
         });
     }

@@ -3,7 +3,7 @@ use std::{num::NonZeroU32, time::Duration};
 use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
-    clock::{DurationSamples, InstantSamples, ProcTransportInfo},
+    clock::{DurationSamples, InstantSamples},
     event::NodeEventList,
     node::{NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
     SilenceMask,
@@ -13,6 +13,9 @@ use crate::{
     backend::AudioBackend,
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, SharedClock},
 };
+
+#[cfg(feature = "musical_transport")]
+use firewheel_core::clock::ProcTransportInfo;
 
 impl<B: AudioBackend> FirewheelProcessorInner<B> {
     // TODO: Add a `process_deinterleaved` method.
@@ -54,9 +57,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         let mut frames_processed = 0;
         while frames_processed < frames {
-            let mut block_frames = (frames - frames_processed).min(self.max_block_frames);
+            let block_frames = (frames - frames_processed).min(self.max_block_frames);
 
             // Get the transport info for this block.
+            #[cfg(feature = "musical_transport")]
             let proc_transport_info = self.proc_transport_state.process_block(
                 block_frames,
                 clock_samples,
@@ -65,7 +69,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             );
 
             // If the transport info changes this block, process up to that change.
-            block_frames = proc_transport_info.frames;
+            #[cfg(feature = "musical_transport")]
+            let block_frames = proc_transport_info.frames;
 
             // Prepare graph input buffers.
             self.schedule_data
@@ -96,6 +101,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 duration_since_stream_start,
                 stream_status,
                 dropped_frames,
+                #[cfg(feature = "musical_transport")]
                 &proc_transport_info,
             );
 
@@ -144,7 +150,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
-        proc_transport_info: &ProcTransportInfo,
+        #[cfg(feature = "musical_transport")] proc_transport_info: &ProcTransportInfo,
     ) {
         if self.schedule_data.is_none() {
             return;
@@ -155,6 +161,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         let mut scratch_buffers = self.scratch_buffers.get_mut(self.max_block_frames);
 
+        #[cfg(feature = "musical_transport")]
         let transport_info = self
             .proc_transport_state
             .transport_info(&proc_transport_info);
@@ -167,6 +174,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             sample_rate_recip,
             clock_samples,
             duration_since_stream_start,
+            #[cfg(feature = "musical_transport")]
             transport_info,
             stream_status,
             dropped_frames,
@@ -175,6 +183,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         // -- Find scheduled events that have elapsed this block ------------------------------
 
+        #[cfg(feature = "scheduled_events")]
         self.event_scheduler
             .prepare_process_block(&proc_info, &mut self.nodes);
 
@@ -222,6 +231,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                         // Set the timing information for the process info for this sub-chunk.
                         proc_info.frames = sub_chunk_frames;
                         proc_info.clock_samples = sub_clock_samples;
+
+                        #[cfg(feature = "musical_transport")]
                         if let Some(transport) = &mut proc_info.transport_info {
                             // For now this isn't really necessary, but it will be once support
                             // for linearly automated tempo is added.
@@ -379,6 +390,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
     }
 
     pub fn sync_shared_clock(&mut self, process_timestamp: Option<B::Instant>) {
+        #[cfg(feature = "musical_transport")]
         let (musical_time, transport_is_playing) = self.proc_transport_state.shared_clock_info(
             self.clock_samples,
             self.sample_rate,
@@ -387,7 +399,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         self.shared_clock_input.write(SharedClock {
             clock_samples: self.clock_samples,
+            #[cfg(feature = "musical_transport")]
             musical_time,
+            #[cfg(feature = "musical_transport")]
             transport_is_playing,
             process_timestamp,
         });

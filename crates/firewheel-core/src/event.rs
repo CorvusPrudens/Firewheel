@@ -3,15 +3,18 @@ use core::any::Any;
 pub use glam::{Vec2, Vec3};
 
 use crate::{
-    clock::{
-        DurationMusical, DurationSamples, DurationSeconds, EventInstant, InstantMusical,
-        InstantSamples, InstantSeconds,
-    },
+    clock::{DurationSamples, DurationSeconds, InstantSamples, InstantSeconds},
     collector::{ArcGc, OwnedGc},
     diff::{Notify, ParamPath},
     dsp::volume::Volume,
     node::NodeID,
 };
+
+#[cfg(feature = "scheduled_events")]
+use crate::clock::EventInstant;
+
+#[cfg(feature = "musical_transport")]
+use crate::clock::{DurationMusical, InstantMusical};
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEvent {
@@ -19,6 +22,7 @@ pub struct NodeEvent {
     pub node_id: NodeID,
     /// Optionally, a time to schedule this event at. If `None`, the event is considered
     /// to be at the start of the next processing period.
+    #[cfg(feature = "scheduled_events")]
     pub time: Option<EventInstant>,
     /// The type of event.
     pub event: NodeEventType,
@@ -83,12 +87,15 @@ pub enum ParamData {
     Vector2D(Vec2),
     Vector3D(Vec3),
 
+    #[cfg(feature = "scheduled_events")]
     EventInstant(EventInstant),
     InstantSeconds(InstantSeconds),
     DurationSeconds(DurationSeconds),
     InstantSamples(InstantSamples),
     DurationSamples(DurationSamples),
+    #[cfg(feature = "musical_transport")]
     InstantMusical(InstantMusical),
+    #[cfg(feature = "musical_transport")]
     DurationMusical(DurationMusical),
 
     /// Custom type stored on the heap.
@@ -198,17 +205,21 @@ param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
 param_data_from!(Vec2, Vector2D);
 param_data_from!(Vec3, Vector3D);
+#[cfg(feature = "scheduled_events")]
 param_data_from!(EventInstant, EventInstant);
 param_data_from!(InstantSeconds, InstantSeconds);
 param_data_from!(DurationSeconds, DurationSeconds);
 param_data_from!(InstantSamples, InstantSamples);
 param_data_from!(DurationSamples, DurationSamples);
+#[cfg(feature = "musical_transport")]
 param_data_from!(InstantMusical, InstantMusical);
+#[cfg(feature = "musical_transport")]
 param_data_from!(DurationMusical, DurationMusical);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {
     immediate_event_buffer: &'a mut [Option<NodeEvent>],
+    #[cfg(feature = "scheduled_events")]
     scheduled_event_arena: &'a mut [Option<NodeEvent>],
     indices: &'a mut Vec<NodeEventListIndex>,
 }
@@ -216,11 +227,12 @@ pub struct NodeEventList<'a> {
 impl<'a> NodeEventList<'a> {
     pub fn new(
         immediate_event_buffer: &'a mut [Option<NodeEvent>],
-        scheduled_event_arena: &'a mut [Option<NodeEvent>],
+        #[cfg(feature = "scheduled_events")] scheduled_event_arena: &'a mut [Option<NodeEvent>],
         indices: &'a mut Vec<NodeEventListIndex>,
     ) -> Self {
         Self {
             immediate_event_buffer,
+            #[cfg(feature = "scheduled_events")]
             scheduled_event_arena,
             indices,
         }
@@ -239,6 +251,7 @@ impl<'a> NodeEventList<'a> {
                     .unwrap()
                     .event
             }
+            #[cfg(feature = "scheduled_events")]
             NodeEventListIndex::Scheduled(i) => {
                 self.scheduled_event_arena[i as usize].take().unwrap().event
             }
@@ -252,6 +265,7 @@ impl<'a> NodeEventList<'a> {
     /// where `event_type` is the event, `event_instant` is the instant the
     /// event was schedueld for. If the event was not scheduled, then
     /// the latter will be `None`.
+    #[cfg(feature = "scheduled_events")]
     pub fn drain_with_timestamps<'b>(
         &'b mut self,
     ) -> impl IntoIterator<Item = (NodeEventType, Option<EventInstant>)> + use<'b> {
@@ -345,6 +359,7 @@ impl<'a> NodeEventList<'a> {
     /// ```
     ///
     /// Errors produced while constructing patches are simply skipped.
+    #[cfg(feature = "scheduled_events")]
     pub fn drain_patches_with_timestamps<'b, T: crate::diff::Patch>(
         &'b mut self,
     ) -> impl IntoIterator<Item = (<T as crate::diff::Patch>::Patch, Option<EventInstant>)> + use<'b, T>
@@ -362,5 +377,6 @@ impl<'a> NodeEventList<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeEventListIndex {
     Immediate(u32),
+    #[cfg(feature = "scheduled_events")]
     Scheduled(u32),
 }
