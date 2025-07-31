@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.6.0-beta.0"
+version = "0.6.1-beta.0"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
 repository.workspace = true
 edition.workspace = true
@@ -118,10 +118,10 @@ firewheel-macros = { path = "crates/firewheel-macros", version = "0.2.0" }
 bevy_platform = "0.16.0"
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.6.0-beta.0" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.6.0-beta.0" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.6.0-beta.0", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.6.0-beta.0", default-features = false }
+firewheel-core = { path = "crates/firewheel-core", version = "0.6.1-beta.0" }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.6.1-beta.0" }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.6.1-beta.0", default-features = false, optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.6.1-beta.0", default-features = false }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thiserror.workspace = true
