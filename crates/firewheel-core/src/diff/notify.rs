@@ -227,7 +227,8 @@ mod reflect {
                     .with_custom_attributes(bevy_reflect::attributes::CustomAttributes::default())
                     .with_generics(bevy_reflect::Generics::from_iter([
                         bevy_reflect::GenericInfo::Type(bevy_reflect::TypeParamInfo::new::<T>(
-                            core::borrow::Cow::Borrowed("T"),
+                            // TODO: Use a no-std compatible `Cow` type.
+                            std::borrow::Cow::Borrowed("T"),
                         )),
                     ])),
                 )
