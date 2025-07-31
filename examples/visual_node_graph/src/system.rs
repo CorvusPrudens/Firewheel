@@ -1,7 +1,7 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
     error::{AddEdgeError, UpdateError},
-    event::{NodeEvent, NodeEventType},
+    event::NodeEventType,
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
@@ -153,11 +153,7 @@ impl AudioSystem {
 
     #[expect(dead_code)]
     pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
-        self.cx.queue_event(NodeEvent {
-            node_id,
-            //time: None,
-            event,
-        });
+        self.cx.queue_event_for(node_id, event);
     }
 
     pub fn event_queue(&mut self, node_id: NodeID) -> ContextQueue<'_, CpalBackend> {

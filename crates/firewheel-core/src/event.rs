@@ -28,6 +28,36 @@ pub struct NodeEvent {
     pub event: NodeEventType,
 }
 
+impl NodeEvent {
+    /// Construct an event to send to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
+    ///
+    /// * `node_id` - The ID of the node that should receive the event.
+    /// * `event` - The type of event.
+    pub const fn new(node_id: NodeID, event: NodeEventType) -> Self {
+        Self {
+            node_id,
+            #[cfg(feature = "scheduled_events")]
+            time: None,
+            event,
+        }
+    }
+
+    /// Construct a new scheduled event to send to an
+    /// [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
+    ///
+    /// * `node_id` - The ID of the node that should receive the event.
+    /// * `time` - The time to schedule this event at.
+    /// * `event` - The type of event.
+    #[cfg(feature = "scheduled_events")]
+    pub const fn scheduled(node_id: NodeID, time: EventInstant, event: NodeEventType) -> Self {
+        Self {
+            node_id,
+            time: Some(time),
+            event,
+        }
+    }
+}
+
 /// An event type associated with an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 #[non_exhaustive]
 pub enum NodeEventType {
