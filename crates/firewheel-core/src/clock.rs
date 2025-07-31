@@ -14,8 +14,6 @@ use crate::node::ProcInfo;
 #[cfg(feature = "musical_transport")]
 use core::ops::Range;
 
-pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
-
 /// When a particular audio event should occur, in units of absolute
 /// audio clock time.
 #[cfg(feature = "scheduled_events")]
