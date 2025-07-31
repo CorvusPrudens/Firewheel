@@ -41,7 +41,7 @@ peak_meter = []
 # Enables the sampler node
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
-spatial_basic = []
+spatial_basic = ["bevy_reflect?/glam"]
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
 fast_filters = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode
@@ -63,5 +63,5 @@ fixed-resample = { version = "0.9.1", features = [
     "fft-resampler",
     "channel",
 ], optional = true }
-bevy_ecs = { version = "0.16", optional = true }
-bevy_reflect = { version = "0.16", optional = true }
+bevy_ecs = { version = "0.16", optional = true, default-features = false }
+bevy_reflect = { version = "0.16", optional = true, default-features = false }

@@ -43,8 +43,8 @@ fixed-resample = { version = "0.9.1", default-features = false, features = [
 smallvec.workspace = true
 bevy_platform.workspace = true
 glam = "0.29"
-bevy_ecs = { version = "0.16", optional = true }
-bevy_reflect = { version = "0.16", optional = true }
+bevy_ecs = { version = "0.16", default-features = false, optional = true }
+bevy_reflect = { version = "0.16", default-features = false, optional = true }
 # TODO: Remove this once `bevy_platform` exposes the atomic float types from `portable-atomic`.
 portable-atomic = { version = "1", default-features = false, features = [
     "fallback",
