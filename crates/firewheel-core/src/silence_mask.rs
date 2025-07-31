@@ -3,7 +3,7 @@ use core::u64;
 /// An optional optimization hint on which channels contain all
 /// zeros (silence). The first bit (`0x1`) is the first channel,
 /// the second bit is the second channel, and so on.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SilenceMask(pub u64);
 
 impl SilenceMask {

@@ -7,7 +7,7 @@ use crate::{
     clock::{DurationSamples, InstantSamples, InstantSeconds},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventList, NodeEventType},
-    SilenceMask, StreamInfo,
+    ConnectedMask, SilenceMask, StreamInfo,
 };
 
 pub mod dummy;
@@ -464,6 +464,14 @@ pub struct ProcInfo<'a> {
     /// all zeros (silence). The first bit (`0b1`) is the first channel,
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
+
+    /// An optional hint on which input channels are connected to other
+    /// nodes in the graph.
+    pub in_connected_mask: ConnectedMask,
+
+    /// An optional hint on which output channels are connected to other
+    /// nodes in the graph.
+    pub out_connected_mask: ConnectedMask,
 
     /// The sample rate of the audio stream in samples per second.
     pub sample_rate: NonZeroU32,

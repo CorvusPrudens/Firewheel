@@ -6,7 +6,7 @@ use thunderdome::Arena;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus, NUM_SCRATCH_BUFFERS},
-    SilenceMask,
+    ConnectedMask, SilenceMask,
 };
 
 use super::{InsertedSum, NodeID};
@@ -24,6 +24,9 @@ pub(super) struct ScheduledNode {
     /// The assigned output buffers.
     pub output_buffers: SmallVec<[OutBufferAssignment; 4]>,
 
+    pub in_connected_mask: ConnectedMask,
+    pub out_connected_mask: ConnectedMask,
+
     pub sum_inputs: Vec<InsertedSum>,
 }
 
@@ -34,6 +37,8 @@ impl ScheduledNode {
             debug_name,
             input_buffers: SmallVec::new(),
             output_buffers: SmallVec::new(),
+            in_connected_mask: ConnectedMask::default(),
+            out_connected_mask: ConnectedMask::default(),
             sum_inputs: Vec::new(),
         }
     }
@@ -110,30 +115,6 @@ impl Debug for ScheduledNode {
             write!(f, "]")?;
         }
 
-        /*
-        if !self.input_buffers.is_empty() {
-            write!(f, " | in_gen: [")?;
-
-            write!(f, "{}", self.input_buffers[0].generation)?;
-            for b in self.input_buffers.iter().skip(1) {
-                write!(f, ", {}", b.generation)?;
-            }
-
-            write!(f, "]")?;
-        }
-
-        if !self.output_buffers.is_empty() {
-            write!(f, " | out_gen: [")?;
-
-            write!(f, "{}", self.output_buffers[0].generation)?;
-            for b in self.output_buffers.iter().skip(1) {
-                write!(f, ", {}", b.generation)?;
-            }
-
-            write!(f, "]")?;
-        }
-        */
-
         write!(f, " }}")
     }
 }
@@ -146,12 +127,6 @@ pub(super) struct InBufferAssignment {
     /// Whether the engine should clear the buffer before
     /// passing it to a process
     pub should_clear: bool,
-    /*
-    /// Buffers are reused, the "generation" represents
-    /// how many times this buffer has been used before
-    /// this assignment. Kept for debugging and visualization.
-    pub generation: usize,
-    */
 }
 
 /// Represents a single buffer assigned to an output port
@@ -159,12 +134,6 @@ pub(super) struct InBufferAssignment {
 pub(super) struct OutBufferAssignment {
     /// The index of the buffer assigned
     pub buffer_index: usize,
-    /*
-    /// Buffers are reused, the "generation" represents
-    /// how many times this buffer has been used before
-    /// this assignment. Kept for debugging and visualization.
-    pub generation: usize,
-    */
 }
 
 pub struct NodeHeapData {
@@ -348,7 +317,14 @@ impl CompiledSchedule {
         &mut self,
         frames: usize,
         scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
-        mut process: impl FnMut(NodeID, SilenceMask, SilenceMask, ProcBuffers) -> ProcessStatus,
+        mut process: impl FnMut(
+            NodeID,
+            SilenceMask,
+            SilenceMask,
+            ConnectedMask,
+            ConnectedMask,
+            ProcBuffers,
+        ) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
 
@@ -409,6 +385,8 @@ impl CompiledSchedule {
                 scheduled_node.id,
                 in_silence_mask,
                 out_silence_mask,
+                scheduled_node.in_connected_mask,
+                scheduled_node.out_connected_mask,
                 ProcBuffers {
                     inputs: inputs.as_slice(),
                     outputs: outputs.as_mut_slice(),

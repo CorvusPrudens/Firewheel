@@ -9,10 +9,12 @@ pub mod node;
 pub mod param;
 pub mod sample_resource;
 
+mod connected_mask;
 mod silence_mask;
 
 use core::num::NonZeroU32;
 
+pub use connected_mask::ConnectedMask;
 pub use silence_mask::SilenceMask;
 
 extern crate self as firewheel_core;

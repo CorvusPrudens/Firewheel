@@ -307,6 +307,10 @@ impl<'a> GraphIR<'a> {
                     .filter(|edge| edge.dst_port == port_idx)
                     .collect();
 
+                entry
+                    .in_connected_mask
+                    .set_channel(port_idx as usize, !edges.is_empty());
+
                 if edges.is_empty() {
                     // Case 1: The port is an input and it is unconnected. Acquire a buffer, and
                     //         assign it. The buffer must be cleared. Release the buffer once the
@@ -382,6 +386,10 @@ impl<'a> GraphIR<'a> {
                     .iter()
                     .filter(|edge| edge.src_port == port_idx)
                     .collect();
+
+                entry
+                    .out_connected_mask
+                    .set_channel(port_idx as usize, !edges.is_empty());
 
                 if edges.is_empty() {
                     // Case 1: The port is an output and it is unconnected. Acquire a buffer and

@@ -6,7 +6,7 @@ use firewheel_core::{
     clock::{DurationSamples, InstantSamples},
     event::NodeEventList,
     node::{NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
-    SilenceMask,
+    ConnectedMask, SilenceMask,
 };
 
 use crate::{
@@ -170,6 +170,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             frames: block_frames,
             in_silence_mask: SilenceMask::default(),
             out_silence_mask: SilenceMask::default(),
+            in_connected_mask: ConnectedMask::default(),
+            out_connected_mask: ConnectedMask::default(),
             sample_rate,
             sample_rate_recip,
             clock_samples,
@@ -195,13 +197,17 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
+             in_connected_mask: ConnectedMask,
+             out_connected_mask: ConnectedMask,
              proc_buffers|
              -> ProcessStatus {
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
-                // Add the silence mask information to proc info.
+                // Add the mask information to proc info.
                 proc_info.in_silence_mask = in_silence_mask;
                 proc_info.out_silence_mask = out_silence_mask;
+                proc_info.in_connected_mask = in_connected_mask;
+                proc_info.out_connected_mask = out_connected_mask;
 
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
