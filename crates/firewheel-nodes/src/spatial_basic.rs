@@ -16,7 +16,7 @@ use firewheel_core::{
         ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
+    ConnectedMask, SilenceMask,
 };
 
 const DAMPING_CUTOFF_HZ_MIN: f32 = 20.0;
@@ -103,6 +103,15 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `0.6`.
     pub panning_threshold: f32,
+
+    /// If `true`, then any stereo input signals will be downmixed to mono before
+    /// going throught the spatialization algorithm. If `false` then the left and
+    /// right channels will be processed independently.
+    ///
+    /// This has no effect if only one input channel is connected.
+    ///
+    /// By default this is set to `true`.
+    pub downmix: bool,
 }
 
 impl Default for SpatialBasicNode {
@@ -113,6 +122,7 @@ impl Default for SpatialBasicNode {
             damping_distance: 100.0,
             muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
             panning_threshold: 0.6,
+            downmix: true,
         }
     }
 }
@@ -329,8 +339,44 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let in1 = &buffers.inputs[0][..proc_info.frames];
-        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let (in1, in2) = if proc_info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {
+            if self.params.downmix {
+                // Downmix the stereo signal to mono.
+                for (out_s, (&in1, &in2)) in buffers.scratch_buffers[0][..proc_info.frames]
+                    .iter_mut()
+                    .zip(
+                        buffers.inputs[0][..proc_info.frames]
+                            .iter()
+                            .zip(buffers.inputs[1][..proc_info.frames].iter()),
+                    )
+                {
+                    *out_s = (in1 + in2) * 0.5;
+                }
+
+                (
+                    &buffers.scratch_buffers[0][..proc_info.frames],
+                    &buffers.scratch_buffers[0][..proc_info.frames],
+                )
+            } else {
+                (
+                    &buffers.inputs[0][..proc_info.frames],
+                    &buffers.inputs[1][..proc_info.frames],
+                )
+            }
+        } else {
+            // Only one (or none) channels are connected, so just use the first
+            // channel as input.
+            (
+                &buffers.inputs[0][..proc_info.frames],
+                &buffers.inputs[0][..proc_info.frames],
+            )
+        };
+
+        // Make doubly sure that the compiler optimizes away the bounds checking
+        // in the loop.
+        let in1 = &in1[..proc_info.frames];
+        let in2 = &in2[..proc_info.frames];
+
         let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
         let out1 = &mut out1[..proc_info.frames];
         let out2 = &mut out2[0][..proc_info.frames];

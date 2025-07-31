@@ -9,6 +9,9 @@
 pub struct ConnectedMask(pub u64);
 
 impl ConnectedMask {
+    pub const MONO_CONNECTED: Self = Self(0b1);
+    pub const STEREO_CONNECTED: Self = Self(0b11);
+
     /// Returns `true` if the channel is connected to another node,
     /// `false` otherwise.
     ///

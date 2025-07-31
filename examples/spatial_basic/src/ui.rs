@@ -125,6 +125,13 @@ impl App for DemoApp {
                 )
                 .changed();
 
+            updated |= ui
+                .add(egui::Checkbox::new(
+                    &mut self.audio_system.spatial_basic_node.downmix,
+                    "downmix",
+                ))
+                .changed();
+
             let offset = &mut self.audio_system.spatial_basic_node.offset;
             let x = &mut offset.x;
             let z = &mut offset.z;
