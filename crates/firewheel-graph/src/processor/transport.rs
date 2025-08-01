@@ -171,7 +171,7 @@ impl ProcTransportState {
             }
         }
 
-        let mut info = transport.proc_transport_info(frames, playhead);
+        let mut info = transport.proc_transport_info(frames, playhead, sample_rate);
 
         let proc_end_samples = clock_samples + DurationSamples(info.frames as i64);
 
