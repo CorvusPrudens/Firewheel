@@ -8,6 +8,7 @@ pub mod event;
 pub mod node;
 pub mod param;
 pub mod sample_resource;
+pub mod vector;
 
 mod connected_mask;
 mod silence_mask;

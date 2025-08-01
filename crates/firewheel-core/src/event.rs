@@ -1,13 +1,12 @@
 use core::any::Any;
 
-pub use glam::{Vec2, Vec3};
-
 use crate::{
     clock::{DurationSamples, DurationSeconds, InstantSamples, InstantSeconds},
     collector::{ArcGc, OwnedGc},
     diff::{Notify, ParamPath},
     dsp::volume::Volume,
     node::NodeID,
+    vector::{Vec2, Vec3},
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -169,7 +168,7 @@ macro_rules! param_data_from {
     ($ty:ty, $variant:ident) => {
         impl From<$ty> for ParamData {
             fn from(value: $ty) -> Self {
-                Self::$variant(value)
+                Self::$variant(value.into())
             }
         }
 
@@ -178,7 +177,7 @@ macro_rules! param_data_from {
 
             fn try_into(self) -> Result<$ty, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(value.clone()),
+                    ParamData::$variant(value) => Ok((*value).into()),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
             }
@@ -187,7 +186,7 @@ macro_rules! param_data_from {
         impl From<Option<$ty>> for ParamData {
             fn from(value: Option<$ty>) -> Self {
                 if let Some(value) = value {
-                    Self::$variant(value)
+                    Self::$variant(value.into())
                 } else {
                     Self::None
                 }
@@ -199,7 +198,7 @@ macro_rules! param_data_from {
 
             fn try_into(self) -> Result<Option<$ty>, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(Some(value.clone())),
+                    ParamData::$variant(value) => Ok(Some((*value).into())),
                     ParamData::None => Ok(None),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
@@ -208,7 +207,7 @@ macro_rules! param_data_from {
 
         impl From<Notify<$ty>> for ParamData {
             fn from(value: Notify<$ty>) -> Self {
-                Self::$variant(*value)
+                Self::$variant((*value).into())
             }
         }
 
@@ -217,7 +216,7 @@ macro_rules! param_data_from {
 
             fn try_into(self) -> Result<Notify<$ty>, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(Notify::new(value.clone())),
+                    ParamData::$variant(value) => Ok(Notify::new((*value).into())),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
             }
@@ -245,6 +244,11 @@ param_data_from!(DurationSamples, DurationSamples);
 param_data_from!(InstantMusical, InstantMusical);
 #[cfg(feature = "musical_transport")]
 param_data_from!(DurationMusical, DurationMusical);
+
+#[cfg(feature = "glam")]
+param_data_from!(glam::Vec2, Vector2D);
+#[cfg(feature = "glam")]
+param_data_from!(glam::Vec3, Vector3D);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {

@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-nodes"
-version = "0.6.1-beta.0"
+version = "0.6.2-beta.0"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
 repository.workspace = true
@@ -34,7 +34,7 @@ peak_meter = []
 # Enables the sampler node
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
-spatial_basic = ["bevy_reflect?/glam"]
+spatial_basic = []
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
 fast_filters = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode
@@ -48,7 +48,7 @@ bevy = ["dep:bevy_ecs"]
 bevy_reflect = ["dep:bevy_reflect"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.6.1-beta.0" }
+firewheel-core = { path = "../firewheel-core", version = "0.6.2-beta.0" }
 bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }

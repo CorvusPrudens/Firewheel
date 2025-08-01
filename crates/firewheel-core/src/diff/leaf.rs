@@ -6,7 +6,8 @@ use crate::{
     collector::ArcGc,
     diff::{Notify, RealtimeClone},
     dsp::volume::Volume,
-    event::{NodeEventType, ParamData, Vec2, Vec3},
+    event::{NodeEventType, ParamData},
+    vector::{Vec2, Vec3},
 };
 
 #[cfg(feature = "musical_transport")]
@@ -27,7 +28,7 @@ macro_rules! primitive_diff {
 
             fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(value.clone()),
+                    ParamData::$variant(value) => Ok((*value).into()),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -50,7 +51,7 @@ macro_rules! primitive_diff {
 
             fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Some(value.clone())),
+                    ParamData::$variant(value) => Ok(Some((*value).into())),
                     ParamData::None => Ok(None),
                     _ => Err(PatchError::InvalidData),
                 }
@@ -74,7 +75,7 @@ macro_rules! primitive_diff {
 
             fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
-                    ParamData::$variant(value) => Ok(Notify::new(value.clone())),
+                    ParamData::$variant(value) => Ok(Notify::new((*value).into())),
                     _ => Err(PatchError::InvalidData),
                 }
             }
@@ -180,6 +181,11 @@ primitive_diff!(InstantMusical, InstantMusical);
 primitive_diff!(DurationMusical, DurationMusical);
 primitive_diff!(Vec2, Vector2D);
 primitive_diff!(Vec3, Vector3D);
+
+#[cfg(feature = "glam")]
+primitive_diff!(glam::Vec2, Vector2D);
+#[cfg(feature = "glam")]
+primitive_diff!(glam::Vec3, Vector3D);
 
 impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
