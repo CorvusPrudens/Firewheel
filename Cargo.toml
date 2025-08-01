@@ -29,7 +29,6 @@ default = [
     "symphonium",
     "symphonium_resample",
     "sampler_node",
-    "musical_transport"
 ]
 # Enables scheduling events for nodes
 scheduled_events = [
