@@ -1,4 +1,5 @@
-/// A two-dimensional vector type.
+/// A simple two-dimensional vector type.
+#[repr(C)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -8,12 +9,15 @@ pub struct Vec2 {
 }
 
 impl Vec2 {
+    pub const ZERO: Self = Self::new(0.0, 0.0);
+
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 }
 
-/// A three-dimensional vector type.
+/// A simple three-dimensional vector type.
+#[repr(C)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -24,32 +28,72 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+    pub const ZERO: Self = Self::new(0.0, 0.0, 0.0);
+
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 }
 
-impl<T> From<T> for Vec2
-where
-    T: Into<[f32; 2]>,
-{
-    fn from(value: T) -> Self {
-        let v: [f32; 2] = value.into();
-        Self { x: v[0], y: v[1] }
+impl From<[f32; 2]> for Vec2 {
+    fn from(value: [f32; 2]) -> Self {
+        Self::new(value[0], value[1])
     }
 }
 
-impl<T> From<T> for Vec3
-where
-    T: Into<[f32; 3]>,
-{
-    fn from(value: T) -> Self {
-        let v: [f32; 3] = value.into();
-        Self {
-            x: v[0],
-            y: v[1],
-            z: v[2],
-        }
+impl From<[f32; 3]> for Vec3 {
+    fn from(value: [f32; 3]) -> Self {
+        Self::new(value[0], value[1], value[2])
+    }
+}
+
+impl From<(f32, f32)> for Vec2 {
+    fn from(value: (f32, f32)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
+impl From<(f32, f32, f32)> for Vec3 {
+    fn from(value: (f32, f32, f32)) -> Self {
+        Self::new(value.0, value.1, value.2)
+    }
+}
+
+impl From<Vec2> for [f32; 2] {
+    fn from(value: Vec2) -> Self {
+        [value.x, value.y]
+    }
+}
+
+impl From<Vec3> for [f32; 3] {
+    fn from(value: Vec3) -> Self {
+        [value.x, value.y, value.z]
+    }
+}
+
+impl From<Vec2> for (f32, f32) {
+    fn from(value: Vec2) -> Self {
+        (value.x, value.y)
+    }
+}
+
+impl From<Vec3> for (f32, f32, f32) {
+    fn from(value: Vec3) -> Self {
+        (value.x, value.y, value.z)
+    }
+}
+
+#[cfg(feature = "glam")]
+impl From<glam::Vec2> for Vec2 {
+    fn from(value: glam::Vec2) -> Self {
+        Self::new(value.x, value.y)
+    }
+}
+
+#[cfg(feature = "glam")]
+impl From<glam::Vec3> for Vec3 {
+    fn from(value: glam::Vec3) -> Self {
+        Self::new(value.x, value.y, value.z)
     }
 }
 
