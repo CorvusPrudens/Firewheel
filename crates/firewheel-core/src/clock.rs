@@ -187,7 +187,7 @@ impl InstantSeconds {
     #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
-        transport: &MusicalTransport,
+        transport: &dyn MusicalTransport,
         transport_start: InstantSeconds,
     ) -> InstantMusical {
         transport.seconds_to_musical(self, transport_start)
@@ -378,7 +378,7 @@ impl InstantSamples {
     #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
-        transport: &MusicalTransport,
+        transport: &dyn MusicalTransport,
         transport_start: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,

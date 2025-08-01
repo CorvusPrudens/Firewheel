@@ -1,7 +1,8 @@
 mod piecewise_transport;
 mod static_transport;
 
-use core::{num::NonZeroU32, ops::Range};
+use bevy_platform::sync::Arc;
+use core::{fmt::Debug, num::NonZeroU32, ops::Range};
 
 pub use piecewise_transport::{PiecewiseTransport, PiecewiseTransportKeyframe};
 pub use static_transport::StaticTransport;
@@ -12,130 +13,74 @@ use crate::{
     diff::Notify,
 };
 
-#[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
-pub enum MusicalTransport {
-    /// A musical transport with a single static tempo in beats per minute.
-    Static(StaticTransport),
-    /// A musical transport with multiple keyframes of tempo. The tempo
-    /// immediately jumps from one keyframe to another (the tempo is *NOT*
-    /// linearly interpolated between keyframes).
-    Piecewise(ArcGc<PiecewiseTransport>),
-    // TODO: Linearly automated tempo.
-}
-
-impl Default for MusicalTransport {
-    fn default() -> Self {
-        Self::Static(StaticTransport::default())
-    }
-}
-
-impl MusicalTransport {
-    pub fn musical_to_seconds(
+/// A trait describing a musical transport, which is essentially a map between
+/// time in seconds and time in musical beats (and vice versa).
+pub trait MusicalTransport: Debug + Send + Sync + 'static {
+    /// Convert the time in musical beats to the corresponding time in seconds.
+    fn musical_to_seconds(
         &self,
         musical: InstantMusical,
         transport_start: InstantSeconds,
-    ) -> InstantSeconds {
-        match self {
-            MusicalTransport::Static(s) => s.musical_to_seconds(musical, transport_start),
-            MusicalTransport::Piecewise(s) => s.musical_to_seconds(musical, transport_start),
-        }
-    }
+    ) -> InstantSeconds;
 
-    pub fn musical_to_samples(
+    /// Convert the time in musical beats to the corresponding time in samples.
+    fn musical_to_samples(
         &self,
         musical: InstantMusical,
         transport_start: InstantSamples,
         sample_rate: NonZeroU32,
-    ) -> InstantSamples {
-        match self {
-            MusicalTransport::Static(s) => {
-                s.musical_to_samples(musical, transport_start, sample_rate)
-            }
-            MusicalTransport::Piecewise(s) => {
-                s.musical_to_samples(musical, transport_start, sample_rate)
-            }
-        }
-    }
+    ) -> InstantSamples;
 
-    pub fn samples_to_musical(
+    /// Convert the time in seconds to the corresponding time in musical beats.
+    fn seconds_to_musical(
+        &self,
+        seconds: InstantSeconds,
+        transport_start: InstantSeconds,
+    ) -> InstantMusical;
+
+    /// Convert the time in samples to the corresponding time in musical beats.
+    fn samples_to_musical(
         &self,
         sample_time: InstantSamples,
         transport_start: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-    ) -> InstantMusical {
-        match self {
-            MusicalTransport::Static(s) => {
-                s.samples_to_musical(sample_time, transport_start, sample_rate, sample_rate_recip)
-            }
-            MusicalTransport::Piecewise(s) => {
-                s.samples_to_musical(sample_time, transport_start, sample_rate, sample_rate_recip)
-            }
-        }
-    }
-
-    pub fn seconds_to_musical(
-        &self,
-        seconds: InstantSeconds,
-        transport_start: InstantSeconds,
-    ) -> InstantMusical {
-        match self {
-            MusicalTransport::Static(s) => s.seconds_to_musical(seconds, transport_start),
-            MusicalTransport::Piecewise(s) => s.seconds_to_musical(seconds, transport_start),
-        }
-    }
+    ) -> InstantMusical;
 
     /// Return the musical time that occurs `delta_seconds` seconds after the
     /// given `from` timestamp.
-    pub fn delta_seconds_from(
+    fn delta_seconds_from(
         &self,
         from: InstantMusical,
         delta_seconds: DurationSeconds,
-    ) -> InstantMusical {
-        match self {
-            MusicalTransport::Static(s) => s.delta_seconds_from(from, delta_seconds),
-            MusicalTransport::Piecewise(s) => s.delta_seconds_from(from, delta_seconds),
-        }
-    }
+    ) -> InstantMusical;
 
     /// Return the tempo in beats per minute at the given musical time.
-    pub fn bpm_at_musical(&self, musical: InstantMusical) -> f64 {
-        match self {
-            MusicalTransport::Static(s) => s.beats_per_minute(),
-            MusicalTransport::Piecewise(s) => s.bpm_at_musical(musical),
-        }
-    }
+    fn bpm_at_musical(&self, musical: InstantMusical) -> f64;
 
-    pub fn proc_transport_info(
+    /// Return information about this transport for this processing block.
+    fn proc_transport_info(
         &self,
         frames: usize,
         playhead: InstantMusical,
         sample_rate: NonZeroU32,
-    ) -> ProcTransportInfo {
-        match self {
-            MusicalTransport::Static(s) => s.proc_transport_info(frames),
-            MusicalTransport::Piecewise(s) => s.proc_transport_info(frames, playhead, sample_rate),
-        }
-    }
+    ) -> ProcTransportInfo;
 
-    pub fn transport_start(
+    /// Return the instant of time of the beginning of this transport
+    /// (musical time of `0`).
+    fn transport_start(
         &self,
         now: InstantSamples,
         playhead: InstantMusical,
         sample_rate: NonZeroU32,
-    ) -> InstantSamples {
-        match self {
-            MusicalTransport::Static(s) => s.transport_start(now, playhead, sample_rate),
-            MusicalTransport::Piecewise(s) => s.transport_start(now, playhead, sample_rate),
-        }
-    }
+    ) -> InstantSamples;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProcTransportInfo {
     /// The number of frames in this processing block that this information
-    /// lasts for before it changes.
+    /// lasts for before either the information changes, or the end of the
+    /// processing block is reached (whichever comes first).
     pub frames: usize,
 
     /// The beats per minute at the first frame of this process block.
@@ -164,11 +109,11 @@ impl ProcTransportInfo {
 }
 
 /// The state of the musical transport in a Firewheel context.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct TransportState {
     /// The current musical transport.
-    pub transport: Option<MusicalTransport>,
+    pub transport: Option<ArcGc<dyn MusicalTransport>>,
 
     /// Whether or not the musical transport is playing (true) or is paused (false).
     pub playing: Notify<bool>,
@@ -184,6 +129,54 @@ pub struct TransportState {
 
     /// If this is `Some`, then the transport will continously loop the given region.
     pub loop_range: Option<Range<InstantMusical>>,
+}
+
+impl TransportState {
+    pub fn set_transport<T: MusicalTransport>(&mut self, transport: Option<T>) {
+        self.transport =
+            transport.map(|t| ArcGc::new_unsized(|| Arc::new(t) as Arc<dyn MusicalTransport>))
+    }
+
+    /// Set the transport to a single static tempo ([`StaticTransport`]).
+    ///
+    /// If `beats_per_minute` is `None`, then this will set the transport to `None`.
+    pub fn set_static_transport(&mut self, beats_per_minute: Option<f64>) {
+        self.set_transport(beats_per_minute.map(|bpm| StaticTransport::new(bpm)));
+    }
+}
+
+impl Clone for TransportState {
+    fn clone(&self) -> Self {
+        Self {
+            transport: self.transport.as_ref().map(|t| ArcGc::clone(t)),
+            playing: self.playing.clone(),
+            playhead: self.playhead.clone(),
+            stop_at: self.stop_at.clone(),
+            loop_range: self.loop_range.clone(),
+        }
+    }
+}
+
+impl PartialEq for TransportState {
+    fn eq(&self, other: &Self) -> bool {
+        let transports_are_equal = self
+            .transport
+            .as_ref()
+            .map(|t1| {
+                other
+                    .transport
+                    .as_ref()
+                    .map(|t2| ArcGc::ptr_eq(t1, t2))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(other.transport.is_none());
+
+        transports_are_equal
+            && self.playing.eq(&other.playing)
+            && self.playhead.eq(&other.playhead)
+            && self.stop_at.eq(&other.stop_at)
+            && self.loop_range.eq(&other.loop_range)
+    }
 }
 
 impl Default for TransportState {

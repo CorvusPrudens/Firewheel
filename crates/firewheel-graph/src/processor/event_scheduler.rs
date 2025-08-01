@@ -22,7 +22,7 @@ use firewheel_core::clock::EventInstant;
 #[cfg(feature = "musical_transport")]
 use crate::processor::ProcTransportState;
 #[cfg(feature = "musical_transport")]
-use firewheel_core::clock::MusicalTransport;
+use firewheel_core::{clock::MusicalTransport, collector::ArcGc};
 
 const MAX_CLUMP_INDICES: usize = 8;
 
@@ -261,7 +261,7 @@ impl EventScheduler {
     #[cfg(feature = "musical_transport")]
     pub fn sync_scheduled_events_to_transport(
         &mut self,
-        transport_and_start_clock_samples: Option<(&MusicalTransport, InstantSamples)>,
+        transport_and_start_clock_samples: Option<(&ArcGc<dyn MusicalTransport>, InstantSamples)>,
         sample_rate: NonZeroU32,
     ) {
         if self.num_scheduled_musical_events == 0 {

@@ -2,7 +2,7 @@ use core::num::NonZeroU32;
 
 use crate::clock::{
     beats_per_second, seconds_per_beat, DurationMusical, DurationSeconds, InstantMusical,
-    InstantSamples, InstantSeconds, ProcTransportInfo,
+    InstantSamples, InstantSeconds, MusicalTransport, ProcTransportInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -48,109 +48,6 @@ impl PiecewiseTransport {
         (f)(&mut self.keyframes);
 
         self.compute_cache();
-    }
-
-    pub fn musical_to_seconds(
-        &self,
-        musical: InstantMusical,
-        transport_start: InstantSeconds,
-    ) -> InstantSeconds {
-        transport_start + self.musical_to_seconds_inner(musical)
-    }
-
-    pub fn musical_to_samples(
-        &self,
-        musical: InstantMusical,
-        transport_start: InstantSamples,
-        sample_rate: NonZeroU32,
-    ) -> InstantSamples {
-        transport_start
-            + self
-                .musical_to_seconds_inner(musical)
-                .to_samples(sample_rate)
-    }
-
-    pub fn seconds_to_musical(
-        &self,
-        seconds: InstantSeconds,
-        transport_start: InstantSeconds,
-    ) -> InstantMusical {
-        self.seconds_to_musical_inner(seconds - transport_start)
-    }
-
-    pub fn samples_to_musical(
-        &self,
-        sample_time: InstantSamples,
-        transport_start: InstantSamples,
-        sample_rate: NonZeroU32,
-        sample_rate_recip: f64,
-    ) -> InstantMusical {
-        self.seconds_to_musical_inner(
-            (sample_time - transport_start).to_seconds(sample_rate, sample_rate_recip),
-        )
-    }
-
-    /// Return the musical time that occurs `delta_seconds` seconds after the
-    /// given `from` timestamp.
-    pub fn delta_seconds_from(
-        &self,
-        from: InstantMusical,
-        delta_seconds: DurationSeconds,
-    ) -> InstantMusical {
-        self.seconds_to_musical_inner(self.musical_to_seconds_inner(from) + delta_seconds)
-    }
-
-    pub fn transport_start(
-        &self,
-        now: InstantSamples,
-        playhead: InstantMusical,
-        sample_rate: NonZeroU32,
-    ) -> InstantSamples {
-        now - self
-            .musical_to_seconds_inner(playhead)
-            .to_samples(sample_rate)
-    }
-
-    pub fn bpm_at_musical(&self, musical: InstantMusical) -> f64 {
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if musical < self.cache[i].start_time_musical {
-                return self.keyframes[i - 1].beats_per_minute;
-            }
-        }
-
-        self.keyframes.last().unwrap().beats_per_minute
-    }
-
-    pub fn proc_transport_info(
-        &self,
-        frames: usize,
-        playhead: InstantMusical,
-        sample_rate: NonZeroU32,
-    ) -> ProcTransportInfo {
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if playhead < self.cache[i].start_time_musical {
-                let frames_left_in_keyframe = DurationSeconds(
-                    (self.cache[i].start_time_musical - playhead).0
-                        * seconds_per_beat(self.keyframes[i - 1].beats_per_minute),
-                )
-                .to_samples(sample_rate)
-                .0 as usize;
-
-                return ProcTransportInfo {
-                    frames: frames.min(frames_left_in_keyframe),
-                    beats_per_minute: self.keyframes[i - 1].beats_per_minute,
-                    delta_beats_per_minute: 0.0,
-                };
-            }
-        }
-
-        ProcTransportInfo {
-            frames,
-            beats_per_minute: self.keyframes.last().unwrap().beats_per_minute,
-            delta_beats_per_minute: 0.0,
-        }
     }
 
     fn compute_cache(&mut self) {
@@ -212,6 +109,109 @@ impl PiecewiseTransport {
                 (seconds - self.cache.last().unwrap().start_time_seconds).0
                     * beats_per_second(self.keyframes.last().unwrap().beats_per_minute),
             )
+    }
+}
+
+impl MusicalTransport for PiecewiseTransport {
+    fn musical_to_seconds(
+        &self,
+        musical: InstantMusical,
+        transport_start: InstantSeconds,
+    ) -> InstantSeconds {
+        transport_start + self.musical_to_seconds_inner(musical)
+    }
+
+    fn musical_to_samples(
+        &self,
+        musical: InstantMusical,
+        transport_start: InstantSamples,
+        sample_rate: NonZeroU32,
+    ) -> InstantSamples {
+        transport_start
+            + self
+                .musical_to_seconds_inner(musical)
+                .to_samples(sample_rate)
+    }
+
+    fn seconds_to_musical(
+        &self,
+        seconds: InstantSeconds,
+        transport_start: InstantSeconds,
+    ) -> InstantMusical {
+        self.seconds_to_musical_inner(seconds - transport_start)
+    }
+
+    fn samples_to_musical(
+        &self,
+        sample_time: InstantSamples,
+        transport_start: InstantSamples,
+        sample_rate: NonZeroU32,
+        sample_rate_recip: f64,
+    ) -> InstantMusical {
+        self.seconds_to_musical_inner(
+            (sample_time - transport_start).to_seconds(sample_rate, sample_rate_recip),
+        )
+    }
+
+    fn delta_seconds_from(
+        &self,
+        from: InstantMusical,
+        delta_seconds: DurationSeconds,
+    ) -> InstantMusical {
+        self.seconds_to_musical_inner(self.musical_to_seconds_inner(from) + delta_seconds)
+    }
+
+    fn transport_start(
+        &self,
+        now: InstantSamples,
+        playhead: InstantMusical,
+        sample_rate: NonZeroU32,
+    ) -> InstantSamples {
+        now - self
+            .musical_to_seconds_inner(playhead)
+            .to_samples(sample_rate)
+    }
+
+    fn bpm_at_musical(&self, musical: InstantMusical) -> f64 {
+        // TODO: Use a binary search algorithm.
+        for i in 1..self.keyframes.len().min(self.cache.len()) {
+            if musical < self.cache[i].start_time_musical {
+                return self.keyframes[i - 1].beats_per_minute;
+            }
+        }
+
+        self.keyframes.last().unwrap().beats_per_minute
+    }
+
+    fn proc_transport_info(
+        &self,
+        frames: usize,
+        playhead: InstantMusical,
+        sample_rate: NonZeroU32,
+    ) -> ProcTransportInfo {
+        // TODO: Use a binary search algorithm.
+        for i in 1..self.keyframes.len().min(self.cache.len()) {
+            if playhead < self.cache[i].start_time_musical {
+                let frames_left_in_keyframe = DurationSeconds(
+                    (self.cache[i].start_time_musical - playhead).0
+                        * seconds_per_beat(self.keyframes[i - 1].beats_per_minute),
+                )
+                .to_samples(sample_rate)
+                .0 as usize;
+
+                return ProcTransportInfo {
+                    frames: frames.min(frames_left_in_keyframe),
+                    beats_per_minute: self.keyframes[i - 1].beats_per_minute,
+                    delta_beats_per_minute: 0.0,
+                };
+            }
+        }
+
+        ProcTransportInfo {
+            frames,
+            beats_per_minute: self.keyframes.last().unwrap().beats_per_minute,
+            delta_beats_per_minute: 0.0,
+        }
     }
 }
 

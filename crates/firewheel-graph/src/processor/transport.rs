@@ -5,6 +5,7 @@ use firewheel_core::{
         DurationSamples, InstantMusical, InstantSamples, MusicalTransport, ProcTransportInfo,
         TransportState,
     },
+    collector::ArcGc,
     node::TransportInfo,
 };
 
@@ -198,7 +199,7 @@ impl ProcTransportState {
             .transport
             .as_ref()
             .map(|transport| TransportInfo {
-                transport,
+                transport: ArcGc::clone(transport),
                 start_clock_samples: self
                     .transport_state
                     .playing
@@ -236,7 +237,9 @@ impl ProcTransportState {
     }
 
     /// Returns `Option<transport, start_clock_samples>`.
-    pub fn transport_and_start_clock_samples(&self) -> Option<(&MusicalTransport, InstantSamples)> {
+    pub fn transport_and_start_clock_samples(
+        &self,
+    ) -> Option<(&ArcGc<dyn MusicalTransport>, InstantSamples)> {
         self.transport_state
             .transport
             .as_ref()

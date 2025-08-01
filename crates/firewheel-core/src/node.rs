@@ -2,6 +2,8 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
+#[cfg(feature = "musical_transport")]
+use crate::collector::ArcGc;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
@@ -504,7 +506,7 @@ pub struct ProcInfo<'a> {
     /// This will be `None` if no musical transport is currently active,
     /// or if the current transport is currently paused.
     #[cfg(feature = "musical_transport")]
-    pub transport_info: Option<TransportInfo<'a>>,
+    pub transport_info: Option<TransportInfo>,
 
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
@@ -636,9 +638,9 @@ impl<'a> ProcInfo<'a> {
 }
 
 #[cfg(feature = "musical_transport")]
-pub struct TransportInfo<'a> {
+pub struct TransportInfo {
     /// The current transport.
-    pub transport: &'a MusicalTransport,
+    pub transport: ArcGc<dyn MusicalTransport>,
 
     /// The instant that `MusicaltTime::ZERO` occured in units of
     /// `ClockSamples`.
@@ -662,7 +664,7 @@ pub struct TransportInfo<'a> {
 }
 
 #[cfg(feature = "musical_transport")]
-impl<'a> TransportInfo<'a> {
+impl TransportInfo {
     /// Whether or not the transport is currently playing (true) or paused
     /// (false).
     pub const fn playing(&self) -> bool {
