@@ -11,7 +11,9 @@ struct KeyframeCache {
     start_time_seconds: DurationSeconds,
 }
 
-/// A musical transport with a single static tempo in beats per minute.
+/// A musical transport with multiple keyframes of tempo. The tempo
+/// immediately jumps from one keyframe to another (the tempo is *NOT*
+/// linearly interpolated between keyframes).
 #[derive(Debug, Clone)]
 pub struct PiecewiseTransport {
     keyframes: Vec<PiecewiseTransportKeyframe>,

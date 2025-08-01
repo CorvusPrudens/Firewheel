@@ -15,7 +15,11 @@ use crate::{
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum MusicalTransport {
+    /// A musical transport with a single static tempo in beats per minute.
     Static(StaticTransport),
+    /// A musical transport with multiple keyframes of tempo. The tempo
+    /// immediately jumps from one keyframe to another (the tempo is *NOT*
+    /// linearly interpolated between keyframes).
     Piecewise(ArcGc<PiecewiseTransport>),
     // TODO: Linearly automated tempo.
 }
