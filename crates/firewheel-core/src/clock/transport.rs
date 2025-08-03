@@ -268,7 +268,7 @@ pub enum TransportSpeed {
         ///
         /// If this is `None`, then the change will happen as soon as the
         /// processor receives the event.
-        change_at: Option<InstantMusical>,
+        start_at: Option<InstantMusical>,
     },
     /// Automate the speed multiplier values.
     Automate {
@@ -282,7 +282,7 @@ pub enum TransportSpeed {
         ///
         /// If this is `None`, then the change will happen as soon as the
         /// processor receives the event.
-        start_instant: Option<InstantMusical>,
+        start_at: Option<InstantMusical>,
     },
 }
 
@@ -298,14 +298,14 @@ impl TransportSpeed {
     pub const fn static_multiplier(multiplier: f64, change_at: Option<InstantMusical>) -> Self {
         Self::Static {
             multiplier,
-            change_at,
+            start_at: change_at,
         }
     }
 
-    pub fn change_at(&self) -> Option<InstantMusical> {
+    pub fn start_at(&self) -> Option<InstantMusical> {
         match self {
-            Self::Static { change_at, .. } => *change_at,
-            Self::Automate { start_instant, .. } => *start_instant,
+            Self::Static { start_at, .. } => *start_at,
+            Self::Automate { start_at, .. } => *start_at,
         }
     }
 }
@@ -314,7 +314,7 @@ impl Default for TransportSpeed {
     fn default() -> Self {
         Self::Static {
             multiplier: 1.0,
-            change_at: None,
+            start_at: None,
         }
     }
 }

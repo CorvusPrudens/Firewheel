@@ -67,7 +67,7 @@ impl ProcTransportState {
         match &new_transport_state.speed {
             TransportSpeed::Static {
                 multiplier,
-                change_at,
+                start_at: change_at,
             } => {
                 if change_at.is_none() {
                     self.current_speed_multiplier = *multiplier;
@@ -75,7 +75,7 @@ impl ProcTransportState {
             }
             TransportSpeed::Automate {
                 keyframes,
-                start_instant,
+                start_at: start_instant,
                 ..
             } => {
                 if start_instant.is_none() {
@@ -170,7 +170,7 @@ impl ProcTransportState {
         match &mut self.transport_state.speed {
             TransportSpeed::Static {
                 multiplier,
-                change_at,
+                start_at: change_at,
             } => {
                 if let Some(change_at_musical) = *change_at {
                     let change_at_samples = transport.musical_to_samples(
@@ -190,7 +190,7 @@ impl ProcTransportState {
             }
             TransportSpeed::Automate {
                 keyframes,
-                start_instant,
+                start_at: start_instant,
             } => {
                 let mut remove_automation_state = false;
                 if let Some(automation_state) = &mut self.automation_state {
