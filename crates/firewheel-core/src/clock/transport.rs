@@ -1,6 +1,8 @@
 mod dynamic_transport;
 mod static_transport;
 
+use bevy_platform::sync::Arc;
+
 use core::{fmt::Debug, num::NonZeroU32, ops::Range};
 
 pub use dynamic_transport::{DynamicTransport, TransportKeyframe};
@@ -8,7 +10,6 @@ pub use static_transport::StaticTransport;
 
 use crate::{
     clock::{DurationSeconds, EventInstant, InstantMusical, InstantSamples, InstantSeconds},
-    collector::ArcGc,
     diff::Notify,
 };
 
@@ -20,7 +21,7 @@ pub enum MusicalTransport {
     /// A musical transport with multiple keyframes of tempo. The tempo
     /// immediately jumps from one keyframe to another (the tempo is *NOT*
     /// linearly interpolated between keyframes).
-    Dynamic(ArcGc<DynamicTransport>),
+    Dynamic(Arc<DynamicTransport>),
 }
 
 impl MusicalTransport {
@@ -280,7 +281,7 @@ pub enum TransportSpeed {
         ///
         /// Note, the keyframes must be sorted by the event instant or else it
         /// will not work correctly.
-        keyframes: ArcGc<Vec<SpeedMultiplierKeyframe>>,
+        keyframes: Arc<Vec<SpeedMultiplierKeyframe>>,
         /// If this is `Some`, then the change will happen when the transport
         /// reaches the given playhead.
         ///
