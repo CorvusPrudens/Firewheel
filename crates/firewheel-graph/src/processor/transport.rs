@@ -64,6 +64,7 @@ impl ProcTransportState {
     ) -> Box<TransportState> {
         let mut did_pause = false;
 
+        self.automation_state = None;
         match &new_transport_state.speed {
             TransportSpeed::Static {
                 multiplier,
@@ -80,10 +81,16 @@ impl ProcTransportState {
             } => {
                 if start_instant.is_none() {
                     self.current_speed_multiplier = keyframes[0].multiplier;
+
+                    if keyframes.len() > 1 {
+                        self.automation_state = Some(AutomationState {
+                            keyframe_index: 0,
+                            move_to_next_keyframe: false,
+                        });
+                    }
                 }
             }
         }
-        self.automation_state = None;
 
         if let Some(new_transport) = &new_transport_state.transport {
             if self.transport_state.playhead != new_transport_state.playhead
@@ -247,10 +254,14 @@ impl ProcTransportState {
                         self.current_speed_multiplier = keyframes[0].multiplier;
                         *start_instant = None;
 
-                        self.automation_state = Some(AutomationState {
-                            keyframe_index: 0,
-                            move_to_next_keyframe: false,
-                        });
+                        if keyframes.len() > 1 {
+                            self.automation_state = Some(AutomationState {
+                                keyframe_index: 0,
+                                move_to_next_keyframe: false,
+                            });
+                        } else {
+                            self.automation_state = None;
+                        }
                     } else if ((start_instant_samples.0 - clock_samples.0) as usize) < frames {
                         frames = (start_instant_samples.0 - clock_samples.0) as usize;
                     }
