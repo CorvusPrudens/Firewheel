@@ -24,7 +24,7 @@ pub enum MusicalTransport {
 }
 
 impl MusicalTransport {
-    /// Returns the beats per minute if this is of type [`TransportType::Static`],
+    /// Returns the beats per minute if this is of type [`MusicalTransport::Static`],
     /// `None` otherwise.
     pub fn beats_per_minute(&self) -> Option<f64> {
         if let MusicalTransport::Static(s) = self {
@@ -291,7 +291,7 @@ pub enum TransportSpeed {
 }
 
 impl TransportSpeed {
-    /// Create a [`SpeedMultiplier`] with a single static value.
+    /// Create a [`TransportSpeed`] with a single static value.
     ///
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
     /// `1.0` means no change in speed, a value less than `1.0` means a decrease
@@ -365,7 +365,7 @@ impl TransportState {
     /// Get the beats per minute of the current static transport.
     ///
     /// Returns `None` if `transport` is `None` or if `transport` is not
-    /// [`TransportType::Static`].
+    /// [`MusicalTransport::Static`].
     pub fn beats_per_minute(&self) -> Option<f64> {
         self.transport.as_ref().and_then(|t| t.beats_per_minute())
     }
