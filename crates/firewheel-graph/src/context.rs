@@ -146,7 +146,9 @@ pub struct FirewheelCtx<B: AudioBackend> {
     sample_rate_recip: f64,
 
     #[cfg(feature = "musical_transport")]
-    transport_state: TransportState,
+    transport_state: Box<TransportState>,
+    #[cfg(feature = "musical_transport")]
+    transport_state_alloc_reuse: Option<Box<TransportState>>,
 
     // Re-use the allocations for groups of events.
     event_group_pool: Vec<Vec<NodeEvent>>,
@@ -188,7 +190,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
             #[cfg(feature = "musical_transport")]
-            transport_state: TransportState::default(),
+            transport_state: Box::new(TransportState::default()),
+            #[cfg(feature = "musical_transport")]
+            transport_state_alloc_reuse: None,
             event_group_pool,
             event_group: Vec::with_capacity(initial_event_group_capacity),
             initial_event_group_capacity,
@@ -383,7 +387,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 .clock_samples
                 .to_seconds(self.sample_rate, self.sample_rate_recip),
             #[cfg(feature = "musical_transport")]
-            musical: clock.musical_time,
+            musical: clock.current_playhead,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: clock.transport_is_playing,
             update_instant,
@@ -428,7 +432,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     .clock_samples
                     .to_seconds(self.sample_rate, self.sample_rate_recip),
                 #[cfg(feature = "musical_transport")]
-                musical: clock.musical_time,
+                musical: clock.current_playhead,
                 #[cfg(feature = "musical_transport")]
                 transport_is_playing: clock.transport_is_playing,
                 update_instant: None,
@@ -441,13 +445,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let samples = clock.clock_samples + delta_seconds.to_samples(self.sample_rate);
 
         #[cfg(feature = "musical_transport")]
-        let musical = clock.musical_time.map(|musical_time| {
+        let musical = clock.current_playhead.map(|musical_time| {
             if clock.transport_is_playing && self.transport_state.transport.is_some() {
                 self.transport_state
                     .transport
                     .as_ref()
                     .unwrap()
-                    .delta_seconds_from(musical_time, delta_seconds)
+                    .delta_seconds_from(musical_time, delta_seconds, clock.speed_multiplier)
             } else {
                 musical_time
             }
@@ -496,16 +500,27 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         &mut self,
         transport: &TransportState,
     ) -> Result<(), UpdateError<B::StreamError>> {
-        if &self.transport_state != transport {
-            self.send_message_to_processor(ContextToProcessorMsg::SetTransportState(Box::new(
-                transport.clone(),
-            )))
-            .map_err(|(_, e)| e)?;
+        if &*self.transport_state != transport {
+            let transport_msg = if let Some(mut t) = self.transport_state_alloc_reuse.take() {
+                *t = transport.clone();
+                t
+            } else {
+                Box::new(transport.clone())
+            };
 
-            self.transport_state = transport.clone();
+            self.send_message_to_processor(ContextToProcessorMsg::SetTransportState(transport_msg))
+                .map_err(|(_, e)| e)?;
+
+            *self.transport_state = transport.clone();
         }
 
         Ok(())
+    }
+
+    /// Get the current transport state.
+    #[cfg(feature = "musical_transport")]
+    pub fn transport_state(&self) -> &TransportState {
+        &self.transport_state
     }
 
     /// Get the current transport state.
@@ -557,7 +572,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 }
                 #[cfg(feature = "musical_transport")]
                 ProcessorToContextMsg::ReturnTransportState(transport_state) => {
-                    let _ = transport_state;
+                    if self.transport_state_alloc_reuse.is_none() {
+                        self.transport_state_alloc_reuse = Some(transport_state);
+                    }
                 }
                 #[cfg(feature = "scheduled_events")]
                 ProcessorToContextMsg::ReturnClearScheduledEvents(msgs) => {

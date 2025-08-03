@@ -1,79 +1,234 @@
-mod piecewise_transport;
+mod dynamic_transport;
 mod static_transport;
 
 use bevy_platform::sync::Arc;
+
 use core::{fmt::Debug, num::NonZeroU32, ops::Range};
 
-pub use piecewise_transport::{PiecewiseTransport, PiecewiseTransportKeyframe};
+pub use dynamic_transport::{DynamicTransport, TransportKeyframe};
 pub use static_transport::StaticTransport;
 
 use crate::{
-    clock::{DurationSeconds, InstantMusical, InstantSamples, InstantSeconds},
-    collector::ArcGc,
+    clock::{DurationSeconds, EventInstant, InstantMusical, InstantSamples, InstantSeconds},
     diff::Notify,
 };
 
-/// A trait describing a musical transport, which is essentially a map between
-/// time in seconds and time in musical beats (and vice versa).
-pub trait MusicalTransport: Debug + Send + Sync + 'static {
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+pub enum MusicalTransport {
+    /// A musical transport with a single static tempo in beats per minute.
+    Static(StaticTransport),
+    /// A musical transport with multiple keyframes of tempo. The tempo
+    /// immediately jumps from one keyframe to another (the tempo is *NOT*
+    /// linearly interpolated between keyframes).
+    Dynamic(Arc<DynamicTransport>),
+}
+
+impl MusicalTransport {
+    /// Returns the beats per minute if this is of type [`MusicalTransport::Static`],
+    /// `None` otherwise.
+    pub fn beats_per_minute(&self) -> Option<f64> {
+        if let MusicalTransport::Static(s) = self {
+            Some(s.beats_per_minute)
+        } else {
+            None
+        }
+    }
+
     /// Convert the time in musical beats to the corresponding time in seconds.
-    fn musical_to_seconds(
+    ///
+    /// * `musical` - The time in musical beats to convert.
+    /// * `transport_start` - The instant of the start of the transport (musical
+    /// time of `0`).
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    pub fn musical_to_seconds(
         &self,
         musical: InstantMusical,
         transport_start: InstantSeconds,
-    ) -> InstantSeconds;
+        speed_multiplier: f64,
+    ) -> InstantSeconds {
+        match self {
+            MusicalTransport::Static(t) => {
+                t.musical_to_seconds(musical, transport_start, speed_multiplier)
+            }
+            MusicalTransport::Dynamic(t) => {
+                t.musical_to_seconds(musical, transport_start, speed_multiplier)
+            }
+        }
+    }
 
     /// Convert the time in musical beats to the corresponding time in samples.
-    fn musical_to_samples(
+    ///
+    /// * `musical` - The time in musical beats to convert.
+    /// * `transport_start` - The instant of the start of the transport (musical
+    /// time of `0`).
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `sample_rate` - The sample rate of the stream.
+    pub fn musical_to_samples(
         &self,
         musical: InstantMusical,
         transport_start: InstantSamples,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
-    ) -> InstantSamples;
+    ) -> InstantSamples {
+        match self {
+            MusicalTransport::Static(t) => {
+                t.musical_to_samples(musical, transport_start, speed_multiplier, sample_rate)
+            }
+            MusicalTransport::Dynamic(t) => {
+                t.musical_to_samples(musical, transport_start, speed_multiplier, sample_rate)
+            }
+        }
+    }
 
     /// Convert the time in seconds to the corresponding time in musical beats.
-    fn seconds_to_musical(
+    ///
+    /// * `seconds` - The time in seconds to convert.
+    /// * `transport_start` - The instant of the start of the transport (musical
+    /// time of `0`).
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `sample_rate` - The sample rate of the stream.
+    pub fn seconds_to_musical(
         &self,
         seconds: InstantSeconds,
         transport_start: InstantSeconds,
-    ) -> InstantMusical;
+        speed_multiplier: f64,
+    ) -> InstantMusical {
+        match self {
+            MusicalTransport::Static(t) => {
+                t.seconds_to_musical(seconds, transport_start, speed_multiplier)
+            }
+            MusicalTransport::Dynamic(t) => {
+                t.seconds_to_musical(seconds, transport_start, speed_multiplier)
+            }
+        }
+    }
 
     /// Convert the time in samples to the corresponding time in musical beats.
-    fn samples_to_musical(
+    ///
+    /// * `sample_time` - The time in samples to convert.
+    /// * `transport_start` - The instant of the start of the transport (musical
+    /// time of `0`).
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `sample_rate` - The sample rate of the stream.
+    /// * `sample_rate` - The reciprocal of the sample rate.
+    pub fn samples_to_musical(
         &self,
         sample_time: InstantSamples,
         transport_start: InstantSamples,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-    ) -> InstantMusical;
+    ) -> InstantMusical {
+        match self {
+            MusicalTransport::Static(t) => t.samples_to_musical(
+                sample_time,
+                transport_start,
+                speed_multiplier,
+                sample_rate,
+                sample_rate_recip,
+            ),
+            MusicalTransport::Dynamic(t) => t.samples_to_musical(
+                sample_time,
+                transport_start,
+                speed_multiplier,
+                sample_rate,
+                sample_rate_recip,
+            ),
+        }
+    }
 
     /// Return the musical time that occurs `delta_seconds` seconds after the
     /// given `from` timestamp.
-    fn delta_seconds_from(
+    ///
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    pub fn delta_seconds_from(
         &self,
         from: InstantMusical,
         delta_seconds: DurationSeconds,
-    ) -> InstantMusical;
+        speed_multiplier: f64,
+    ) -> InstantMusical {
+        match self {
+            MusicalTransport::Static(t) => {
+                t.delta_seconds_from(from, delta_seconds, speed_multiplier)
+            }
+            MusicalTransport::Dynamic(t) => {
+                t.delta_seconds_from(from, delta_seconds, speed_multiplier)
+            }
+        }
+    }
 
     /// Return the tempo in beats per minute at the given musical time.
-    fn bpm_at_musical(&self, musical: InstantMusical) -> f64;
+    ///
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    pub fn bpm_at_musical(&self, musical: InstantMusical, speed_multiplier: f64) -> f64 {
+        match self {
+            MusicalTransport::Static(t) => t.bpm_at_musical(musical, speed_multiplier),
+            MusicalTransport::Dynamic(t) => t.bpm_at_musical(musical, speed_multiplier),
+        }
+    }
 
     /// Return information about this transport for this processing block.
-    fn proc_transport_info(
+    ///
+    /// * `frames` - The number of frames in this processing block.
+    /// * `playhead` - The current playhead of the transport at frame `0` in this
+    /// processing block.
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `sample_rate` - The sample rate of the stream.
+    pub fn proc_transport_info(
         &self,
         frames: usize,
         playhead: InstantMusical,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
-    ) -> ProcTransportInfo;
+    ) -> ProcTransportInfo {
+        match self {
+            MusicalTransport::Static(t) => t.proc_transport_info(frames, speed_multiplier),
+            MusicalTransport::Dynamic(t) => {
+                t.proc_transport_info(frames, playhead, speed_multiplier, sample_rate)
+            }
+        }
+    }
 
-    /// Return the instant of time of the beginning of this transport
-    /// (musical time of `0`).
-    fn transport_start(
+    /// Return the instant the beginning of this transport (musical time of `0`)
+    /// occurs on.
+    ///
+    /// * `now` - The current time in samples.
+    /// * `playhead` - The current playhead of the transport.
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `sample_rate` - The sample rate of the stream.
+    pub fn transport_start(
         &self,
         now: InstantSamples,
         playhead: InstantMusical,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
-    ) -> InstantSamples;
+    ) -> InstantSamples {
+        match self {
+            MusicalTransport::Static(t) => {
+                t.transport_start(now, playhead, speed_multiplier, sample_rate)
+            }
+            MusicalTransport::Dynamic(t) => {
+                t.transport_start(now, playhead, speed_multiplier, sample_rate)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -85,41 +240,109 @@ pub struct ProcTransportInfo {
 
     /// The beats per minute at the first frame of this process block.
     pub beats_per_minute: f64,
-
-    /// The rate at which `beats_per_minute` changes each frame in this
-    /// processing block.
-    ///
-    /// For example, if this value is `0.0`, then the bpm remains static for
-    /// the entire duration of this processing block.
-    ///
-    /// And for example, if this is `0.1`, then the bpm increases by `0.1`
-    /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
-    /// each frame.
-    pub delta_beats_per_minute: f64,
 }
 
-impl ProcTransportInfo {
-    /// Get the BPM at the given frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpeedMultiplierKeyframe {
+    /// The multiplier for the playback speed. A value of `1.0` means no change
+    /// in speed, a value less than `1.0` means a decrease in speed, and a value
+    /// greater than `1.0` means an increase in speed.
     ///
-    /// Returns `None` if `frame >= self.frames`.
-    pub fn bpm_at_frame(&self, frame: usize) -> Option<f64> {
-        (frame < self.frames)
-            .then(|| self.beats_per_minute + (self.delta_beats_per_minute * frame as f64))
+    /// This can cause a panic if `multiplier <= 0.0`.
+    pub multiplier: f64,
+
+    /// The instant that this keyframe happens.
+    pub instant: EventInstant,
+}
+
+/// A multiplier for the speed of the transport.
+///
+/// A value of `1.0` means no change in speed, a value less than `1.0` means
+/// a decrease in speed, and a value greater than `1.0` means an increase in
+/// speed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransportSpeed {
+    /// Set the mulitplier to a single static value.
+    Static {
+        /// The speed multiplier.
+        ///
+        /// This can cause a panic if `multiplier <= 0.0`.
+        multiplier: f64,
+        /// If this is `Some`, then the change will happen when the transport
+        /// reaches the given playhead.
+        ///
+        /// If this is `None`, then the change will happen as soon as the
+        /// processor receives the event.
+        start_at: Option<InstantMusical>,
+    },
+    /// Automate the speed multiplier values.
+    Automate {
+        /// The keyframes of animation.
+        ///
+        /// Note, the keyframes must be sorted by the event instant or else it
+        /// will not work correctly.
+        keyframes: Arc<Vec<SpeedMultiplierKeyframe>>,
+        /// If this is `Some`, then the change will happen when the transport
+        /// reaches the given playhead.
+        ///
+        /// If this is `None`, then the change will happen as soon as the
+        /// processor receives the event.
+        start_at: Option<InstantMusical>,
+    },
+}
+
+impl TransportSpeed {
+    /// Create a [`TransportSpeed`] with a single static value.
+    ///
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `change_at`: If this is `Some`, then the change will happen when the transport
+    /// reaches the given playhead. If this is `None`, then the change will happen as soon
+    /// as the processor receives the event.
+    pub const fn static_multiplier(multiplier: f64, change_at: Option<InstantMusical>) -> Self {
+        Self::Static {
+            multiplier,
+            start_at: change_at,
+        }
+    }
+
+    pub fn start_at(&self) -> Option<InstantMusical> {
+        match self {
+            Self::Static { start_at, .. } => *start_at,
+            Self::Automate { start_at, .. } => *start_at,
+        }
+    }
+}
+
+impl Default for TransportSpeed {
+    fn default() -> Self {
+        Self::Static {
+            multiplier: 1.0,
+            start_at: None,
+        }
     }
 }
 
 /// The state of the musical transport in a Firewheel context.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct TransportState {
     /// The current musical transport.
-    pub transport: Option<ArcGc<dyn MusicalTransport>>,
+    pub transport: Option<MusicalTransport>,
 
     /// Whether or not the musical transport is playing (true) or is paused (false).
     pub playing: Notify<bool>,
 
     /// The playhead of the musical transport.
     pub playhead: Notify<InstantMusical>,
+
+    /// A multiplier for the speed of the transport.
+    ///
+    /// A value of `1.0` means no change in speed, a value less than `1.0` means
+    /// a decrease in speed, and a value greater than `1.0` means an increase in
+    /// speed.
+    pub speed: TransportSpeed,
 
     /// If this is `Some`, then the transport will automatically stop when the playhead
     /// reaches the given musical time.
@@ -132,50 +355,36 @@ pub struct TransportState {
 }
 
 impl TransportState {
-    pub fn set_transport<T: MusicalTransport>(&mut self, transport: Option<T>) {
-        self.transport =
-            transport.map(|t| ArcGc::new_unsized(|| Arc::new(t) as Arc<dyn MusicalTransport>))
-    }
-
     /// Set the transport to a single static tempo ([`StaticTransport`]).
     ///
     /// If `beats_per_minute` is `None`, then this will set the transport to `None`.
     pub fn set_static_transport(&mut self, beats_per_minute: Option<f64>) {
-        self.set_transport(beats_per_minute.map(|bpm| StaticTransport::new(bpm)));
+        self.transport =
+            beats_per_minute.map(|bpm| MusicalTransport::Static(StaticTransport::new(bpm)));
     }
-}
 
-impl Clone for TransportState {
-    fn clone(&self) -> Self {
-        Self {
-            transport: self.transport.as_ref().map(|t| ArcGc::clone(t)),
-            playing: self.playing.clone(),
-            playhead: self.playhead.clone(),
-            stop_at: self.stop_at.clone(),
-            loop_range: self.loop_range.clone(),
-        }
+    /// Get the beats per minute of the current static transport.
+    ///
+    /// Returns `None` if `transport` is `None` or if `transport` is not
+    /// [`MusicalTransport::Static`].
+    pub fn beats_per_minute(&self) -> Option<f64> {
+        self.transport.as_ref().and_then(|t| t.beats_per_minute())
     }
-}
 
-impl PartialEq for TransportState {
-    fn eq(&self, other: &Self) -> bool {
-        let transports_are_equal = self
-            .transport
-            .as_ref()
-            .map(|t1| {
-                other
-                    .transport
-                    .as_ref()
-                    .map(|t2| ArcGc::ptr_eq(t1, t2))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(other.transport.is_none());
-
-        transports_are_equal
-            && self.playing.eq(&other.playing)
-            && self.playhead.eq(&other.playhead)
-            && self.stop_at.eq(&other.stop_at)
-            && self.loop_range.eq(&other.loop_range)
+    /// Set a multiplier for the speed of the transport to a single static value.
+    ///
+    /// * `speed_multiplier` - A multiplier for the playback speed. A value of
+    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
+    /// in speed, and a value greater than `1.0` means an increase in speed.
+    /// * `change_at`: If this is `Some`, then the change will happen when the transport
+    /// reaches the given playhead. If this is `None`, then the change will happen as soon
+    /// as the processor receives the event.
+    pub fn set_speed_multiplier(
+        &mut self,
+        speed_multiplier: f64,
+        change_at: Option<InstantMusical>,
+    ) {
+        self.speed = TransportSpeed::static_multiplier(speed_multiplier, change_at);
     }
 }
 
@@ -185,6 +394,7 @@ impl Default for TransportState {
             transport: None,
             playing: Notify::new(false),
             playhead: Notify::new(InstantMusical::ZERO),
+            speed: TransportSpeed::default(),
             stop_at: None,
             loop_range: None,
         }
@@ -192,11 +402,11 @@ impl Default for TransportState {
 }
 
 #[inline]
-pub fn seconds_per_beat(beats_per_minute: f64) -> f64 {
-    60.0 / beats_per_minute
+pub fn seconds_per_beat(beats_per_minute: f64, speed_multiplier: f64) -> f64 {
+    60.0 / (beats_per_minute * speed_multiplier)
 }
 
 #[inline]
-pub fn beats_per_second(beats_per_minute: f64) -> f64 {
-    beats_per_minute * (1.0 / 60.0)
+pub fn beats_per_second(beats_per_minute: f64, speed_multiplier: f64) -> f64 {
+    beats_per_minute * speed_multiplier * (1.0 / 60.0)
 }

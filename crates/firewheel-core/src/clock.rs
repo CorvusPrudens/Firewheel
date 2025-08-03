@@ -187,10 +187,11 @@ impl InstantSeconds {
     #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
-        transport: &dyn MusicalTransport,
+        transport: &MusicalTransport,
         transport_start: InstantSeconds,
+        speed_multiplier: f64,
     ) -> InstantMusical {
-        transport.seconds_to_musical(self, transport_start)
+        transport.seconds_to_musical(self, transport_start, speed_multiplier)
     }
 
     /// Returns the amount of time elapsed from another instant to this one.
@@ -378,12 +379,19 @@ impl InstantSamples {
     #[cfg(feature = "musical_transport")]
     pub fn to_musical(
         self,
-        transport: &dyn MusicalTransport,
+        transport: &MusicalTransport,
         transport_start: InstantSamples,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> InstantMusical {
-        transport.samples_to_musical(self, transport_start, sample_rate, sample_rate_recip)
+        transport.samples_to_musical(
+            self,
+            transport_start,
+            speed_multiplier,
+            sample_rate,
+            sample_rate_recip,
+        )
     }
 
     /// Returns the amount of time elapsed from another instant to this one.

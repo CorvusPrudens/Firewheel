@@ -238,15 +238,6 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                         proc_info.frames = sub_chunk_frames;
                         proc_info.clock_samples = sub_clock_samples;
 
-                        #[cfg(feature = "musical_transport")]
-                        if let Some(transport) = &mut proc_info.transport_info {
-                            // For now this isn't really necessary, but it will be once support
-                            // for linearly automated tempo is added.
-                            transport.beats_per_minute = proc_transport_info
-                                .bpm_at_frame(sub_chunk_range.start)
-                                .unwrap();
-                        }
-
                         // Call the node's process method.
                         let process_status = {
                             if sub_chunk_frames == block_frames {
@@ -397,7 +388,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
     pub fn sync_shared_clock(&mut self, process_timestamp: Option<B::Instant>) {
         #[cfg(feature = "musical_transport")]
-        let (musical_time, transport_is_playing) = self.proc_transport_state.shared_clock_info(
+        let shared_clock_info = self.proc_transport_state.shared_clock_info(
             self.clock_samples,
             self.sample_rate,
             self.sample_rate_recip,
@@ -406,9 +397,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.shared_clock_input.write(SharedClock {
             clock_samples: self.clock_samples,
             #[cfg(feature = "musical_transport")]
-            musical_time,
+            current_playhead: shared_clock_info.current_playhead,
             #[cfg(feature = "musical_transport")]
-            transport_is_playing,
+            speed_multiplier: shared_clock_info.speed_multiplier,
+            #[cfg(feature = "musical_transport")]
+            transport_is_playing: shared_clock_info.transport_is_playing,
             process_timestamp,
         });
     }

@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-core"
-version = "0.6.2-beta.1"
+version = "0.6.3-beta.0"
 description = "Shared types for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-core"
 repository.workspace = true
@@ -35,7 +35,7 @@ scheduled_events = []
 # unless your node internally uses the musical types in processing. Users
 # can still schedule musical events for your node even if you have this
 # feature disabled in your library.
-musical_transport = ["scheduled_events"]
+musical_transport = ["scheduled_events", "dep:thiserror"]
 symphonium = ["dep:symphonium"]
 resampler = ["dep:fixed-resample", "symphonium?/resampler"]
 # Enables the "arbitrary sinc" resampler in Symphonium for changing the
@@ -72,3 +72,4 @@ portable-atomic = { version = "1", default-features = false, features = [
     "fallback",
     "float",
 ] }
+thiserror = { workspace = true, optional = true }

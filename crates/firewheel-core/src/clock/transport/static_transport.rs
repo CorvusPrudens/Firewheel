@@ -1,6 +1,6 @@
 use crate::clock::{
-    DurationMusical, DurationSeconds, InstantMusical, InstantSamples, InstantSeconds,
-    MusicalTransport, ProcTransportInfo,
+    beats_per_second, seconds_per_beat, DurationMusical, DurationSeconds, InstantMusical,
+    InstantSamples, InstantSeconds, ProcTransportInfo,
 };
 use core::num::NonZeroU32;
 
@@ -23,46 +23,49 @@ impl StaticTransport {
         Self { beats_per_minute }
     }
 
-    pub fn seconds_per_beat(&self) -> f64 {
-        60.0 / self.beats_per_minute
+    pub fn seconds_per_beat(&self, speed_multiplier: f64) -> f64 {
+        seconds_per_beat(self.beats_per_minute, speed_multiplier)
     }
 
-    pub fn beats_per_second(&self) -> f64 {
-        self.beats_per_minute * (1.0 / 60.0)
+    pub fn beats_per_second(&self, speed_multiplier: f64) -> f64 {
+        beats_per_second(self.beats_per_minute, speed_multiplier)
     }
-}
 
-impl MusicalTransport for StaticTransport {
-    fn musical_to_seconds(
+    pub fn musical_to_seconds(
         &self,
         musical: InstantMusical,
         transport_start: InstantSeconds,
+        speed_multiplier: f64,
     ) -> InstantSeconds {
-        transport_start + DurationSeconds(musical.0 * self.seconds_per_beat())
+        transport_start + DurationSeconds(musical.0 * self.seconds_per_beat(speed_multiplier))
     }
 
-    fn musical_to_samples(
+    pub fn musical_to_samples(
         &self,
         musical: InstantMusical,
         transport_start: InstantSamples,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
     ) -> InstantSamples {
         transport_start
-            + DurationSeconds(musical.0 * self.seconds_per_beat()).to_samples(sample_rate)
+            + DurationSeconds(musical.0 * self.seconds_per_beat(speed_multiplier))
+                .to_samples(sample_rate)
     }
 
-    fn seconds_to_musical(
+    pub fn seconds_to_musical(
         &self,
         seconds: InstantSeconds,
         transport_start: InstantSeconds,
+        speed_multiplier: f64,
     ) -> InstantMusical {
-        InstantMusical((seconds - transport_start).0 * self.beats_per_second())
+        InstantMusical((seconds - transport_start).0 * self.beats_per_second(speed_multiplier))
     }
 
-    fn samples_to_musical(
+    pub fn samples_to_musical(
         &self,
         sample_time: InstantSamples,
         transport_start: InstantSamples,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
     ) -> InstantMusical {
@@ -70,41 +73,38 @@ impl MusicalTransport for StaticTransport {
             (sample_time - transport_start)
                 .to_seconds(sample_rate, sample_rate_recip)
                 .0
-                * self.beats_per_second(),
+                * self.beats_per_second(speed_multiplier),
         )
     }
 
-    fn delta_seconds_from(
+    pub fn delta_seconds_from(
         &self,
         from: InstantMusical,
         delta_seconds: DurationSeconds,
+        speed_multiplier: f64,
     ) -> InstantMusical {
-        from + DurationMusical(delta_seconds.0 * self.beats_per_second())
+        from + DurationMusical(delta_seconds.0 * self.beats_per_second(speed_multiplier))
     }
 
-    fn bpm_at_musical(&self, _musical: InstantMusical) -> f64 {
-        self.beats_per_minute
+    pub fn bpm_at_musical(&self, _musical: InstantMusical, speed_multiplier: f64) -> f64 {
+        self.beats_per_minute * speed_multiplier
     }
 
-    fn transport_start(
+    pub fn transport_start(
         &self,
         now: InstantSamples,
         playhead: InstantMusical,
+        speed_multiplier: f64,
         sample_rate: NonZeroU32,
     ) -> InstantSamples {
-        now - DurationSeconds(playhead.0 * self.seconds_per_beat()).to_samples(sample_rate)
+        now - DurationSeconds(playhead.0 * self.seconds_per_beat(speed_multiplier))
+            .to_samples(sample_rate)
     }
 
-    fn proc_transport_info(
-        &self,
-        frames: usize,
-        _playhead: InstantMusical,
-        _sample_rate: NonZeroU32,
-    ) -> ProcTransportInfo {
+    pub fn proc_transport_info(&self, frames: usize, speed_multiplier: f64) -> ProcTransportInfo {
         ProcTransportInfo {
             frames,
-            beats_per_minute: self.beats_per_minute,
-            delta_beats_per_minute: 0.0,
+            beats_per_minute: self.beats_per_minute * speed_multiplier,
         }
     }
 }

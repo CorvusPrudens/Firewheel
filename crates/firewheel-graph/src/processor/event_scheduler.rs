@@ -20,9 +20,7 @@ use core::num::NonZeroU32;
 use firewheel_core::clock::EventInstant;
 
 #[cfg(feature = "musical_transport")]
-use crate::processor::ProcTransportState;
-#[cfg(feature = "musical_transport")]
-use firewheel_core::{clock::MusicalTransport, collector::ArcGc};
+use crate::processor::{transport::TransportSyncInfo, ProcTransportState};
 
 const MAX_CLUMP_INDICES: usize = 8;
 
@@ -261,7 +259,7 @@ impl EventScheduler {
     #[cfg(feature = "musical_transport")]
     pub fn sync_scheduled_events_to_transport(
         &mut self,
-        transport_and_start_clock_samples: Option<(&ArcGc<dyn MusicalTransport>, InstantSamples)>,
+        transport: Option<TransportSyncInfo>,
         sample_rate: NonZeroU32,
     ) {
         if self.num_scheduled_musical_events == 0 {
@@ -270,13 +268,17 @@ impl EventScheduler {
 
         self.truncate_elapsed_events();
 
-        if let Some((transport, start_clock_samples)) = transport_and_start_clock_samples {
+        if let Some(sync_info) = transport {
             for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if let Some(EventInstant::Musical(musical)) = event.time {
-                    *time_samples =
-                        transport.musical_to_samples(musical, start_clock_samples, sample_rate);
+                    *time_samples = sync_info.transport.musical_to_samples(
+                        musical,
+                        sync_info.transport_start,
+                        sync_info.speed_multiplier,
+                        sample_rate,
+                    );
                 }
             }
         } else {
