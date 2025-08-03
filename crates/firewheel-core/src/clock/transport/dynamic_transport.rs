@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use core::num::NonZeroU32;
 
 use crate::clock::{
@@ -5,9 +6,16 @@ use crate::clock::{
     InstantSamples, InstantSeconds, ProcTransportInfo,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransportKeyframe {
+    /// The beats per minute of this keyframe.
+    pub beats_per_minute: f64,
+    /// The instant this keyframe starts.
+    pub instant: InstantMusical,
+}
+
 #[derive(Debug, Clone)]
 struct KeyframeCache {
-    start_time_musical: InstantMusical,
     start_time_seconds: DurationSeconds,
 }
 
@@ -16,38 +24,60 @@ struct KeyframeCache {
 /// linearly interpolated between keyframes).
 #[derive(Debug, Clone)]
 pub struct DynamicTransport {
-    keyframes: Vec<DynamicTransportKeyframe>,
+    keyframes: Vec<TransportKeyframe>,
     cache: Vec<KeyframeCache>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DynamicTransportKeyframe {
-    pub beats_per_minute: f64,
-    pub duration: DurationMusical,
-}
-
 impl DynamicTransport {
-    pub fn new(keyframes: Vec<DynamicTransportKeyframe>) -> Self {
-        assert_ne!(keyframes.len(), 0);
+    /// Construct a new `DynamicTransport`.
+    pub fn new(keyframes: Vec<TransportKeyframe>) -> Result<Self, DynamicTransportError> {
+        if keyframes.len() == 0 {
+            return Err(DynamicTransportError::NoKeyframes);
+        }
+        if keyframes[0].instant != InstantMusical::ZERO {
+            return Err(DynamicTransportError::FirstKeyframeNotZero);
+        }
+        if keyframes[0].beats_per_minute <= 0.0 {
+            return Err(DynamicTransportError::InvalidKeyframe);
+        }
 
-        let mut new_self = Self {
-            keyframes,
-            cache: Vec::new(),
-        };
+        let mut cache: Vec<KeyframeCache> = Vec::with_capacity(keyframes.len());
 
-        new_self.compute_cache();
+        let mut start_time_seconds = DurationSeconds::ZERO;
+        let mut prev_instant = InstantMusical::ZERO;
 
-        new_self
+        for i in 1..keyframes.len() {
+            if !keyframes[i].instant.0.is_finite() {
+                return Err(DynamicTransportError::InvalidKeyframe);
+            }
+
+            match keyframes[i].instant.partial_cmp(&prev_instant) {
+                Some(Ordering::Greater) => {}
+                Some(Ordering::Less) => return Err(DynamicTransportError::KeyframesNotSorted),
+                Some(Ordering::Equal) => return Err(DynamicTransportError::DuplicateKeyframes),
+                None => return Err(DynamicTransportError::InvalidKeyframe),
+            }
+            prev_instant = keyframes[i].instant;
+
+            if keyframes[i].beats_per_minute <= 0.0 {
+                return Err(DynamicTransportError::InvalidKeyframe);
+            }
+
+            cache.push(KeyframeCache { start_time_seconds });
+
+            let duration = keyframes[i].instant - keyframes[i - 1].instant;
+            start_time_seconds += DurationSeconds(
+                duration.0 * seconds_per_beat(keyframes[i - 1].beats_per_minute, 1.0),
+            );
+        }
+
+        cache.push(KeyframeCache { start_time_seconds });
+
+        Ok(Self { keyframes, cache })
     }
 
-    pub fn keyframes(&self) -> &[DynamicTransportKeyframe] {
+    pub fn keyframes(&self) -> &[TransportKeyframe] {
         &self.keyframes
-    }
-
-    pub fn edit_keyframes(&mut self, f: impl FnOnce(&mut Vec<DynamicTransportKeyframe>)) {
-        (f)(&mut self.keyframes);
-
-        self.compute_cache();
     }
 
     pub fn musical_to_seconds(
@@ -120,70 +150,40 @@ impl DynamicTransport {
     }
 
     pub fn bpm_at_musical(&self, musical: InstantMusical, speed_multiplier: f64) -> f64 {
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if musical < self.cache[i].start_time_musical {
-                return self.keyframes[i - 1].beats_per_minute * speed_multiplier;
-            }
-        }
+        let keyframe_i = binary_search_musical(&self.keyframes, musical);
 
-        self.keyframes.last().unwrap().beats_per_minute * speed_multiplier
+        self.keyframes[keyframe_i].beats_per_minute * speed_multiplier
     }
 
     pub fn proc_transport_info(
         &self,
-        frames: usize,
+        mut frames: usize,
         playhead: InstantMusical,
         speed_multiplier: f64,
         sample_rate: NonZeroU32,
     ) -> ProcTransportInfo {
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if playhead < self.cache[i].start_time_musical {
-                let frames_left_in_keyframe = DurationSeconds(
-                    (self.cache[i].start_time_musical - playhead).0
-                        * seconds_per_beat(
-                            self.keyframes[i - 1].beats_per_minute,
-                            speed_multiplier,
-                        ),
-                )
-                .to_samples(sample_rate)
-                .0 as usize;
+        let keyframe_i = binary_search_musical(&self.keyframes, playhead);
 
-                return ProcTransportInfo {
-                    frames: frames.min(frames_left_in_keyframe),
-                    beats_per_minute: self.keyframes[i - 1].beats_per_minute * speed_multiplier,
-                };
-            }
+        if keyframe_i < self.keyframes.len() - 1 {
+            let beats_left_in_keyframe = self.keyframes[keyframe_i + 1].instant - playhead;
+
+            let frames_left_in_keyframe = DurationSeconds(
+                beats_left_in_keyframe.0
+                    * seconds_per_beat(
+                        self.keyframes[keyframe_i].beats_per_minute,
+                        speed_multiplier,
+                    ),
+            )
+            .to_samples(sample_rate)
+            .0 as usize;
+
+            frames = frames.min(frames_left_in_keyframe);
         }
 
         ProcTransportInfo {
             frames,
-            beats_per_minute: self.keyframes.last().unwrap().beats_per_minute * speed_multiplier,
+            beats_per_minute: self.keyframes[keyframe_i].beats_per_minute * speed_multiplier,
         }
-    }
-
-    fn compute_cache(&mut self) {
-        let mut start_time_musical = InstantMusical::ZERO;
-        let mut start_time_seconds = DurationSeconds::ZERO;
-
-        self.cache = self
-            .keyframes
-            .iter()
-            .map(|keyframe| {
-                let cached = KeyframeCache {
-                    start_time_musical,
-                    start_time_seconds,
-                };
-
-                start_time_musical += keyframe.duration;
-                start_time_seconds += DurationSeconds(
-                    keyframe.duration.0 * seconds_per_beat(keyframe.beats_per_minute, 1.0),
-                );
-
-                cached
-            })
-            .collect();
     }
 
     fn musical_to_seconds_inner(
@@ -191,24 +191,15 @@ impl DynamicTransport {
         musical: InstantMusical,
         speed_multiplier: f64,
     ) -> DurationSeconds {
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if musical < self.cache[i].start_time_musical {
-                return (self.cache[i - 1].start_time_seconds
-                    + DurationSeconds(
-                        (musical - self.cache[i - 1].start_time_musical).0
-                            * seconds_per_beat(self.keyframes[i - 1].beats_per_minute, 1.0),
-                    ))
-                    / speed_multiplier;
-            }
-        }
+        let keyframe_i = binary_search_musical(&self.keyframes, musical);
+        let keyframe = &self.keyframes[keyframe_i];
+        let cache = &self.cache[keyframe_i];
 
-        (self.cache.last().unwrap().start_time_seconds
-            + DurationSeconds(
-                (musical - self.cache.last().unwrap().start_time_musical).0
-                    * seconds_per_beat(self.keyframes.last().unwrap().beats_per_minute, 1.0),
-            ))
-            / speed_multiplier
+        DurationSeconds(
+            cache.start_time_seconds.0
+                + ((musical - keyframe.instant).0
+                    * seconds_per_beat(keyframe.beats_per_minute, 1.0)),
+        ) / speed_multiplier
     }
 
     fn seconds_to_musical_inner(
@@ -216,23 +207,16 @@ impl DynamicTransport {
         seconds: DurationSeconds,
         speed_multiplier: f64,
     ) -> InstantMusical {
-        let mult_seconds = seconds * speed_multiplier;
+        let seconds = seconds * speed_multiplier;
 
-        // TODO: Use a binary search algorithm.
-        for i in 1..self.keyframes.len().min(self.cache.len()) {
-            if mult_seconds < self.cache[i].start_time_seconds {
-                return self.cache[i - 1].start_time_musical
-                    + DurationMusical(
-                        (mult_seconds - self.cache[i - 1].start_time_seconds).0
-                            * beats_per_second(self.keyframes[i - 1].beats_per_minute, 1.0),
-                    );
-            }
-        }
+        let keyframe_i = binary_search_seconds(&self.cache, seconds);
+        let keyframe = &self.keyframes[keyframe_i];
+        let cache = &self.cache[keyframe_i];
 
-        self.cache.last().unwrap().start_time_musical
+        keyframe.instant
             + DurationMusical(
-                (mult_seconds - self.cache.last().unwrap().start_time_seconds).0
-                    * beats_per_second(self.keyframes.last().unwrap().beats_per_minute, 1.0),
+                (seconds.0 - cache.start_time_seconds.0)
+                    * beats_per_second(keyframe.beats_per_minute, 1.0),
             )
     }
 }
@@ -240,5 +224,48 @@ impl DynamicTransport {
 impl PartialEq for DynamicTransport {
     fn eq(&self, other: &Self) -> bool {
         self.keyframes.eq(&other.keyframes)
+    }
+}
+
+/// An error while constructing a [`DynamicTransport`].
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+pub enum DynamicTransportError {
+    /// The Vec of keyframes was empty.
+    #[error("The Vec of keyframes was empty")]
+    NoKeyframes,
+    /// The first keyframe does not occur at `MusicalTime::Zero`.
+    #[error("The first keyframe does not occur at `MusicalTime::Zero`")]
+    FirstKeyframeNotZero,
+    /// One or more keyframes occur on the same instant.
+    #[error("One or more keyframes occur on the same instant")]
+    DuplicateKeyframes,
+    /// The keyframes are not sorted by instant.
+    #[error("The keyframes are not sorted by instant")]
+    KeyframesNotSorted,
+    /// A keyframe contained an invalid `beats_per_minute` or `instant` value.
+    #[error("A keyframe contained an invalid `beats_per_minute` or `instant` value")]
+    InvalidKeyframe,
+}
+
+fn binary_search_musical(keyframes: &[TransportKeyframe], musical: InstantMusical) -> usize {
+    // We have checked that all values are finite in the constructor, so the
+    // `unwrap_or(Ordering::Equal)` case will never happen.
+    match keyframes.binary_search_by(|k| k.instant.partial_cmp(&musical).unwrap_or(Ordering::Equal))
+    {
+        Ok(i) => i,
+        Err(i) => i,
+    }
+}
+
+fn binary_search_seconds(cache: &[KeyframeCache], seconds: DurationSeconds) -> usize {
+    // We have checked that all values are finite in the constructor, so the
+    // `unwrap_or(Ordering::Equal)` case will never happen.
+    match cache.binary_search_by(|k| {
+        k.start_time_seconds
+            .partial_cmp(&seconds)
+            .unwrap_or(Ordering::Equal)
+    }) {
+        Ok(i) => i,
+        Err(i) => i,
     }
 }

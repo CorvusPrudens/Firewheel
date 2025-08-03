@@ -92,6 +92,8 @@ impl ProcTransportState {
             }
         }
 
+        assert!(self.current_speed_multiplier.is_finite() && self.current_speed_multiplier > 0.0);
+
         if let Some(new_transport) = &new_transport_state.transport {
             if self.transport_state.playhead != new_transport_state.playhead
                 || self.transport_state.transport.is_none()
@@ -268,6 +270,8 @@ impl ProcTransportState {
                 }
             }
         }
+
+        assert!(self.current_speed_multiplier.is_finite() && self.current_speed_multiplier > 0.0);
 
         self.process_block_inner(frames, clock_samples, sample_rate, sample_rate_recip)
     }

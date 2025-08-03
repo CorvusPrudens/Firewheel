@@ -3,7 +3,7 @@ mod static_transport;
 
 use core::{fmt::Debug, num::NonZeroU32, ops::Range};
 
-pub use dynamic_transport::{DynamicTransport, DynamicTransportKeyframe};
+pub use dynamic_transport::{DynamicTransport, TransportKeyframe};
 pub use static_transport::StaticTransport;
 
 use crate::{
@@ -246,6 +246,8 @@ pub struct SpeedMultiplierKeyframe {
     /// The multiplier for the playback speed. A value of `1.0` means no change
     /// in speed, a value less than `1.0` means a decrease in speed, and a value
     /// greater than `1.0` means an increase in speed.
+    ///
+    /// This can cause a panic if `multiplier <= 0.0`.
     pub multiplier: f64,
 
     /// The instant that this keyframe happens.
@@ -262,6 +264,8 @@ pub enum TransportSpeed {
     /// Set the mulitplier to a single static value.
     Static {
         /// The speed multiplier.
+        ///
+        /// This can cause a panic if `multiplier <= 0.0`.
         multiplier: f64,
         /// If this is `Some`, then the change will happen when the transport
         /// reaches the given playhead.
