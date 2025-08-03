@@ -2,27 +2,36 @@ use core::num::NonZeroU32;
 
 use firewheel_core::{
     clock::{
-        DurationSamples, InstantMusical, InstantSamples, MusicalTransport, ProcTransportInfo,
-        TransportState,
+        DurationSamples, EventInstant, InstantMusical, InstantSamples, MusicalTransport,
+        ProcTransportInfo, TransportSpeed, TransportState,
     },
-    collector::ArcGc,
     node::TransportInfo,
 };
 
+#[derive(Clone, Copy)]
+struct AutomationState {
+    keyframe_index: usize,
+    move_to_next_keyframe: bool,
+}
+
 pub(super) struct ProcTransportState {
     transport_state: Box<TransportState>,
-    start_clock_samples: InstantSamples,
+    transport_start_samples: InstantSamples,
     paused_at_clock_samples: InstantSamples,
     paused_at_musical_time: InstantMusical,
+    current_speed_multiplier: f64,
+    automation_state: Option<AutomationState>,
 }
 
 impl ProcTransportState {
     pub fn new() -> Self {
         Self {
             transport_state: Box::new(TransportState::default()),
-            start_clock_samples: InstantSamples(0),
+            transport_start_samples: InstantSamples(0),
             paused_at_clock_samples: InstantSamples(0),
             paused_at_musical_time: InstantMusical(0.0),
+            current_speed_multiplier: 1.0,
+            automation_state: None,
         }
     }
 
@@ -36,7 +45,12 @@ impl ProcTransportState {
             .as_ref()
             .filter(|_| *self.transport_state.playing)
             .map(|transport| {
-                transport.musical_to_samples(musical, self.start_clock_samples, sample_rate)
+                transport.musical_to_samples(
+                    musical,
+                    self.transport_start_samples,
+                    self.current_speed_multiplier,
+                    sample_rate,
+                )
             })
     }
 
@@ -50,13 +64,35 @@ impl ProcTransportState {
     ) -> Box<TransportState> {
         let mut did_pause = false;
 
+        match &new_transport_state.speed {
+            TransportSpeed::Static {
+                multiplier,
+                change_at,
+            } => {
+                if change_at.is_none() {
+                    self.current_speed_multiplier = *multiplier;
+                }
+            }
+            TransportSpeed::Automate {
+                keyframes,
+                start_instant,
+                ..
+            } => {
+                if start_instant.is_none() {
+                    self.current_speed_multiplier = keyframes[0].multiplier;
+                }
+            }
+        }
+        self.automation_state = None;
+
         if let Some(new_transport) = &new_transport_state.transport {
             if self.transport_state.playhead != new_transport_state.playhead
                 || self.transport_state.transport.is_none()
             {
-                self.start_clock_samples = new_transport.transport_start(
+                self.transport_start_samples = new_transport.transport_start(
                     clock_samples,
                     *new_transport_state.playhead,
+                    self.current_speed_multiplier,
                     sample_rate,
                 );
             } else {
@@ -66,12 +102,13 @@ impl ProcTransportState {
                     if !*self.transport_state.playing {
                         // Resume
                         if old_transport == new_transport {
-                            self.start_clock_samples +=
+                            self.transport_start_samples +=
                                 clock_samples - self.paused_at_clock_samples;
                         } else {
-                            self.start_clock_samples = new_transport.transport_start(
+                            self.transport_start_samples = new_transport.transport_start(
                                 clock_samples,
                                 self.paused_at_musical_time,
+                                self.current_speed_multiplier,
                                 sample_rate,
                             );
                         }
@@ -79,13 +116,15 @@ impl ProcTransportState {
                         // Continue where the previous left off
                         let current_playhead = old_transport.samples_to_musical(
                             clock_samples,
-                            self.start_clock_samples,
+                            self.transport_start_samples,
+                            self.current_speed_multiplier,
                             sample_rate,
                             sample_rate_recip,
                         );
-                        self.start_clock_samples = new_transport.transport_start(
+                        self.transport_start_samples = new_transport.transport_start(
                             clock_samples,
                             current_playhead,
+                            self.current_speed_multiplier,
                             sample_rate,
                         );
                     }
@@ -96,7 +135,8 @@ impl ProcTransportState {
                     self.paused_at_clock_samples = clock_samples;
                     self.paused_at_musical_time = old_transport.samples_to_musical(
                         clock_samples,
-                        self.start_clock_samples,
+                        self.transport_start_samples,
+                        self.current_speed_multiplier,
                         sample_rate,
                         sample_rate_recip,
                     );
@@ -115,6 +155,114 @@ impl ProcTransportState {
 
     pub fn process_block(
         &mut self,
+        mut frames: usize,
+        clock_samples: InstantSamples,
+        sample_rate: NonZeroU32,
+        sample_rate_recip: f64,
+    ) -> ProcTransportInfo {
+        let Some(transport) = &self.transport_state.transport else {
+            return ProcTransportInfo {
+                frames,
+                beats_per_minute: 0.0,
+            };
+        };
+
+        match &mut self.transport_state.speed {
+            TransportSpeed::Static {
+                multiplier,
+                change_at,
+            } => {
+                if let Some(change_at_musical) = *change_at {
+                    let change_at_samples = transport.musical_to_samples(
+                        change_at_musical,
+                        self.transport_start_samples,
+                        self.current_speed_multiplier,
+                        sample_rate,
+                    );
+
+                    if clock_samples >= change_at_samples {
+                        self.current_speed_multiplier = *multiplier;
+                        *change_at = None;
+                    } else if ((change_at_samples.0 - clock_samples.0) as usize) < frames {
+                        frames = (change_at_samples.0 - clock_samples.0) as usize;
+                    }
+                }
+            }
+            TransportSpeed::Automate {
+                keyframes,
+                start_instant,
+            } => {
+                let mut remove_automation_state = false;
+                if let Some(automation_state) = &mut self.automation_state {
+                    if automation_state.move_to_next_keyframe {
+                        automation_state.move_to_next_keyframe = false;
+                        automation_state.keyframe_index += 1;
+
+                        if let Some(keyframe) = keyframes.get(automation_state.keyframe_index) {
+                            self.current_speed_multiplier = keyframe.multiplier;
+
+                            if automation_state.keyframe_index == keyframes.len() - 1 {
+                                remove_automation_state = true;
+                            }
+                        } else {
+                            remove_automation_state = true;
+                        }
+                    }
+                }
+
+                if remove_automation_state {
+                    self.automation_state = None;
+                }
+
+                if let Some(automation_state) = &mut self.automation_state {
+                    if let Some(next_keyframe) = keyframes.get(automation_state.keyframe_index + 1)
+                    {
+                        let keyframe_start_samples = match next_keyframe.instant {
+                            EventInstant::Seconds(seconds) => seconds.to_samples(sample_rate),
+                            EventInstant::Samples(samples) => samples,
+                            EventInstant::Musical(musical) => transport.musical_to_samples(
+                                musical,
+                                self.transport_start_samples,
+                                self.current_speed_multiplier,
+                                sample_rate,
+                            ),
+                        };
+
+                        if clock_samples + DurationSamples(frames as i64) > keyframe_start_samples {
+                            frames = (keyframe_start_samples.0 - clock_samples.0) as usize;
+                            automation_state.move_to_next_keyframe = true;
+                        }
+                    }
+                }
+
+                if let Some(start_instant_musical) = *start_instant {
+                    let start_instant_samples = transport.musical_to_samples(
+                        start_instant_musical,
+                        self.transport_start_samples,
+                        self.current_speed_multiplier,
+                        sample_rate,
+                    );
+
+                    if clock_samples >= start_instant_samples {
+                        self.current_speed_multiplier = keyframes[0].multiplier;
+                        *start_instant = None;
+
+                        self.automation_state = Some(AutomationState {
+                            keyframe_index: 0,
+                            move_to_next_keyframe: false,
+                        });
+                    } else if ((start_instant_samples.0 - clock_samples.0) as usize) < frames {
+                        frames = (start_instant_samples.0 - clock_samples.0) as usize;
+                    }
+                }
+            }
+        }
+
+        self.process_block_inner(frames, clock_samples, sample_rate, sample_rate_recip)
+    }
+
+    fn process_block_inner(
+        &mut self,
         frames: usize,
         clock_samples: InstantSamples,
         sample_rate: NonZeroU32,
@@ -124,23 +272,22 @@ impl ProcTransportState {
             return ProcTransportInfo {
                 frames,
                 beats_per_minute: 0.0,
-                delta_beats_per_minute: 0.0,
             };
         };
 
         let mut playhead = transport.samples_to_musical(
             clock_samples,
-            self.start_clock_samples,
+            self.transport_start_samples,
+            self.current_speed_multiplier,
             sample_rate,
             sample_rate_recip,
         );
-        let beats_per_minute = transport.bpm_at_musical(playhead);
+        let beats_per_minute = transport.bpm_at_musical(playhead, self.current_speed_multiplier);
 
         if !*self.transport_state.playing {
             return ProcTransportInfo {
                 frames,
                 beats_per_minute,
-                delta_beats_per_minute: 0.0,
             };
         }
 
@@ -148,18 +295,30 @@ impl ProcTransportState {
         let mut stop_at_clock_samples = InstantSamples::default();
 
         if let Some(loop_range) = &self.transport_state.loop_range {
-            loop_end_clock_samples =
-                transport.musical_to_samples(loop_range.end, self.start_clock_samples, sample_rate);
+            loop_end_clock_samples = transport.musical_to_samples(
+                loop_range.end,
+                self.transport_start_samples,
+                self.current_speed_multiplier,
+                sample_rate,
+            );
 
             if clock_samples >= loop_end_clock_samples {
                 // Loop back to start of loop.
-                self.start_clock_samples =
-                    transport.transport_start(clock_samples, loop_range.start, sample_rate);
+                self.transport_start_samples = transport.transport_start(
+                    clock_samples,
+                    loop_range.start,
+                    self.current_speed_multiplier,
+                    sample_rate,
+                );
                 playhead = loop_range.start;
             }
         } else if let Some(stop_at) = self.transport_state.stop_at {
-            stop_at_clock_samples =
-                transport.musical_to_samples(stop_at, self.start_clock_samples, sample_rate);
+            stop_at_clock_samples = transport.musical_to_samples(
+                stop_at,
+                self.transport_start_samples,
+                self.current_speed_multiplier,
+                sample_rate,
+            );
 
             if clock_samples >= stop_at_clock_samples {
                 // Stop the transport.
@@ -167,12 +326,16 @@ impl ProcTransportState {
                 return ProcTransportInfo {
                     frames,
                     beats_per_minute,
-                    delta_beats_per_minute: 0.0,
                 };
             }
         }
 
-        let mut info = transport.proc_transport_info(frames, playhead, sample_rate);
+        let mut info = transport.proc_transport_info(
+            frames,
+            playhead,
+            self.current_speed_multiplier,
+            sample_rate,
+        );
 
         let proc_end_samples = clock_samples + DurationSamples(info.frames as i64);
 
@@ -199,23 +362,22 @@ impl ProcTransportState {
             .transport
             .as_ref()
             .map(|transport| TransportInfo {
-                transport: ArcGc::clone(transport),
+                transport: transport.clone(),
                 start_clock_samples: self
                     .transport_state
                     .playing
-                    .then(|| self.start_clock_samples),
+                    .then(|| self.transport_start_samples),
                 beats_per_minute: proc_transport_info.beats_per_minute,
-                delta_bpm_per_frame: proc_transport_info.delta_beats_per_minute,
+                speed_multiplier: self.current_speed_multiplier,
             })
     }
 
-    /// Returns (current_playhead, transport_is_playing)
     pub fn shared_clock_info(
         &self,
         clock_samples: InstantSamples,
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
-    ) -> (Option<InstantMusical>, bool) {
+    ) -> SharedClockInfo {
         self.transport_state
             .transport
             .as_ref()
@@ -223,27 +385,41 @@ impl ProcTransportState {
                 if *self.transport_state.playing {
                     let current_playhead = transport.samples_to_musical(
                         clock_samples,
-                        self.start_clock_samples,
+                        self.transport_start_samples,
+                        self.current_speed_multiplier,
                         sample_rate,
                         sample_rate_recip,
                     );
 
-                    (Some(current_playhead), true)
+                    SharedClockInfo {
+                        current_playhead: Some(current_playhead),
+                        transport_is_playing: true,
+                        speed_multiplier: self.current_speed_multiplier,
+                    }
                 } else {
-                    (Some(self.paused_at_musical_time), false)
+                    SharedClockInfo {
+                        current_playhead: Some(self.paused_at_musical_time),
+                        transport_is_playing: false,
+                        speed_multiplier: self.current_speed_multiplier,
+                    }
                 }
             })
-            .unwrap_or((None, false))
+            .unwrap_or(SharedClockInfo {
+                current_playhead: None,
+                transport_is_playing: false,
+                speed_multiplier: self.current_speed_multiplier,
+            })
     }
 
-    /// Returns `Option<transport, start_clock_samples>`.
-    pub fn transport_and_start_clock_samples(
-        &self,
-    ) -> Option<(&ArcGc<dyn MusicalTransport>, InstantSamples)> {
+    pub fn transport_sync_info(&self) -> Option<TransportSyncInfo> {
         self.transport_state
             .transport
             .as_ref()
-            .map(|transport| (transport, self.start_clock_samples))
+            .map(|transport| TransportSyncInfo {
+                transport,
+                transport_start: self.transport_start_samples,
+                speed_multiplier: self.current_speed_multiplier,
+            })
     }
 
     pub fn update_sample_rate(
@@ -252,8 +428,8 @@ impl ProcTransportState {
         old_sample_rate_recip: f64,
         new_sample_rate: NonZeroU32,
     ) {
-        self.start_clock_samples = self
-            .start_clock_samples
+        self.transport_start_samples = self
+            .transport_start_samples
             .to_seconds(old_sample_rate, old_sample_rate_recip)
             .to_samples(new_sample_rate);
         self.paused_at_clock_samples = self
@@ -261,4 +437,16 @@ impl ProcTransportState {
             .to_seconds(old_sample_rate, old_sample_rate_recip)
             .to_samples(new_sample_rate);
     }
+}
+
+pub(super) struct TransportSyncInfo<'a> {
+    pub transport: &'a MusicalTransport,
+    pub transport_start: InstantSamples,
+    pub speed_multiplier: f64,
+}
+
+pub(super) struct SharedClockInfo {
+    pub current_playhead: Option<InstantMusical>,
+    pub transport_is_playing: bool,
+    pub speed_multiplier: f64,
 }

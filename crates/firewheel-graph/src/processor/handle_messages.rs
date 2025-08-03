@@ -135,8 +135,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         );
 
         self.event_scheduler.sync_scheduled_events_to_transport(
-            self.proc_transport_state
-                .transport_and_start_clock_samples(),
+            self.proc_transport_state.transport_sync_info(),
             self.sample_rate,
         );
 

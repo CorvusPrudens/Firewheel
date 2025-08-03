@@ -205,7 +205,9 @@ pub(crate) struct ClearScheduledEventsEvent {
 pub(crate) struct SharedClock<I: Clone> {
     pub clock_samples: InstantSamples,
     #[cfg(feature = "musical_transport")]
-    pub musical_time: Option<InstantMusical>,
+    pub current_playhead: Option<InstantMusical>,
+    #[cfg(feature = "musical_transport")]
+    pub speed_multiplier: f64,
     #[cfg(feature = "musical_transport")]
     pub transport_is_playing: bool,
     pub process_timestamp: Option<I>,
@@ -216,7 +218,9 @@ impl<I: Clone> Default for SharedClock<I> {
         Self {
             clock_samples: InstantSamples(0),
             #[cfg(feature = "musical_transport")]
-            musical_time: None,
+            current_playhead: None,
+            #[cfg(feature = "musical_transport")]
+            speed_multiplier: 1.0,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: false,
             process_timestamp: None,

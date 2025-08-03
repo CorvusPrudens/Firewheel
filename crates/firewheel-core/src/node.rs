@@ -2,8 +2,6 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
-#[cfg(feature = "musical_transport")]
-use crate::collector::ArcGc;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
@@ -573,6 +571,7 @@ impl<'a> ProcInfo<'a> {
                     transport_info.transport.samples_to_musical(
                         self.clock_samples,
                         start_clock_samples,
+                        transport_info.speed_multiplier,
                         self.sample_rate,
                         self.sample_rate_recip,
                     )
@@ -594,12 +593,14 @@ impl<'a> ProcInfo<'a> {
                     transport_info.transport.samples_to_musical(
                         self.clock_samples,
                         start_clock_samples,
+                        transport_info.speed_multiplier,
                         self.sample_rate,
                         self.sample_rate_recip,
                     )
                         ..transport_info.transport.samples_to_musical(
                             self.clock_samples + DurationSamples(self.frames as i64),
                             start_clock_samples,
+                            transport_info.speed_multiplier,
                             self.sample_rate,
                             self.sample_rate_recip,
                         )
@@ -630,6 +631,7 @@ impl<'a> ProcInfo<'a> {
                     transport_info.transport.musical_to_samples(
                         musical,
                         start_clock_samples,
+                        transport_info.speed_multiplier,
                         self.sample_rate,
                     )
                 })
@@ -640,7 +642,7 @@ impl<'a> ProcInfo<'a> {
 #[cfg(feature = "musical_transport")]
 pub struct TransportInfo {
     /// The current transport.
-    pub transport: ArcGc<dyn MusicalTransport>,
+    pub transport: MusicalTransport,
 
     /// The instant that `MusicaltTime::ZERO` occured in units of
     /// `ClockSamples`.
@@ -649,18 +651,14 @@ pub struct TransportInfo {
     pub start_clock_samples: Option<InstantSamples>,
 
     /// The beats per minute at the first frame of this process block.
+    ///
+    /// (The `speed_multipler` has already been applied to this value.)
     pub beats_per_minute: f64,
 
-    /// The rate at which `beats_per_minute` changes each frame in this
-    /// processing block.
-    ///
-    /// For example, if this value is `0.0`, then the bpm remains static for
-    /// the entire duration of this processing block.
-    ///
-    /// And for example, if this is `0.1`, then the bpm increases by `0.1`
-    /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
-    /// each frame.
-    pub delta_bpm_per_frame: f64,
+    /// A multiplier for the playback speed of the transport. A value of `1.0`
+    /// means no change in speed, a value less than `1.0` means a decrease in
+    /// speed, and a value greater than `1.0` means an increase in speed.
+    pub speed_multiplier: f64,
 }
 
 #[cfg(feature = "musical_transport")]
