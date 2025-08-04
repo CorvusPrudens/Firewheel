@@ -3,6 +3,9 @@ use firewheel_core::node::{AudioNodeInfoInner, DynAudioNode, NodeID};
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{vec, Box, Vec};
+
 use crate::error::CompileGraphError;
 
 mod schedule;

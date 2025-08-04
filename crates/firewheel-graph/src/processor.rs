@@ -3,6 +3,9 @@ use core::{num::NonZeroU32, time::Duration, usize};
 use ringbuf::traits::Producer;
 use thunderdome::Arena;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
 use firewheel_core::{
     clock::InstantSamples,
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
@@ -50,8 +53,8 @@ impl<B: AudioBackend> Drop for FirewheelProcessor<B> {
 
         inner.stream_stopped();
 
-        // TODO: Either wait for `bevy_platform` to implement this method, or
-        // hide this behind a "std" feature flag.
+        // TODO: Remove this feature gate if `bevy_platform` implements this.
+        #[cfg(feature = "std")]
         if std::thread::panicking() {
             inner.poisoned = true;
         }

@@ -1,6 +1,9 @@
 use core::error::Error;
 use core::time::Duration;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{String, Vec};
+
 use firewheel_core::StreamInfo;
 
 use crate::processor::FirewheelProcessor;

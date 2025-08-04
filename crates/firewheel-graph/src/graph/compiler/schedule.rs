@@ -11,6 +11,9 @@ use firewheel_core::{
 
 use super::{InsertedSum, NodeID};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{vec, Box, Vec};
+
 /// A [ScheduledNode] is a node that has been assigned buffers
 /// and a place in the schedule.
 #[derive(Clone)]
@@ -610,6 +613,7 @@ mod tests {
 
         let schedule = graph.compile_internal(128).unwrap();
 
+        #[cfg(feature = "std")]
         dbg!(&schedule);
 
         assert_eq!(schedule.schedule.len(), 2);
@@ -674,6 +678,7 @@ mod tests {
 
         let schedule = graph.compile_internal(128).unwrap();
 
+        #[cfg(feature = "std")]
         dbg!(&schedule);
 
         assert_eq!(schedule.schedule.len(), 7);
@@ -761,6 +766,7 @@ mod tests {
 
         let schedule = graph.compile_internal(128).unwrap();
 
+        #[cfg(feature = "std")]
         dbg!(&schedule);
 
         assert_eq!(schedule.schedule.len(), 7);

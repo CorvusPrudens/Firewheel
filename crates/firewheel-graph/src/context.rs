@@ -17,6 +17,9 @@ use firewheel_core::{
 use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 use crate::processor::BufferOutOfSpaceMode;
 use crate::{
     backend::{AudioBackend, DeviceInfo},

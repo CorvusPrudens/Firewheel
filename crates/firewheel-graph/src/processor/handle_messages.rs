@@ -4,6 +4,9 @@ use firewheel_core::{
 };
 use ringbuf::traits::{Consumer, Producer};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Box;
+
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::TransportState;
 

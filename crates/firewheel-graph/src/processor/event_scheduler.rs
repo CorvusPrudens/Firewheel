@@ -1,5 +1,8 @@
 use core::ops::Range;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 use arrayvec::ArrayVec;
 use firewheel_core::{
     clock::{DurationSamples, InstantSamples},

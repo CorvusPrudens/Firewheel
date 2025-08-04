@@ -16,13 +16,22 @@ exclude.workspace = true
 all-features = true
 
 [features]
+default = ["std"]
+std = [
+    "arrayvec/std",
+    "bevy_platform/std",
+    "firewheel-core/std",
+    "ringbuf/std",
+    "thunderdome/std",
+    "thiserror/std",
+]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.6.4-beta.0" }
+firewheel-core = { path = "../firewheel-core", version = "0.6.4-beta.0", default-features = false }
 log.workspace = true
 ringbuf.workspace = true
 triple_buffer.workspace = true
@@ -30,4 +39,4 @@ smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
-bevy_platform = { workspace = true, features = ["std"] }
+bevy_platform.workspace = true
