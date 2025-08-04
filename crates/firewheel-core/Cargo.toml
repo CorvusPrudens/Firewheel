@@ -17,7 +17,7 @@ all-features = true
 
 [features]
 default = ["std"]
-std = ["ringbuf/std", "glam?/std", "wmidi?/std"]
+std = ["arrayvec/std", "glam?/std", "thunderdome/std", "ringbuf/std", "wmidi?/std"]
 # Enables scheduling events for audio nodes.
 #
 # NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
