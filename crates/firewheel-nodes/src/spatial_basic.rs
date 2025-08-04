@@ -2,6 +2,9 @@
 //! not make use of any fancy binaural algorithms, rather it just applies basic
 //! panning and filtering.
 
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},

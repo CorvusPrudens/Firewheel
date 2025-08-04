@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use bevy_platform::sync::atomic::Ordering;
 use firewheel_core::{
     atomic_float::AtomicF32,

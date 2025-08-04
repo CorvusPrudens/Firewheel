@@ -107,7 +107,7 @@ bevy_platform.workspace = true
 thiserror.workspace = true
 ringbuf.workspace = true
 log.workspace = true
-num-traits = { workspace = true  }
+num-traits.workspace = true
 bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 glam = { version = "0.*", default-features = false, optional = true }

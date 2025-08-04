@@ -1,6 +1,9 @@
 // TODO: The logic in this has become increadibly complex and error-prone. I plan
 // on rewriting the sampler engine using a state machine.
 
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use bevy_platform::time::Instant;
 use core::{
