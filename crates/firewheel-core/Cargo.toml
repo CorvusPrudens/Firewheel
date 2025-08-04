@@ -59,8 +59,7 @@ symphonium_stretch = [
 # Enables `Component` derives for parameters.
 bevy = ["dep:bevy_ecs"]
 # Enables `Reflect` derives for core types.
-# TODO: Remove "std" here once the `Cow` issue has been resolved in notify.rs.
-bevy_reflect = ["std", "dep:bevy_reflect"]
+bevy_reflect = ["dep:bevy_reflect"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives.
 glam = ["dep:glam"]
 # Enables the `MIDI` event type, using the `wmidi` crate.

@@ -28,7 +28,7 @@ default = [
     "cpal",
     "symphonium",
     "symphonium_resample",
-    "sampler_node",
+    "sampler_node"
 ]
 # Enables scheduling events for nodes
 scheduled_events = [

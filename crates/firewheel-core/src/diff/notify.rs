@@ -177,6 +177,9 @@ mod test {
 mod reflect {
     use super::Notify;
 
+    #[cfg(not(feature = "std"))]
+    use bevy_platform::prelude::{Box, ToString};
+
     impl<T> bevy_reflect::GetTypeRegistration for Notify<T>
     where
         Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
@@ -230,8 +233,8 @@ mod reflect {
                     .with_custom_attributes(bevy_reflect::attributes::CustomAttributes::default())
                     .with_generics(bevy_reflect::Generics::from_iter([
                         bevy_reflect::GenericInfo::Type(bevy_reflect::TypeParamInfo::new::<T>(
-                            // TODO: Use a no-std compatible `Cow` type or do something different.
-                            std::borrow::Cow::Borrowed("T"),
+                            // TODO: Use nicer path once bevy_reflect exposes it.
+                            bevy_reflect::__macro_exports::alloc_utils::Cow::Borrowed("T"),
                         )),
                     ])),
                 )
