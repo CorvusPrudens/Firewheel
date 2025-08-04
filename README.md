@@ -20,6 +20,7 @@ This crate can be used as-is or as a base for other higher-level audio engines. 
 * Support for loading a wide variety of audio files using [Symphonium]
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)
 * Properly respects realtime constraints (no mutexes!)
+* `no_std` compatibility (some features require the standard library)
 * (TODO) Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
 
 ## Non-features
