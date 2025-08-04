@@ -16,6 +16,29 @@ exclude.workspace = true
 all-features = true
 
 [features]
+# NOTE TO THIRD PARTY NODE DEVELOPERS: If you want your crate to be
+# `no_std` compatible, use `default_features = false` for
+# `firewheel-core` and provide a "std" feature in your crate which
+# enables "firewheel-core/std" like so:
+#
+# firewheel-core = { version = "x.x.x", default_features = false }
+#
+# [features]
+# default = ["std"]
+# std = ["firewheel-core/std"]
+#
+# If you also need floating point math methods, you should also add a
+# `libm` feature which imports either the `libm` crate or the `num_traits`
+# crate like so:
+#
+# firewheel-core = { version = "x.x.x", default_features = false }
+# num-traits = { version = "0.2", default-features = false }
+#
+# [features]
+# default = ["std"]
+# std = ["firewheel-core/std", "num-traits/std"]
+# libm = ["firewheel-core/libm", "num-traits/libm"]
+default = ["std"]
 std = [
     "arrayvec/std",
     "bevy_ecs?/std",
@@ -29,6 +52,8 @@ std = [
     "ringbuf/std",
     "wmidi?/std"
 ]
+# Enable this if "std" is disabled.
+libm = ["num-traits/libm"]
 # Enables scheduling events for audio nodes.
 #
 # NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
@@ -92,6 +117,3 @@ portable-atomic = { version = "1", default-features = false, features = [
     "float",
 ] }
 wmidi = { version = "4", default-features = false, optional = true }
-
-[dev-dependencies]
-num-traits = { workspace = true, features = ["std"] }
