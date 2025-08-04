@@ -11,6 +11,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     event::{NodeEventList, NodeEventType},
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -376,6 +377,7 @@ impl AudioNodeProcessor for Processor {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         for mut event in events.drain() {
             if let Some(out_stream_event) = event.downcast_mut::<NewOutputStreamEvent>() {
@@ -424,7 +426,7 @@ impl AudioNodeProcessor for Processor {
         ProcessStatus::Bypass
     }
 
-    fn stream_stopped(&mut self) {
+    fn stream_stopped(&mut self, _logger: &mut RealtimeLogger) {
         self.shared_state
             .stream_active
             .store(false, Ordering::Relaxed);

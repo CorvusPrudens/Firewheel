@@ -5,6 +5,7 @@ use firewheel::{
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -114,6 +115,8 @@ impl AudioNodeProcessor for Processor {
         _proc_info: &ProcInfo,
         // The list of events for our node to process.
         events: &mut NodeEventList,
+        // A realtime-safe logger helper.
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         // Process the events.
         for patch in events.drain_patches::<NoiseGenNode>() {

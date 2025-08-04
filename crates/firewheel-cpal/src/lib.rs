@@ -14,7 +14,7 @@ use firewheel_graph::{
     processor::FirewheelProcessor,
     FirewheelCtx,
 };
-use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
+use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 use ringbuf::traits::{Consumer, Producer, Split};
 
 /// 1024 samples is a latency of about 23 milliseconds, which should
@@ -671,19 +671,7 @@ fn start_input_stream(
     let stream_handle = match in_device.build_input_stream(
         &stream_config,
         move |input: &[f32], _info: &cpal::InputCallbackInfo| {
-            let status = prod.push_interleaved(input);
-
-            match status {
-                PushStatus::OverflowOccurred { num_frames_pushed: _ } => {
-                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
-                    log::warn!("Overflow occured in audio input to output channel! Try increasing the channel capacity.");
-                }
-                PushStatus::UnderflowCorrected { num_zero_frames_pushed: _ } => {
-                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
-                    log::warn!("Underflow occured in audio input to output channel! Try increasing the channel latency.");
-                }
-                _ => {}
-            }
+            let _ = prod.push_interleaved(input);
         },
         move |err| {
             let _ = err_to_cx_tx.send(err);
@@ -874,36 +862,32 @@ impl DataCallback {
         //     (ClockSeconds(0.0), false)
         // };
 
-        let num_in_chanenls = if let Some(cons) = &mut self.input_stream_cons {
+        let (num_in_chanenls, input_stream_status) = if let Some(cons) = &mut self.input_stream_cons
+        {
             let num_in_channels = cons.num_channels().get();
 
-            // TODO: Have some realtime-safe way to notify users of underflows and overflows.
             let status = cons.read_interleaved(&mut self.input_buffer[..frames * num_in_channels]);
 
-            match status {
+            let status = match status {
                 ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
-                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
-                    log::warn!("Underflow occured in audio input to output channel! Try increasing the channel latency.");
+                    StreamStatus::OUTPUT_UNDERFLOW
                 }
                 ReadStatus::OverflowCorrected {
                     num_frames_discarded: _,
-                } => {
-                    // TODO: Logging is not realtime-safe. Find a different way to notify the user.
-                    log::warn!("Overflow occured in audio input to output channel! Try increasing the channel capacity.");
-                }
-                _ => {}
-            }
+                } => StreamStatus::INPUT_OVERFLOW,
+                _ => StreamStatus::empty(),
+            };
 
-            num_in_channels
+            (num_in_channels, status)
         } else {
-            0
+            (0, StreamStatus::empty())
         };
 
         if let Some(processor) = &mut self.processor {
-            let mut stream_status = StreamStatus::empty();
+            let mut output_stream_status = StreamStatus::empty();
 
             if underflow {
-                stream_status.insert(StreamStatus::OUTPUT_UNDERFLOW);
+                output_stream_status.insert(StreamStatus::OUTPUT_UNDERFLOW);
             }
 
             processor.process_interleaved(
@@ -914,7 +898,8 @@ impl DataCallback {
                 frames,
                 process_timestamp,
                 duration_since_stream_start,
-                stream_status,
+                input_stream_status,
+                output_stream_status,
                 dropped_frames,
             );
         } else {

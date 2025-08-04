@@ -12,6 +12,7 @@ use firewheel_core::{
     collector::ArcGc,
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventList, NodeEventType},
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -365,6 +366,7 @@ impl AudioNodeProcessor for Processor {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         for mut event in events.drain() {
             if let Some(in_stream_event) = event.downcast_mut::<NewInputStreamEvent>() {
@@ -450,7 +452,7 @@ impl AudioNodeProcessor for Processor {
         ProcessStatus::outputs_modified(silence_mask)
     }
 
-    fn stream_stopped(&mut self) {
+    fn stream_stopped(&mut self, _logger: &mut RealtimeLogger) {
         self.shared_state
             .stream_active
             .store(false, Ordering::Relaxed);

@@ -5,6 +5,7 @@ pub mod collector;
 pub mod diff;
 pub mod dsp;
 pub mod event;
+pub mod log;
 pub mod node;
 pub mod param;
 pub mod sample_resource;

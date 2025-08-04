@@ -1,6 +1,7 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcInfo, ProcessStatus,
@@ -41,6 +42,7 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         _events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)
             || buffers.inputs.len() < 2

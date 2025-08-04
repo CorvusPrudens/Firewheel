@@ -8,6 +8,7 @@ use firewheel::{
     collector::ArcGc,
     diff::{Diff, Patch},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -156,6 +157,8 @@ impl AudioNodeProcessor for Processor {
         proc_info: &ProcInfo,
         // The list of events for our node to process.
         events: &mut NodeEventList,
+        // A realtime-safe logger helper.
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<RmsNode>() {
             self.params.apply(patch);

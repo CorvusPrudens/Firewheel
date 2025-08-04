@@ -8,6 +8,7 @@ use core::{
     ops::Range,
 };
 use firewheel_core::diff::RealtimeClone;
+use firewheel_core::log::RealtimeLogger;
 use smallvec::SmallVec;
 
 use firewheel_core::{
@@ -758,6 +759,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         let mut sample_changed = self.is_first_process;
         let mut playback_changed = false;

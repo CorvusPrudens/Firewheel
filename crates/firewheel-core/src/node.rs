@@ -2,6 +2,7 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
+use crate::log::RealtimeLogger;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
@@ -397,15 +398,19 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// * `buffers` - The buffers of data to process.
     /// * `proc_info` - Additional information about the process.
     /// * `events` - A list of events for this node to process.
+    /// * `logger` - A realtime-safe logger helper.
     fn process(
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        logger: &mut RealtimeLogger,
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
-    fn stream_stopped(&mut self) {}
+    fn stream_stopped(&mut self, logger: &mut RealtimeLogger) {
+        let _ = logger;
+    }
 
     /// Called when a new audio stream has been started after a previous
     /// call to [`AudioNodeProcessor::stream_stopped`].

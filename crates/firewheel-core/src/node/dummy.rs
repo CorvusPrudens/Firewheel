@@ -1,4 +1,4 @@
-use crate::{channel_config::ChannelConfig, event::NodeEventList};
+use crate::{channel_config::ChannelConfig, event::NodeEventList, log::RealtimeLogger};
 
 use super::{
     AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers, ProcInfo,
@@ -41,6 +41,7 @@ impl AudioNodeProcessor for DummyProcessor {
         _buffers: ProcBuffers,
         _proc_info: &ProcInfo,
         _events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }

@@ -3,6 +3,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcInfo, ProcessStatus,
@@ -82,6 +83,7 @@ impl AudioNodeProcessor for Processor {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         let Some(out) = buffers.outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;

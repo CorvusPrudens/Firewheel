@@ -6,6 +6,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::volume::{amp_to_db, DbMeterNormalizer},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcInfo, ProcessStatus,
@@ -238,6 +239,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 

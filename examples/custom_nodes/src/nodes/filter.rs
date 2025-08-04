@@ -14,6 +14,7 @@ use firewheel::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcInfo, ProcessStatus,
@@ -127,6 +128,8 @@ impl AudioNodeProcessor for Processor {
         proc_info: &ProcInfo,
         // The list of events for our node to process.
         events: &mut NodeEventList,
+        // A realtime-safe logger helper.
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         // Process the events.
         //

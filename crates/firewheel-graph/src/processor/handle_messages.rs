@@ -24,6 +24,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     self.event_scheduler.push_event_group(
                         &mut event_group,
                         &mut self.nodes,
+                        &mut self.logger,
                         #[cfg(feature = "scheduled_events")]
                         self.sample_rate,
                         #[cfg(feature = "musical_transport")]
@@ -150,7 +151,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.sync_shared_clock(None);
 
         for (_, node) in self.nodes.iter_mut() {
-            node.processor.stream_stopped();
+            node.processor.stream_stopped(&mut self.logger);
         }
     }
 

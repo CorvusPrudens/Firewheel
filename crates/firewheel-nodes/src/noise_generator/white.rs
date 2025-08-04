@@ -5,6 +5,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -104,6 +105,7 @@ impl AudioNodeProcessor for Processor {
         buffers: ProcBuffers,
         _proc_info: &ProcInfo,
         events: &mut NodeEventList,
+        _logger: &mut RealtimeLogger,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<WhiteNoiseGenNode>() {
             if let WhiteNoiseGenNodePatch::Volume(vol) = patch {

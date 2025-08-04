@@ -7,6 +7,7 @@ use firewheel_core::{
     clock::InstantSamples,
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, NodeEventListIndex},
+    log::RealtimeLogger,
     node::{AudioNodeProcessor, StreamStatus, NUM_SCRATCH_BUFFERS},
     StreamInfo,
 };
@@ -79,7 +80,8 @@ impl<B: AudioBackend> FirewheelProcessor<B> {
         frames: usize,
         process_timestamp: B::Instant,
         duration_since_stream_start: Duration,
-        stream_status: StreamStatus,
+        input_stream_status: StreamStatus,
+        output_stream_status: StreamStatus,
         dropped_frames: u32,
     ) {
         if let Some(inner) = &mut self.inner {
@@ -91,7 +93,8 @@ impl<B: AudioBackend> FirewheelProcessor<B> {
                 frames,
                 process_timestamp,
                 duration_since_stream_start,
-                stream_status,
+                input_stream_status,
+                output_stream_status,
                 dropped_frames,
             );
         }
@@ -123,6 +126,8 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
     declick_values: DeclickValues,
 
+    logger: RealtimeLogger,
+
     /// If a panic occurs while processing, this flag is set to let the
     /// main thread know that it shouldn't try spawning a new audio stream
     /// with the shared `Arc<AtomicRefCell<FirewheelProcessorInner>>` object.
@@ -141,6 +146,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         stream_info: &StreamInfo,
         hard_clip_outputs: bool,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
+        logger: RealtimeLogger,
     ) -> Self {
         Self {
             nodes: Arena::new(),
@@ -164,6 +170,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             hard_clip_outputs,
             scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
             declick_values: DeclickValues::new(stream_info.declick_frames),
+            logger,
             poisoned: false,
         }
     }

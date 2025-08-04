@@ -5,6 +5,7 @@ use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
     event::NodeEventList,
+    log::RealtimeLogger,
     node::{NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
     ConnectedMask, SilenceMask,
 };
@@ -30,9 +31,17 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         frames: usize,
         process_timestamp: B::Instant,
         duration_since_stream_start: Duration,
-        mut stream_status: StreamStatus,
+        input_stream_status: StreamStatus,
+        mut output_stream_status: StreamStatus,
         mut dropped_frames: u32,
     ) {
+        if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
+            let _ = self.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
+        }
+        if input_stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
+            let _ = self.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
+        }
+
         // --- Poll messages ------------------------------------------------------------------
 
         self.poll_messages();
@@ -99,7 +108,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 self.sample_rate_recip,
                 clock_samples,
                 duration_since_stream_start,
-                stream_status,
+                output_stream_status,
                 dropped_frames,
                 #[cfg(feature = "musical_transport")]
                 &proc_transport_info,
@@ -128,7 +137,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             // Advance to the next processing block.
             frames_processed += block_frames;
             clock_samples += DurationSamples(block_frames as i64);
-            stream_status = StreamStatus::empty();
+            output_stream_status = StreamStatus::empty();
             dropped_frames = 0;
         }
 
@@ -222,12 +231,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     clock_samples,
                     &mut proc_info,
                     &mut self.node_event_queue,
+                    &mut self.logger,
                     proc_buffers,
                     |sub_chunk_info: SubChunkInfo,
                      node_entry: &mut NodeEntry,
                      proc_info: &mut ProcInfo,
                      events: &mut NodeEventList,
-                     proc_buffers: &mut ProcBuffers| {
+                     proc_buffers: &mut ProcBuffers,
+                     logger: &mut RealtimeLogger| {
                         let SubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
@@ -249,9 +260,12 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                     scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
-                                node_entry
-                                    .processor
-                                    .process(sub_proc_buffers, &proc_info, events)
+                                node_entry.processor.process(
+                                    sub_proc_buffers,
+                                    &proc_info,
+                                    events,
+                                    logger,
+                                )
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -277,9 +291,12 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                     scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
-                                node_entry
-                                    .processor
-                                    .process(sub_proc_buffers, &proc_info, events)
+                                node_entry.processor.process(
+                                    sub_proc_buffers,
+                                    &proc_info,
+                                    events,
+                                    logger,
+                                )
                             }
                         };
 

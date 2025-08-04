@@ -4,6 +4,7 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     clock::{DurationSamples, InstantSamples},
     event::{NodeEvent, NodeEventList, NodeEventListIndex},
+    log::RealtimeLogger,
     node::{NodeID, ProcBuffers, ProcInfo},
 };
 use thunderdome::Arena;
@@ -93,6 +94,7 @@ impl EventScheduler {
         &mut self,
         event_group: &mut Vec<NodeEvent>,
         nodes: &mut Arena<NodeEntry>,
+        logger: &mut RealtimeLogger,
         #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
         #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
@@ -104,6 +106,7 @@ impl EventScheduler {
                 self.push_event(
                     event,
                     &mut node_entry.event_data,
+                    logger,
                     #[cfg(feature = "scheduled_events")]
                     sample_rate,
                     #[cfg(feature = "musical_transport")]
@@ -117,6 +120,7 @@ impl EventScheduler {
         &mut self,
         event: NodeEvent,
         node_data: &mut NodeEventSchedulerData,
+        logger: &mut RealtimeLogger,
         #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
         #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
@@ -125,7 +129,7 @@ impl EventScheduler {
             let slot = if let Some(slot) = self.scheduled_event_arena_free_slots.pop() {
                 slot
             } else {
-                let drop_event = self.extend_scheduled_event_buffer();
+                let drop_event = self.extend_scheduled_event_buffer(logger);
                 if drop_event {
                     return;
                 }
@@ -176,20 +180,17 @@ impl EventScheduler {
         if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
             match self.buffer_out_of_space_mode {
                 BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                    // TODO: Realtime-safe logging
-                    log::warn!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid allocations on the audio thread.");
+                    let _ = logger.try_error("Firewheel immediate event buffer is full! Please increase capacity to avoid audio glitches.");
+
                     self.immediate_event_buffer
                         .reserve(self.immediate_event_buffer_capacity);
                     self.immediate_event_buffer_capacity *= 2;
                 }
                 BufferOutOfSpaceMode::Panic => {
-                    panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
+                    panic!("Firewheel immediate event buffer is full! Please increase buffer capacity.");
                 }
                 BufferOutOfSpaceMode::DropEvents => {
-                    // TODO: Realtime-safe logging
-                    log::warn!(
-                        "Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity."
-                    );
+                    let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase capacity.");
                     return;
                 }
             }
@@ -512,6 +513,7 @@ impl EventScheduler {
         clock_samples: InstantSamples,
         proc_info: &mut ProcInfo,
         node_event_queue: &mut Vec<NodeEventListIndex>,
+        logger: &mut RealtimeLogger,
         mut proc_buffers: ProcBuffers,
         mut on_sub_chunk: impl FnMut(
             SubChunkInfo,
@@ -519,22 +521,22 @@ impl EventScheduler {
             &mut ProcInfo,
             &mut NodeEventList,
             &mut ProcBuffers,
+            &mut RealtimeLogger,
         ),
     ) {
         let push_event = |node_event_queue: &mut Vec<NodeEventListIndex>,
-                          event: NodeEventListIndex| {
+                          event: NodeEventListIndex,
+                          logger: &mut RealtimeLogger| {
             if node_event_queue.len() == node_event_queue.capacity() {
                 match self.buffer_out_of_space_mode {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                        // TODO: realtime safe logging
-                        log::warn!("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity to avoid allocations on the audio thread.");
+                        let _ = logger.try_error("Firewheel event queue is full! Please increase capacity to avoid audio glitches.");
                     }
                     BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity.");
+                        panic!("Firewheel event queue is full! Please increase buffer capacity.");
                     }
                     BufferOutOfSpaceMode::DropEvents => {
-                        // TODO: realtime safe logging
-                        log::warn!("Firewheel event queue is full and event was dropped! Please increase FirewheelConfig::event_queue_capacity.");
+                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase buffer capacity.");
                     }
                 }
             }
@@ -586,7 +588,11 @@ impl EventScheduler {
                 if time_samples <= sub_clock_samples {
                     // If the scheduled event elapses on or before the start of this
                     // sub-chunk, add it to the processing queue.
-                    push_event(node_event_queue, NodeEventListIndex::Scheduled(slot));
+                    push_event(
+                        node_event_queue,
+                        NodeEventListIndex::Scheduled(slot),
+                        logger,
+                    );
                 } else {
                     // Else set the length of this sub-chunk to process up to this event.
                     // Once this sub-chunk has been processed, add it to the processing
@@ -617,6 +623,7 @@ impl EventScheduler {
                 push_event(
                     node_event_queue,
                     NodeEventListIndex::Immediate(*clump_event_start_i),
+                    logger,
                 );
 
                 node_entry.event_data.num_immediate_events -= 1;
@@ -635,6 +642,7 @@ impl EventScheduler {
                             push_event(
                                 node_event_queue,
                                 NodeEventListIndex::Immediate(event_i as u32),
+                                logger,
                             );
 
                             node_entry.event_data.num_immediate_events -= 1;
@@ -671,6 +679,7 @@ impl EventScheduler {
                 proc_info,
                 &mut node_event_list,
                 &mut proc_buffers,
+                logger,
             );
 
             // Ensure that all `ArcGc`s have been cleaned up.
@@ -688,7 +697,11 @@ impl EventScheduler {
                 // sub-chunk.
                 assert_ne!(frames_processed + sub_chunk_frames, block_frames);
 
-                push_event(node_event_queue, NodeEventListIndex::Scheduled(slot));
+                push_event(
+                    node_event_queue,
+                    NodeEventListIndex::Scheduled(slot),
+                    logger,
+                );
             }
 
             // Advance to the next sub-chunk.
@@ -742,11 +755,10 @@ impl EventScheduler {
 
     /// Returns `true` if the event should be dropped.
     #[cfg(feature = "scheduled_events")]
-    fn extend_scheduled_event_buffer(&mut self) -> bool {
+    fn extend_scheduled_event_buffer(&mut self, logger: &mut RealtimeLogger) -> bool {
         match self.buffer_out_of_space_mode {
             BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                // TODO: Realtime-safe logging
-                log::warn!("Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity to avoid allocations on the audio thread.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full! Please increase capacity to avoid audio glitches.");
 
                 let old_len = self.scheduled_event_arena.len();
 
@@ -761,11 +773,12 @@ impl EventScheduler {
                 false
             }
             BufferOutOfSpaceMode::Panic => {
-                panic!("Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity.");
+                panic!(
+                    "Firewheel scheduled event buffer is full! Please increase buffer capactiy."
+                );
             }
             BufferOutOfSpaceMode::DropEvents => {
-                // TODO: Realtime-safe logging
-                log::warn!("Firewheel scheduled event buffer is full and event was dropped! Please increase FirewheelConfig::scheduled_event_capacity.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full and event was dropped! Please increase capacity.");
                 true
             }
         }

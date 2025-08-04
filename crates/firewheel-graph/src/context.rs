@@ -4,6 +4,7 @@ use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::clock::DurationSeconds;
+use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::AudioClock,
@@ -98,6 +99,9 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to [`BufferOutOfSpaceMode::AllocateOnAudioThread`].
     pub buffer_out_of_space_mode: BufferOutOfSpaceMode,
+
+    /// The configuration of the realtime safe logger.
+    pub logger_config: RealtimeLoggerConfig,
 }
 
 impl Default for FirewheelConfig {
@@ -116,6 +120,7 @@ impl Default for FirewheelConfig {
             #[cfg(feature = "scheduled_events")]
             scheduled_event_capacity: 512,
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
+            logger_config: RealtimeLoggerConfig::default(),
         }
     }
 }
@@ -131,6 +136,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
 
     to_processor_tx: ringbuf::HeapProd<ContextToProcessorMsg>,
     from_processor_rx: ringbuf::HeapCons<ProcessorToContextMsg>,
+    logger_rx: RealtimeLoggerMainThread,
 
     active_state: Option<ActiveState<B>>,
 
@@ -138,6 +144,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
         ringbuf::HeapCons<ContextToProcessorMsg>,
         ringbuf::HeapProd<ProcessorToContextMsg>,
         triple_buffer::Input<SharedClock<B::Instant>>,
+        RealtimeLogger,
     )>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner<B>>>,
 
@@ -179,12 +186,15 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let (shared_clock_input, shared_clock_output) =
             triple_buffer::triple_buffer(&SharedClock::default());
 
+        let (logger, logger_rx) = firewheel_core::log::realtime_logger(config.logger_config);
+
         Self {
             graph: AudioGraph::new(&config),
             to_processor_tx,
             from_processor_rx,
+            logger_rx,
             active_state: None,
-            processor_channel: Some((from_context_rx, to_context_tx, shared_clock_input)),
+            processor_channel: Some((from_context_rx, to_context_tx, shared_clock_input, logger)),
             processor_drop_rx: None,
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
@@ -293,31 +303,33 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner<B>>::new(1).split();
 
-        let processor =
-            if let Some((from_context_rx, to_context_tx, shared_clock_input)) = maybe_processor {
-                FirewheelProcessorInner::new(
-                    from_context_rx,
-                    to_context_tx,
-                    shared_clock_input,
-                    self.config.immediate_event_capacity,
-                    #[cfg(feature = "scheduled_events")]
-                    self.config.scheduled_event_capacity,
-                    self.config.event_queue_capacity,
-                    &stream_info,
-                    self.config.hard_clip_outputs,
-                    self.config.buffer_out_of_space_mode,
-                )
-            } else {
-                let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
+        let processor = if let Some((from_context_rx, to_context_tx, shared_clock_input, logger)) =
+            maybe_processor
+        {
+            FirewheelProcessorInner::new(
+                from_context_rx,
+                to_context_tx,
+                shared_clock_input,
+                self.config.immediate_event_capacity,
+                #[cfg(feature = "scheduled_events")]
+                self.config.scheduled_event_capacity,
+                self.config.event_queue_capacity,
+                &stream_info,
+                self.config.hard_clip_outputs,
+                self.config.buffer_out_of_space_mode,
+                logger,
+            )
+        } else {
+            let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
 
-                if processor.poisoned {
-                    panic!("The audio thread has panicked!");
-                }
+            if processor.poisoned {
+                panic!("The audio thread has panicked!");
+            }
 
-                processor.new_stream(&stream_info);
+            processor.new_stream(&stream_info);
 
-                processor
-            };
+            processor
+        };
 
         backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
 
@@ -559,6 +571,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// This must be called reguarly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+        self.logger_rx.flush();
+
         firewheel_core::collector::GlobalCollector.collect();
 
         for msg in self.from_processor_rx.pop_iter() {
