@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicBool, Ordering};
-use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
 use crate::collector::ArcGc;
 
@@ -103,8 +103,19 @@ pub struct RealtimeLogger {
 
 impl RealtimeLogger {
     /// The allocated capacity for each message slot.
-    pub fn max_msg_length(&self) -> usize {
+    pub fn max_message_length(&self) -> usize {
         self.max_msg_length
+    }
+
+    /// Returns the number of slots that are available for debug messages.
+    #[cfg(debug_assertions)]
+    pub fn available_debug_slots(&self) -> usize {
+        self.debug_cons.occupied_len()
+    }
+
+    /// Returns the number of slots that are available for error messages.
+    pub fn available_error_slots(&self) -> usize {
+        self.error_cons.occupied_len()
     }
 
     /// Log the given debug message.
@@ -138,7 +149,7 @@ impl RealtimeLogger {
     /// Log a debug message into the given string.
     ///
     /// This string is gauranteed to be empty and have an allocated capacity
-    /// of at least [`RealtimeLogger::capacity`].
+    /// of at least [`RealtimeLogger::max_message_length`].
     ///
     /// *NOTE*, avoid using this method in the final release of your node.
     /// This is only meant for debugging purposes while developing.
@@ -187,7 +198,7 @@ impl RealtimeLogger {
     /// Log an error message into the given string.
     ///
     /// This string is gauranteed to be empty and have an allocated capacity
-    /// of at least [`RealtimeLogger::capacity`].
+    /// of at least [`RealtimeLogger::max_message_length`].
     pub fn try_error_with(&mut self, f: impl FnOnce(&mut String)) -> Result<(), RealtimeLogError> {
         let Some(mut slot) = self.error_cons.try_pop() else {
             self.shared_state
