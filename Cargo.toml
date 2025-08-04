@@ -109,7 +109,7 @@ members = [
 
 [workspace.dependencies]
 log = "0.4"
-ringbuf = { version = "0.4", default-features = false, features = ["portable-atomic"] }
+ringbuf = { version = "0.4", default-features = false, features = ["portable-atomic", "alloc"] }
 triple_buffer = "8"
 thiserror = "2"
 smallvec = "1"
