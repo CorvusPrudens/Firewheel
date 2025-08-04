@@ -16,7 +16,6 @@ exclude.workspace = true
 all-features = true
 
 [features]
-default = ["std"]
 std = ["arrayvec/std", "glam?/std", "thunderdome/std", "ringbuf/std", "wmidi?/std"]
 # Enables scheduling events for audio nodes.
 #
