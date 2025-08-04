@@ -1,5 +1,8 @@
 use core::num::NonZeroU32;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Box;
+
 use firewheel_core::{
     clock::{
         DurationSamples, EventInstant, InstantMusical, InstantSamples, MusicalTransport,
