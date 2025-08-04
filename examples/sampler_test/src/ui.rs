@@ -44,7 +44,7 @@ impl App for DemoApp {
         self.audio_system.update_meters(dt);
 
         egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.menu_button("Menu", |ui| {

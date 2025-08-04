@@ -1,7 +1,7 @@
 use std::ops::RangeInclusive;
 
 use eframe::App;
-use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke};
+use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke, StrokeKind};
 use firewheel::Volume;
 
 use crate::system::AudioSystem;
@@ -23,7 +23,7 @@ impl DemoApp {
 impl App for DemoApp {
     fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.menu_button("Menu", |ui| {
@@ -202,6 +202,7 @@ impl<'a> egui::Widget for XYPad<'a> {
             response.rect.expand(-1.0),
             0.0,
             Stroke::new(1.0, Color32::DARK_GRAY),
+            StrokeKind::Middle,
         );
 
         painter.add(CircleShape::filled(

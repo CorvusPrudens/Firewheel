@@ -1,7 +1,7 @@
 use eframe::App;
-use egui::{Color32, Id, Ui};
+use egui::{Color32, Id, Ui, UiKind};
 use egui_snarl::{
-    ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
+    ui::{AnyPins, PinInfo, SnarlPin, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
 use firewheel::{
@@ -189,9 +189,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         &mut self,
         _pin: &InPin,
         _ui: &mut Ui,
-        _scale: f32,
         _snarl: &mut Snarl<GuiAudioNode>,
-    ) -> PinInfo {
+    ) -> impl SnarlPin + 'static {
         PinInfo::square().with_fill(CABLE_COLOR)
     }
 
@@ -199,9 +198,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         &mut self,
         _pin: &OutPin,
         _ui: &mut Ui,
-        _scale: f32,
         _snarl: &mut Snarl<GuiAudioNode>,
-    ) -> PinInfo {
+    ) -> impl SnarlPin + 'static {
         PinInfo::square().with_fill(CABLE_COLOR)
     }
 
@@ -209,48 +207,42 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         true
     }
 
-    fn show_graph_menu(
-        &mut self,
-        pos: egui::Pos2,
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<GuiAudioNode>,
-    ) {
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<GuiAudioNode>) {
         ui.label("Add node");
         if ui.button("Beep Test").clicked() {
             let node = self.audio_system.add_node(NodeType::BeepTest);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("White Noise Generator").clicked() {
             let node = self.audio_system.add_node(NodeType::WhiteNoiseGen);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("Pink Noise Generator").clicked() {
             let node = self.audio_system.add_node(NodeType::PinkNoiseGen);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("Volume (mono)").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumeMono);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("Volume (stereo)").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumeStereo);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
         if ui.button("Volume & Pan").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumePan);
             snarl.insert_node(pos, node);
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
     }
 
@@ -272,7 +264,6 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut Ui,
-        _scale: f32,
         snarl: &mut Snarl<GuiAudioNode>,
     ) {
         let n = snarl.get_node(node).unwrap();
@@ -284,7 +275,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 if ui.button("Remove").clicked() {
                     self.audio_system.remove_node(n.node_id(&self.audio_system));
                     snarl.remove_node(node);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
         }
@@ -312,7 +303,6 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut Ui,
-        _scale: f32,
         snarl: &mut Snarl<GuiAudioNode>,
     ) {
         match snarl.get_node_mut(node).unwrap() {
@@ -417,7 +407,10 @@ pub struct DemoApp {
 impl DemoApp {
     pub fn new() -> Self {
         let mut snarl = Snarl::new();
-        let style = SnarlStyle::new();
+        let style = SnarlStyle {
+            max_scale: Some(1.0),
+            ..Default::default()
+        };
 
         snarl.insert_node(egui::Pos2 { x: 0.0, y: 0.0 }, GuiAudioNode::SystemOut);
 
@@ -433,7 +426,7 @@ impl DemoApp {
 impl App for DemoApp {
     fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.menu_button("Menu", |ui| {
