@@ -18,8 +18,9 @@ all-features = true
 [features]
 std = [
     "arrayvec/std",
-    "bevy_ecs/std",
+    "bevy_ecs?/std",
     "bevy_platform/std",
+    "bevy_reflect?/std",
     "glam?/std",
     "portable-atomic/std",
     "thiserror/std",
