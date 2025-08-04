@@ -3,6 +3,9 @@
 use super::{Diff, EventQueue, Patch, PatchError, PathBuilder};
 use crate::event::ParamData;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
 macro_rules! sequence_diff {
     ($gen:ident, $ty:ty) => {
         impl<$gen: Diff> Diff for $ty {

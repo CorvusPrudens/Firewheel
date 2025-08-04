@@ -1,3 +1,8 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::String;
+
 pub mod atomic_float;
 pub mod channel_config;
 pub mod clock;

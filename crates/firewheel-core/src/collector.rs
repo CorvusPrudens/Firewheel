@@ -1,5 +1,8 @@
 //! Garbage-collected smart pointer.
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
 use core::{
     any::Any,
     cell::UnsafeCell,

@@ -2,6 +2,9 @@ use core::num::NonZeroUsize;
 
 use arrayvec::ArrayVec;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 /// A memory-efficient buffer of samples with `CHANNELS` channels. Each channel
 /// has a length of `frames`.
 pub struct ChannelBuffer<T: Clone + Copy + Default, const CHANNELS: usize> {

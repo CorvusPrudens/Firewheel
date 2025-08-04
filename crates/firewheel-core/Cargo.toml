@@ -16,7 +16,17 @@ exclude.workspace = true
 all-features = true
 
 [features]
-std = ["arrayvec/std", "glam?/std", "thunderdome/std", "ringbuf/std", "wmidi?/std"]
+std = [
+    "arrayvec/std",
+    "bevy_ecs/std",
+    "bevy_platform/std",
+    "glam?/std",
+    "portable-atomic/std",
+    "thiserror/std",
+    "thunderdome/std",
+    "ringbuf/std",
+    "wmidi?/std"
+]
 # Enables scheduling events for audio nodes.
 #
 # NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
@@ -49,7 +59,8 @@ symphonium_stretch = [
 # Enables `Component` derives for parameters.
 bevy = ["dep:bevy_ecs"]
 # Enables `Reflect` derives for core types.
-bevy_reflect = ["dep:bevy_reflect"]
+# TODO: Remove "std" here once the `Cow` issue has been resolved in notify.rs.
+bevy_reflect = ["std", "dep:bevy_reflect"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives.
 glam = ["dep:glam"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
@@ -70,9 +81,9 @@ bevy_platform.workspace = true
 thiserror.workspace = true
 ringbuf.workspace = true
 log.workspace = true
+bevy_ecs = { workspace = true, optional = true }
+bevy_reflect = { workspace = true, optional = true }
 glam = { version = "0.*", default-features = false, optional = true }
-bevy_ecs = { version = "0.16", default-features = false, optional = true }
-bevy_reflect = { version = "0.16", default-features = false, optional = true }
 # TODO: Remove this once `bevy_platform` exposes the atomic float types from `portable-atomic`.
 portable-atomic = { version = "1", default-features = false, features = [
     "fallback",

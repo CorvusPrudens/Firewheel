@@ -156,6 +156,9 @@ mod test {
 
     #[test]
     fn test_identical_write() {
+        #[cfg(not(feature = "std"))]
+        use bevy_platform::prelude::Vec;
+
         let baseline = Notify::new(0.5f32);
         let mut value = baseline;
 
@@ -227,7 +230,7 @@ mod reflect {
                     .with_custom_attributes(bevy_reflect::attributes::CustomAttributes::default())
                     .with_generics(bevy_reflect::Generics::from_iter([
                         bevy_reflect::GenericInfo::Type(bevy_reflect::TypeParamInfo::new::<T>(
-                            // TODO: Use a no-std compatible `Cow` type.
+                            // TODO: Use a no-std compatible `Cow` type or do something different.
                             std::borrow::Cow::Borrowed("T"),
                         )),
                     ])),

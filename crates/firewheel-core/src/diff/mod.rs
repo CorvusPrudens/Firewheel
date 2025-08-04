@@ -203,6 +203,9 @@
 
 use bevy_platform::sync::Arc;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 use crate::{
     collector::ArcGc,
     event::{NodeEventType, ParamData},

@@ -30,4 +30,4 @@ smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
-bevy_platform.workspace = true
+bevy_platform = { workspace = true, features = ["std"] }

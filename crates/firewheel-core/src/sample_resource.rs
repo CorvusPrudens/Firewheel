@@ -1,5 +1,8 @@
 use core::{num::NonZeroUsize, ops::Range};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 /// A resource of audio samples.
 pub trait SampleResource: Send + Sync + 'static {
     /// The number of channels in this resource.

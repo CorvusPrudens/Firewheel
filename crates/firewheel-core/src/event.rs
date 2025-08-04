@@ -1,5 +1,8 @@
 use core::any::Any;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
 use crate::{
     clock::{DurationSamples, DurationSeconds, InstantSamples, InstantSeconds},
     collector::{ArcGc, OwnedGc},

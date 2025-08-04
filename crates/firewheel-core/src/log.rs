@@ -1,6 +1,9 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::String;
+
 use crate::collector::ArcGc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

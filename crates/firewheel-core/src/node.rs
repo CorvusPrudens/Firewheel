@@ -2,6 +2,9 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
 use crate::log::RealtimeLogger;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},

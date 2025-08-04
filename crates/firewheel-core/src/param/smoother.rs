@@ -1,5 +1,8 @@
 use core::num::NonZeroU32;
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 use crate::{
     dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},
     StreamInfo,
