@@ -16,6 +16,8 @@ exclude.workspace = true
 all-features = true
 
 [features]
+default = ["std"]
+std = ["ringbuf/std", "glam/std", "wmidi?/std"]
 # Enables scheduling events for audio nodes.
 #
 # NOTE TO THIRD PARTY NODE DEVELOPERS: Please keep this feature disabled
@@ -36,13 +38,13 @@ scheduled_events = []
 # can still schedule musical events for your node even if you have this
 # feature disabled in your library.
 musical_transport = ["scheduled_events"]
-symphonium = ["dep:symphonium"]
-resampler = ["dep:fixed-resample", "symphonium?/resampler"]
+symphonium = ["std", "dep:symphonium"]
+symphonium_resample = ["symphonium", "dep:fixed-resample", "symphonium?/resampler"]
 # Enables the "arbitrary sinc" resampler in Symphonium for changing the
 # pitch/length of samples at load time.
 symphonium_stretch = [
     "symphonium",
-    "resampler",
+    "symphonium_resample",
     "symphonium?/stretch-sinc-resampler",
 ]
 # Enables `Component` derives for parameters.
@@ -51,6 +53,8 @@ bevy = ["dep:bevy_ecs"]
 bevy_reflect = ["dep:bevy_reflect"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives.
 glam = ["dep:glam"]
+# Enables the `MIDI` event type, using the `wmidi` crate.
+midi_events = ["dep:wmidi"]
 
 [dependencies]
 firewheel-macros.workspace = true
@@ -64,7 +68,10 @@ fixed-resample = { version = "0.9.1", default-features = false, features = [
 ], optional = true }
 smallvec.workspace = true
 bevy_platform.workspace = true
-glam = { version = "0.*", optional = true }
+thiserror.workspace = true
+ringbuf.workspace = true
+log.workspace = true
+glam = { version = "0.*", default-features = false, optional = true }
 bevy_ecs = { version = "0.16", default-features = false, optional = true }
 bevy_reflect = { version = "0.16", default-features = false, optional = true }
 # TODO: Remove this once `bevy_platform` exposes the atomic float types from `portable-atomic`.
@@ -72,6 +79,4 @@ portable-atomic = { version = "1", default-features = false, features = [
     "fallback",
     "float",
 ] }
-thiserror.workspace = true
-ringbuf.workspace = true
-log.workspace = true
+wmidi = { version = "4", default-features = false, optional = true }

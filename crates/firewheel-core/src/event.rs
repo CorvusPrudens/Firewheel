@@ -9,6 +9,11 @@ use crate::{
     vector::{Vec2, Vec3},
 };
 
+#[cfg(feature = "midi_events")]
+pub use wmidi;
+#[cfg(feature = "midi_events")]
+use wmidi::MidiMessage;
+
 #[cfg(feature = "scheduled_events")]
 use crate::clock::EventInstant;
 
@@ -70,6 +75,8 @@ pub enum NodeEventType {
     Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
+    #[cfg(feature = "midi_events")]
+    MIDI(MidiMessage<'static>),
 }
 
 impl NodeEventType {

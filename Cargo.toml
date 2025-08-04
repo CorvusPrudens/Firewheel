@@ -49,7 +49,7 @@ cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
 # Enables using Symphonium for loading audio files
 symphonium = ["firewheel-core/symphonium"]
 # Enables resampling audio files when loading them with Symphonium
-symphonium_resample = ["firewheel-core/resampler"]
+symphonium_resample = ["firewheel-core/symphonium_resample"]
 # Enables the "arbitrary sinc" resampler for changing the pitch/length
 # of samples at load time.
 symphonium_stretch = ["firewheel-core/symphonium_stretch"]
@@ -86,6 +86,8 @@ bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives.
 glam = ["firewheel-core/glam"]
+# Enables the `MIDI` event type, using the `wmidi` crate.
+midi_events = ["firewheel-core/midi_events"]
 
 [workspace]
 members = [
@@ -107,7 +109,7 @@ members = [
 
 [workspace.dependencies]
 log = "0.4"
-ringbuf = { version = "0.4", features = ["portable-atomic"] }
+ringbuf = { version = "0.4", default-features = false, features = ["portable-atomic"] }
 triple_buffer = "8"
 thiserror = "2"
 smallvec = "1"

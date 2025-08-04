@@ -426,15 +426,15 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
 pub fn load_audio_file<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
-    #[cfg(feature = "resampler")] sample_rate: core::num::NonZeroU32,
-    #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
+    #[cfg(feature = "symphonium_resample")] sample_rate: core::num::NonZeroU32,
+    #[cfg(feature = "symphonium_resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
         .load(
             path,
-            #[cfg(feature = "resampler")]
+            #[cfg(feature = "symphonium_resample")]
             Some(sample_rate.get()),
-            #[cfg(feature = "resampler")]
+            #[cfg(feature = "symphonium_resample")]
             resample_quality,
             None,
         )
@@ -455,16 +455,16 @@ pub fn load_audio_file_from_source(
     loader: &mut symphonium::SymphoniumLoader,
     source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
     hint: Option<symphonium::symphonia::core::probe::Hint>,
-    #[cfg(feature = "resampler")] sample_rate: core::num::NonZeroU32,
-    #[cfg(feature = "resampler")] resample_quality: symphonium::ResampleQuality,
+    #[cfg(feature = "symphonium_resample")] sample_rate: core::num::NonZeroU32,
+    #[cfg(feature = "symphonium_resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
         .load_from_source(
             source,
             hint,
-            #[cfg(feature = "resampler")]
+            #[cfg(feature = "symphonium_resample")]
             Some(sample_rate.get()),
-            #[cfg(feature = "resampler")]
+            #[cfg(feature = "symphonium_resample")]
             resample_quality,
             None,
         )
