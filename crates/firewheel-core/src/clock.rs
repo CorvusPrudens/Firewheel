@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use bevy_platform::time::Instant;
 use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};

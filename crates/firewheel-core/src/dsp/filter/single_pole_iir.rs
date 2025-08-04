@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use core::f32::consts::TAU;
 
 /// The coefficients to a very basic single-pole IIR lowpass filter for

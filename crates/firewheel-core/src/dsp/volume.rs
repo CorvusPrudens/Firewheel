@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 pub const DEFAULT_AMP_EPSILON: f32 = 0.00001;
 pub const DEFAULT_DB_EPSILON: f32 = -100.0;
 

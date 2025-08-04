@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 /// A parameter range with a linear mapping
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinearRange {

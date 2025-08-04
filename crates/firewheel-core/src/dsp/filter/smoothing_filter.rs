@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use core::num::NonZeroU32;
 
 pub const DEFAULT_SMOOTH_SECONDS: f32 = 10.0 / 1_000.0;

@@ -408,7 +408,7 @@ impl core::ops::Deref for ParamPath {
 /// Like with [`Diff`], the typical [`Patch`] usage is simple.
 ///
 /// ```
-/// use firewheel_core::{diff::Patch, event::*, node::*};
+/// use firewheel_core::{diff::Patch, event::*, node::*, log::*};
 ///
 /// #[derive(Patch)]
 /// struct MyParams {
@@ -425,10 +425,13 @@ impl core::ops::Deref for ParamPath {
 ///         &mut self,
 ///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         mut events: NodeEventList,
+///         events: &mut NodeEventList,
+///         _logger: &mut RealtimeLogger,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
-///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch.event));
+///         for patch in events.drain_patches::<MyParams>() {
+///             self.params.apply(patch);
+///         }
 ///
 ///         // ...
 ///
@@ -441,7 +444,7 @@ impl core::ops::Deref for ParamPath {
 /// match on the patch type.
 ///
 /// ```
-/// # use firewheel_core::{diff::{Patch}, event::*, node::*};
+/// # use firewheel_core::{diff::{Patch}, event::*, node::*, log::*};
 /// # #[derive(Patch)]
 /// # struct MyParams {
 /// #     a: f32,
@@ -455,12 +458,13 @@ impl core::ops::Deref for ParamPath {
 ///         &mut self,
 ///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         mut events: NodeEventList,
+///         events: &mut NodeEventList,
+///         _logger: &mut RealtimeLogger,
 ///     ) -> ProcessStatus {
-///         events.for_each_patch::<MyParams>(|mut patch| {
+///         for mut patch in events.drain_patches::<MyParams>() {
 ///             // When you derive `Patch`, it creates an enum with variants
 ///             // for each field.
-///             match &mut patch.event {
+///             match &mut patch {
 ///                 MyParamsPatch::A(a) => {
 ///                     // You can mutate the patch itself if you want
 ///                     // to constrain or modify values.
@@ -470,8 +474,8 @@ impl core::ops::Deref for ParamPath {
 ///             }
 ///
 ///             // And / or apply it directly.
-///             self.params.apply(patch.event);
-///         });
+///             self.params.apply(patch);
+///         }
 ///
 ///         // ...
 ///
@@ -567,10 +571,10 @@ pub trait Patch {
     ///
     /// let mut filter_params = FilterParams::default();
     ///
-    /// event_list.for_each(|e| {
-    ///     match e.event {
+    /// for event in event_list.drain() {
+    ///     match event {
     ///         NodeEventType::Param { data, path } => {
-    ///             let Ok(patch) = FilterParams::patch(data, path) else {
+    ///             let Ok(patch) = FilterParams::patch(&data, &path) else {
     ///                 return;
     ///             };
     ///
@@ -589,7 +593,7 @@ pub trait Patch {
     ///         }
     ///         _ => {}
     ///     }
-    /// });
+    /// }
     /// # }
     /// ```
     fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError>;
@@ -622,7 +626,7 @@ pub trait Patch {
     /// }
     ///
     /// let mut filter_params = FilterParams::default();
-    /// for patch in event_list.drain_patches::<FilterParams>() { filter_params.apply(patch.event); }
+    /// for patch in event_list.drain_patches::<FilterParams>() { filter_params.apply(patch); }
     /// # }
     /// ```
     ///

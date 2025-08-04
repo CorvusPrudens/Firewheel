@@ -23,6 +23,7 @@ std = [
     "bevy_reflect?/std",
     "glam?/std",
     "portable-atomic/std",
+    "num-traits/std",
     "thiserror/std",
     "thunderdome/std",
     "ringbuf/std",
@@ -81,6 +82,7 @@ bevy_platform.workspace = true
 thiserror.workspace = true
 ringbuf.workspace = true
 log.workspace = true
+num-traits = { workspace = true  }
 bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 glam = { version = "0.*", default-features = false, optional = true }
@@ -90,3 +92,6 @@ portable-atomic = { version = "1", default-features = false, features = [
     "float",
 ] }
 wmidi = { version = "4", default-features = false, optional = true }
+
+[dev-dependencies]
+num-traits = { workspace = true, features = ["libm"] }

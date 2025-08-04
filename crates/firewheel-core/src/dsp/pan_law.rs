@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 use core::f32::consts::FRAC_PI_2;
 
 use crate::diff::{Diff, Patch};
