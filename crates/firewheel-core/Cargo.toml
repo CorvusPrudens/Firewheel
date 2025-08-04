@@ -94,4 +94,4 @@ portable-atomic = { version = "1", default-features = false, features = [
 wmidi = { version = "4", default-features = false, optional = true }
 
 [dev-dependencies]
-num-traits = { workspace = true, features = ["libm"] }
+num-traits = { workspace = true, features = ["std"] }
