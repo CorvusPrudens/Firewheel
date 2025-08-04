@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-nodes"
-version = "0.6.3-beta.0"
+version = "0.6.4-beta.0"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
 repository.workspace = true
@@ -48,7 +48,7 @@ bevy = ["dep:bevy_ecs"]
 bevy_reflect = ["dep:bevy_reflect"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.6.3-beta.0" }
+firewheel-core = { path = "../firewheel-core", version = "0.6.4-beta.0" }
 bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
