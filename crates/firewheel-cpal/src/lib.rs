@@ -12,7 +12,6 @@ use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::{AudioBackend, DeviceInfo},
     processor::FirewheelProcessor,
-    FirewheelCtx,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 use ringbuf::traits::{Consumer, Producer, Split};
@@ -24,8 +23,6 @@ const MAX_BLOCK_FRAMES: u32 = 8192;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const MSG_CHANNEL_CAPACITY: usize = 4;
 const MAX_INPUT_CHANNELS: usize = 16;
-
-pub type FirewheelContext = FirewheelCtx<CpalBackend>;
 
 /// The configuration of an output audio stream in the CPAL backend.
 #[derive(Debug, Clone, PartialEq)]

@@ -5,7 +5,7 @@ use firewheel_core::{
     diff::{Diff, PathBuilder},
     node::NodeID,
 };
-use firewheel_cpal::FirewheelContext;
+use firewheel_graph::{backend::AudioBackend, FirewheelCtx};
 use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerNode, SamplerState};
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -20,13 +20,13 @@ pub trait FxChain: Default {
     /// connect to.
     /// * `dst_num_channels` - The number of input channels on `dst_node_id`.
     /// * `cx` - The firewheel context.
-    fn construct_and_connect(
+    fn construct_and_connect<B: AudioBackend>(
         &mut self,
         sampler_node_id: NodeID,
         sampler_num_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> Vec<NodeID>;
 }
 
@@ -77,12 +77,12 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// will connect to.
     /// * `dst_num_channels` - The number of input channels in `dst_node_id`.
     /// * `cx` - The firewheel context.
-    pub fn new(
+    pub fn new<B: AudioBackend>(
         num_workers: usize,
         config: SamplerConfig,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> Self {
         assert_ne!(num_workers, 0);
 
@@ -136,12 +136,12 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// * `fx_chain` - A closure to add additional nodes to this worker instance.
     ///
     /// This will return an error if `params.playback == PlaybackState::Stop`.
-    pub fn new_worker(
+    pub fn new_worker<B: AudioBackend>(
         &mut self,
         params: &SamplerNode,
         steal: bool,
-        cx: &mut FirewheelContext,
-        fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
+        cx: &mut FirewheelCtx<B>,
+        fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelCtx<B>),
     ) -> Result<NewWorkerResult, NewWorkerError> {
         if *params.playback == PlaybackState::Stop {
             return Err(NewWorkerError::PlaybackStateIsStop);
@@ -219,11 +219,11 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// and the `worker_id` will be invalidated.
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn sync_worker_params(
+    pub fn sync_worker_params<B: AudioBackend>(
         &mut self,
         worker_id: WorkerID,
         params: &SamplerNode,
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
@@ -248,7 +248,11 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// Pause the given worker.
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn pause(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+    pub fn pause<B: AudioBackend>(
+        &mut self,
+        worker_id: WorkerID,
+        cx: &mut FirewheelCtx<B>,
+    ) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
         };
@@ -264,7 +268,11 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// Resume the given worker.
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn resume(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+    pub fn resume<B: AudioBackend>(
+        &mut self,
+        worker_id: WorkerID,
+        cx: &mut FirewheelCtx<B>,
+    ) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
         };
@@ -282,7 +290,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// This will remove the worker and invalidate the given `worker_id`.
     ///
     /// Returns `true` if a worker with the given ID exists and was stopped.
-    pub fn stop(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+    pub fn stop<B: AudioBackend>(&mut self, worker_id: WorkerID, cx: &mut FirewheelCtx<B>) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
         };
@@ -300,7 +308,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     }
 
     /// Pause all workers.
-    pub fn pause_all(&mut self, cx: &mut FirewheelContext) {
+    pub fn pause_all<B: AudioBackend>(&mut self, cx: &mut FirewheelCtx<B>) {
         for worker in self.workers.iter_mut() {
             worker.params.pause();
             if worker.assigned_worker_id.is_some() {
@@ -311,7 +319,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     }
 
     /// Resume all workers.
-    pub fn resume_all(&mut self, cx: &mut FirewheelContext) {
+    pub fn resume_all<B: AudioBackend>(&mut self, cx: &mut FirewheelCtx<B>) {
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
                 worker.params.resume();
@@ -321,7 +329,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     }
 
     /// Stop all workers.
-    pub fn stop_all(&mut self, cx: &mut FirewheelContext) {
+    pub fn stop_all<B: AudioBackend>(&mut self, cx: &mut FirewheelCtx<B>) {
         for worker in self.workers.iter_mut() {
             if let Some(_) = worker.assigned_worker_id.take() {
                 worker.params.stop();
@@ -333,7 +341,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         self.num_active_workers = 0;
     }
 
-    pub fn sampler_node(&self, worker_id: WorkerID) -> Option<&SamplerNode> {
+    pub fn sampler_node<B: AudioBackend>(&self, worker_id: WorkerID) -> Option<&SamplerNode> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             Some(&self.workers[idx].params)
         } else {
@@ -359,7 +367,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
     /// Returns `true` if the sequence has either not started playing yet or has finished
     /// playing.
-    pub fn stopped(&self, worker_id: WorkerID, cx: &FirewheelContext) -> bool {
+    pub fn stopped<B: AudioBackend>(&self, worker_id: WorkerID, cx: &FirewheelCtx<B>) -> bool {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
             cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
                 .unwrap()
@@ -372,11 +380,11 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// Get the current playhead for the given worker in units of seconds.
     ///
     /// Returns `None` if a worker with the given ID does not exist.
-    pub fn playhead_seconds(
+    pub fn playhead_seconds<B: AudioBackend>(
         &mut self,
         worker_id: WorkerID,
         sample_rate: NonZeroU32,
-        cx: &FirewheelContext,
+        cx: &FirewheelCtx<B>,
     ) -> Option<f64> {
         self.worker_ids.get(worker_id.0).copied().map(|idx| {
             cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
@@ -389,7 +397,11 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// single channel of audio).
     ///
     /// Returns `None` if a worker with the given ID does not exist.
-    pub fn playhead_frames(&mut self, worker_id: WorkerID, cx: &FirewheelContext) -> Option<u64> {
+    pub fn playhead_frames<B: AudioBackend>(
+        &mut self,
+        worker_id: WorkerID,
+        cx: &FirewheelCtx<B>,
+    ) -> Option<u64> {
         self.worker_ids.get(worker_id.0).copied().map(|idx| {
             cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
                 .unwrap()
@@ -401,7 +413,7 @@ impl<FX: FxChain> SamplerPool<FX> {
     /// workers which have finished playing.
     ///
     /// Calling this method is optional.
-    pub fn poll(&mut self, cx: &FirewheelContext) -> PollResult {
+    pub fn poll<B: AudioBackend>(&mut self, cx: &FirewheelCtx<B>) -> PollResult {
         self.num_active_workers = 0;
         let mut finished_workers = SmallVec::new();
 
@@ -460,11 +472,11 @@ pub struct VolumePanChain {
 }
 
 impl VolumePanChain {
-    pub fn set_params(
+    pub fn set_params<B: AudioBackend>(
         &mut self,
         params: firewheel_nodes::volume_pan::VolumePanNode,
         node_ids: &[NodeID],
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) {
         let node_id = node_ids[0];
 
@@ -477,13 +489,13 @@ impl VolumePanChain {
 }
 
 impl FxChain for VolumePanChain {
-    fn construct_and_connect(
+    fn construct_and_connect<B: AudioBackend>(
         &mut self,
         sampler_node_id: NodeID,
         sampler_num_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> Vec<NodeID> {
         let volume_pan_params = firewheel_nodes::volume_pan::VolumePanNode::default();
 
@@ -529,11 +541,11 @@ pub struct SpatialBasicChain {
 
 #[cfg(feature = "spatial_basic_node")]
 impl SpatialBasicChain {
-    pub fn set_params(
+    pub fn set_params<B: AudioBackend>(
         &mut self,
         params: firewheel_nodes::spatial_basic::SpatialBasicNode,
         node_ids: &[NodeID],
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) {
         let node_id = node_ids[0];
 
@@ -547,13 +559,13 @@ impl SpatialBasicChain {
 
 #[cfg(feature = "spatial_basic_node")]
 impl FxChain for SpatialBasicChain {
-    fn construct_and_connect(
+    fn construct_and_connect<B: AudioBackend>(
         &mut self,
         sampler_node_id: NodeID,
         sampler_num_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
 

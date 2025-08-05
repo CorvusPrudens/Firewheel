@@ -7,7 +7,8 @@ pub use firewheel_core::dsp::volume::Volume;
 
 #[cfg(feature = "cpal")]
 pub use firewheel_cpal::*;
+#[cfg(feature = "cpal")]
+pub type FirewheelContext = FirewheelCtx<CpalBackend>;
 
-// TODO: Make the sampler pool work with other backends.
-#[cfg(all(feature = "sampler_pool", feature = "cpal"))]
+#[cfg(feature = "sampler_pool")]
 pub mod sampler_pool;

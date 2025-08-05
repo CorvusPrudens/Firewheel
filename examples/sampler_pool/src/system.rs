@@ -1,4 +1,5 @@
 use firewheel::{
+    backend::AudioBackend,
     channel_config::NonZeroChannelCount,
     diff::Memo,
     error::UpdateError,
@@ -8,7 +9,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     sampler_pool::{FxChain, SamplerPool, VolumePanChain},
-    FirewheelContext,
+    FirewheelContext, FirewheelCtx,
 };
 use symphonium::SymphoniumLoader;
 
@@ -101,7 +102,7 @@ pub struct MyCustomChain {
 }
 
 impl FxChain for MyCustomChain {
-    fn construct_and_connect(
+    fn construct_and_connect<B: AudioBackend>(
         &mut self,
         // The ID of the sampler node in this worker instance.
         sampler_node_id: firewheel::node::NodeID,
@@ -113,7 +114,7 @@ impl FxChain for MyCustomChain {
         // The number of input channels on `dst_node_id`.
         dst_num_channels: NonZeroChannelCount,
         // The firewheel context.
-        cx: &mut FirewheelContext,
+        cx: &mut FirewheelCtx<B>,
     ) -> Vec<firewheel::node::NodeID> {
         // In this example we only support stereo, but you can have your FX
         // chain support multiple channel configurations.
