@@ -875,6 +875,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
     /// Queue an event at a certain time, to be sent to an audio node's processor.
     ///
+    /// If `time` is `None`, then the event will occur as soon as the node's
+    /// processor receives the event.
+    ///
     /// Note, this event will not be sent until the event queue is flushed
     /// in [`FirewheelCtx::update`].
     #[cfg(feature = "scheduled_events")]
@@ -882,11 +885,11 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         &mut self,
         node_id: NodeID,
         event: NodeEventType,
-        time: EventInstant,
+        time: Option<EventInstant>,
     ) {
         self.queue_event(NodeEvent {
             node_id,
-            time: Some(time),
+            time,
             event,
         });
     }
@@ -963,7 +966,25 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
 impl<B: AudioBackend> FirewheelCtx<B> {
     /// Construct an [`ContextQueue`] for diffing.
     pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_, B> {
-        ContextQueue { context: self, id }
+        ContextQueue {
+            context: self,
+            id,
+            #[cfg(feature = "scheduled_events")]
+            time: None,
+        }
+    }
+
+    #[cfg(feature = "scheduled_events")]
+    pub fn event_queue_scheduled(
+        &mut self,
+        id: NodeID,
+        time: Option<EventInstant>,
+    ) -> ContextQueue<'_, B> {
+        ContextQueue {
+            context: self,
+            id,
+            time,
+        }
     }
 }
 
@@ -990,28 +1011,14 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 pub struct ContextQueue<'a, B: AudioBackend> {
     context: &'a mut FirewheelCtx<B>,
     id: NodeID,
+    #[cfg(feature = "scheduled_events")]
+    time: Option<EventInstant>,
 }
 
 #[cfg(feature = "scheduled_events")]
-pub struct TimedContextQueue<'a, B: AudioBackend> {
-    time: EventInstant,
-    context_queue: ContextQueue<'a, B>,
-}
-
 impl<'a, B: AudioBackend> ContextQueue<'a, B> {
-    pub fn reborrow<'b>(&'b mut self) -> ContextQueue<'b, B> {
-        ContextQueue {
-            context: &mut *self.context,
-            id: self.id,
-        }
-    }
-
-    #[cfg(feature = "scheduled_events")]
-    pub fn with_time<'b>(&'b mut self, time: EventInstant) -> TimedContextQueue<'b, B> {
-        TimedContextQueue {
-            time,
-            context_queue: self.reborrow(),
-        }
+    pub fn time(&self) -> Option<EventInstant> {
+        self.time
     }
 }
 
@@ -1020,19 +1027,8 @@ impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
         self.context.queue_event(NodeEvent {
             event: data,
             #[cfg(feature = "scheduled_events")]
-            time: None,
+            time: self.time,
             node_id: self.id,
-        });
-    }
-}
-
-#[cfg(feature = "scheduled_events")]
-impl<B: AudioBackend> firewheel_core::diff::EventQueue for TimedContextQueue<'_, B> {
-    fn push(&mut self, data: NodeEventType) {
-        self.context_queue.context.queue_event(NodeEvent {
-            event: data,
-            time: Some(self.time),
-            node_id: self.context_queue.id,
         });
     }
 }

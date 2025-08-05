@@ -1,6 +1,7 @@
 // TODO: The logic in this has become increadibly complex and error-prone. I plan
 // on rewriting the sampler engine using a state machine.
 
+use firewheel_core::clock::{DurationSamples, DurationSeconds};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -229,17 +230,19 @@ impl SamplerState {
 
     /// Get the current position of the playhead in units of frames (samples of
     /// a single channel of audio).
-    pub fn playhead_frames(&self) -> u64 {
-        self.shared_state
-            .sample_playhead_frames
-            .load(Ordering::Relaxed)
+    pub fn playhead_frames(&self) -> DurationSamples {
+        DurationSamples(
+            self.shared_state
+                .sample_playhead_frames
+                .load(Ordering::Relaxed) as i64,
+        )
     }
 
     /// Get the current position of the sample playhead in seconds.
     ///
     /// * `sample_rate` - The sample rate of the current audio stream.
-    pub fn playhead_seconds(&self, sample_rate: NonZeroU32) -> f64 {
-        self.playhead_frames() as f64 / sample_rate.get() as f64
+    pub fn playhead_seconds(&self, sample_rate: NonZeroU32) -> DurationSeconds {
+        DurationSeconds(self.playhead_frames().0 as f64 / sample_rate.get() as f64)
     }
 
     /// Get the current position of the playhead in units of frames (samples of
@@ -252,7 +255,7 @@ impl SamplerState {
         &self,
         update_instant: Option<Instant>,
         sample_rate: NonZeroU32,
-    ) -> u64 {
+    ) -> DurationSamples {
         let frames = self.playhead_frames();
 
         let Some(update_instant) = update_instant else {
@@ -260,10 +263,12 @@ impl SamplerState {
         };
 
         if self.shared_state.playing.load(Ordering::Relaxed) {
-            frames
-                + InstantSeconds(update_instant.elapsed().as_secs_f64())
-                    .to_samples(sample_rate)
-                    .0 as u64
+            DurationSamples(
+                frames.0
+                    + InstantSeconds(update_instant.elapsed().as_secs_f64())
+                        .to_samples(sample_rate)
+                        .0 as i64,
+            )
         } else {
             frames
         }
@@ -278,9 +283,12 @@ impl SamplerState {
         &self,
         update_instant: Option<Instant>,
         sample_rate: NonZeroU32,
-    ) -> f64 {
-        self.playhead_frames_corrected(update_instant, sample_rate) as f64
-            / sample_rate.get() as f64
+    ) -> DurationSeconds {
+        DurationSeconds(
+            self.playhead_frames_corrected(update_instant, sample_rate)
+                .0 as f64
+                / sample_rate.get() as f64,
+        )
     }
 
     /// Returns `true` if the sample has either not started playing yet or has finished
@@ -324,7 +332,7 @@ impl SamplerState {
                     let playhead_frames = self.playhead_frames();
 
                     if stopped {
-                        if playhead_frames > 0 {
+                        if playhead_frames.0 > 0 {
                             // Sequence has likely finished playing.
                             u64::MAX - 4
                         } else {
@@ -334,7 +342,7 @@ impl SamplerState {
                     } else {
                         // The older the sample is, the better it is as a candidate to steal
                         // work from.
-                        playhead_frames
+                        playhead_frames.0 as u64
                     }
                 }
             }

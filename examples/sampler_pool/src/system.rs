@@ -8,7 +8,7 @@ use firewheel::{
         volume::{VolumeNode, VolumeNodeConfig},
         StereoToMonoNode,
     },
-    sampler_pool::{FxChain, SamplerPool, VolumePanChain},
+    pool::{AudioNodePool, FxChain, SamplerPool, SamplerPoolVolumePan},
     FirewheelContext, FirewheelCtx,
 };
 use symphonium::SymphoniumLoader;
@@ -24,8 +24,9 @@ pub const NUM_WORKERS: usize = 4;
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
-    pub sampler_pool_1: SamplerPool<VolumePanChain>,
-    pub sampler_pool_2: SamplerPool<MyCustomChain>,
+    // `SamplerPoolVolumePan` is an alias for `AudioNodePool<SamplerPool, VolumePanChain>`.
+    pub sampler_pool_1: SamplerPoolVolumePan,
+    pub sampler_pool_2: AudioNodePool<SamplerPool, MyCustomChain>,
     pub sampler_node: SamplerNode,
 }
 
@@ -36,17 +37,19 @@ impl AudioSystem {
 
         let graph_out = cx.graph_out_node_id();
 
-        let sampler_pool_1 = SamplerPool::new(
+        let sampler_pool_1 = SamplerPoolVolumePan::new(
             NUM_WORKERS,                 // The number of workers to create in this pool.
-            Default::default(),          // Use the default configuration.
+            SamplerNode::default(),      // Use the default sampler node parameters.
+            None,                        // Use the default configuration.
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
         );
 
-        let sampler_pool_2 = SamplerPool::new(
+        let sampler_pool_2 = AudioNodePool::new(
             NUM_WORKERS,                 // The number of workers to create in this pool.
-            Default::default(),          // Use the default configuration.
+            SamplerNode::default(),      // Use the default sampler node parameters.
+            None,                        // Use the default configuration.
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
@@ -66,6 +69,12 @@ impl AudioSystem {
 
         let mut sampler_node = SamplerNode::default();
         sampler_node.set_sample(sample);
+
+        // Note, you can get the playhead and other state of a worker like this:
+        // let playhead = sampler_pool_1
+        //      .first_node_state::<SamplerState, _>(worker_id, &mut cx)
+        //      .unwrap()
+        //      .playhead_seconds(sample_rate);
 
         Self {
             cx,

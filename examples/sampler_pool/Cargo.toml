@@ -5,7 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
-firewheel = { path = "../../", features = ["sampler_pool"] }
+# Note, the "scheduled_events" feature is not needed to use the pool feature.
+# Rust analyzer just gets confused without it in this example.
+firewheel = { path = "../../", features = ["pool", "scheduled_events"] }
 log.workspace = true
 egui = "0.32"
 eframe = { version = "0.32", default-features = false, features = [

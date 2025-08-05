@@ -42,6 +42,7 @@ impl App for DemoApp {
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_1.new_worker(
                     &self.audio_system.sampler_node,
+                    None, // Apply the changes immediately
                     true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {
@@ -50,6 +51,7 @@ impl App for DemoApp {
                         // a new sample.
                         fx_chain_state.fx_chain.set_params(
                             VolumePanNode::default(),
+                            None, // Apply the changes immediately
                             &fx_chain_state.node_ids,
                             cx,
                         );
@@ -72,6 +74,7 @@ impl App for DemoApp {
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_2.new_worker(
                     &self.audio_system.sampler_node,
+                    None, // Apply the changes immediately
                     true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {
@@ -82,10 +85,9 @@ impl App for DemoApp {
 
                         // The nodes IDs appear in the same order as what was returned in
                         // [`MyCustomChain::construct_and_connect`].
-                        fx_chain_state
-                            .fx_chain
-                            .volume
-                            .update_memo(&mut cx.event_queue(fx_chain_state.node_ids[1]));
+                        fx_chain_state.fx_chain.volume.update_memo(
+                            &mut cx.event_queue_scheduled(fx_chain_state.node_ids[1], None),
+                        );
                     },
                 );
             }
