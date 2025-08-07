@@ -4,11 +4,10 @@ use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     SilenceMask,
 };
@@ -109,14 +108,14 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
+        // Information about the process block.
+        _info: &ProcInfo,
         // The buffers of data to process.
         buffers: ProcBuffers,
-        // Additional information about the process.
-        _proc_info: &ProcInfo,
         // The list of events for our node to process.
-        events: &mut NodeEventList,
-        // A realtime-safe logger helper.
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        // Extra buffers and utilities.
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         // Process the events.
         for patch in events.drain_patches::<NoiseGenNode>() {

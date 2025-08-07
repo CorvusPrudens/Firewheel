@@ -5,11 +5,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
 };
 
@@ -83,10 +82,10 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let Some(out) = buffers.outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;
@@ -95,7 +94,7 @@ impl AudioNodeProcessor for Processor {
         for patch in events.drain_patches::<BeepTestNode>() {
             match patch {
                 BeepTestNodePatch::FreqHz(f) => {
-                    self.phasor_inc = f.clamp(20.0, 20_000.0) * proc_info.sample_rate_recip as f32;
+                    self.phasor_inc = f.clamp(20.0, 20_000.0) * info.sample_rate_recip as f32;
                 }
                 BeepTestNodePatch::Volume(v) => {
                     self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);

@@ -429,7 +429,7 @@ impl ProcTransportState {
             })
     }
 
-    pub fn transport_sync_info(&self) -> Option<TransportSyncInfo> {
+    pub fn transport_sync_info<'a>(&'a self) -> Option<TransportSyncInfo<'a>> {
         self.transport_state
             .transport
             .as_ref()

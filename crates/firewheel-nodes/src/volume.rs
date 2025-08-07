@@ -2,11 +2,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -90,10 +89,10 @@ struct VolumeProcessor {
 impl AudioNodeProcessor for VolumeProcessor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<VolumeNode>() {
             let VolumeNodePatch::Volume(v) = patch;
@@ -112,7 +111,7 @@ impl AudioNodeProcessor for VolumeProcessor {
 
         self.prev_block_was_silent = false;
 
-        if proc_info
+        if info
             .in_silence_mask
             .all_channels_silent(buffers.inputs.len())
         {
@@ -139,8 +138,8 @@ impl AudioNodeProcessor for VolumeProcessor {
                     .zip(buffers.inputs.iter())
                     .enumerate()
                 {
-                    if proc_info.in_silence_mask.is_channel_silent(ch_i) {
-                        if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
+                    if info.in_silence_mask.is_channel_silent(ch_i) {
+                        if !info.out_silence_mask.is_channel_silent(ch_i) {
                             out_ch.fill(0.0);
                         }
                     } else {
@@ -151,7 +150,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 }
 
                 return ProcessStatus::OutputsModified {
-                    out_silence_mask: proc_info.in_silence_mask,
+                    out_silence_mask: info.in_silence_mask,
                 };
             }
         }
@@ -164,21 +163,23 @@ impl AudioNodeProcessor for VolumeProcessor {
         } else if buffers.inputs.len() == 2 {
             // Provide an optimized loop for stereo.
 
-            let in0 = &buffers.inputs[0][..proc_info.frames];
-            let in1 = &buffers.inputs[1][..proc_info.frames];
+            let in0 = &buffers.inputs[0][..info.frames];
+            let in1 = &buffers.inputs[1][..info.frames];
             let (out0, out1) = buffers.outputs.split_first_mut().unwrap();
-            let out0 = &mut out0[..proc_info.frames];
-            let out1 = &mut out1[0][..proc_info.frames];
+            let out0 = &mut out0[..info.frames];
+            let out1 = &mut out1[0][..info.frames];
 
-            for i in 0..proc_info.frames {
+            for i in 0..info.frames {
                 let gain = self.gain.next_smoothed();
 
                 out0[i] = in0[i] * gain;
                 out1[i] = in1[i] * gain;
             }
         } else {
+            let scratch_buffer = extra.scratch_buffers.first_mut();
+
             self.gain
-                .process_into_buffer(&mut buffers.scratch_buffers[0][..proc_info.frames]);
+                .process_into_buffer(&mut scratch_buffer[..info.frames]);
 
             for (ch_i, (out_ch, in_ch)) in buffers
                 .outputs
@@ -186,8 +187,8 @@ impl AudioNodeProcessor for VolumeProcessor {
                 .zip(buffers.inputs.iter())
                 .enumerate()
             {
-                if proc_info.in_silence_mask.is_channel_silent(ch_i) {
-                    if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
+                if info.in_silence_mask.is_channel_silent(ch_i) {
+                    if !info.out_silence_mask.is_channel_silent(ch_i) {
                         out_ch.fill(0.0);
                     }
                     continue;
@@ -196,7 +197,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 for ((os, &is), &g) in out_ch
                     .iter_mut()
                     .zip(in_ch.iter())
-                    .zip(buffers.scratch_buffers[0][..proc_info.frames].iter())
+                    .zip(scratch_buffer[..info.frames].iter())
                 {
                     *os = is * g;
                 }

@@ -1,7 +1,11 @@
-use crate::{channel_config::ChannelConfig, event::NodeEventList, log::RealtimeLogger};
+use crate::{
+    channel_config::ChannelConfig,
+    event::ProcEvents,
+    node::{ProcBuffers, ProcExtra},
+};
 
 use super::{
-    AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers, ProcInfo,
+    AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcInfo,
     ProcessStatus,
 };
 
@@ -38,10 +42,10 @@ struct DummyProcessor;
 impl AudioNodeProcessor for DummyProcessor {
     fn process(
         &mut self,
+        _info: &ProcInfo,
         _buffers: ProcBuffers,
-        _proc_info: &ProcInfo,
-        _events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        _events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }

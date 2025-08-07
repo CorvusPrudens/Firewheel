@@ -425,7 +425,7 @@ impl core::ops::Deref for ParamPath {
 ///         &mut self,
 ///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         events: &mut NodeEventList,
+///         events: &mut ProcEvents,
 ///         _logger: &mut RealtimeLogger,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
@@ -458,7 +458,7 @@ impl core::ops::Deref for ParamPath {
 ///         &mut self,
 ///         buffers: ProcBuffers,
 ///         proc_info: &ProcInfo,
-///         events: &mut NodeEventList,
+///         events: &mut ProcEvents,
 ///         _logger: &mut RealtimeLogger,
 ///     ) -> ProcessStatus {
 ///         for mut patch in events.drain_patches::<MyParams>() {
@@ -561,8 +561,8 @@ pub trait Patch {
     /// a concrete value, making it easy to manipulate the event in audio processors.
     ///
     /// ```
-    /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
-    /// # fn patching(mut event_list: NodeEventList) {
+    /// # use firewheel_core::{diff::Patch, event::{ProcEvents, NodeEventType}};
+    /// # fn patching(mut event_list: ProcEvents) {
     /// #[derive(Patch, Default)]
     /// struct FilterParams {
     ///     frequency: f32,
@@ -617,8 +617,8 @@ pub trait Patch {
     /// Typically, you'll call this within [`drain_patches`].
     ///
     /// ```
-    /// # use firewheel_core::{diff::Patch, event::{NodeEventList, NodeEventType}};
-    /// # fn patching(mut event_list: NodeEventList) {
+    /// # use firewheel_core::{diff::Patch, event::{ProcEvents, NodeEventType}};
+    /// # fn patching(mut event_list: ProcEvents) {
     /// #[derive(Patch, Default)]
     /// struct FilterParams {
     ///     frequency: f32,
@@ -630,7 +630,7 @@ pub trait Patch {
     /// # }
     /// ```
     ///
-    /// [`drain_patches`]: crate::event::NodeEventList::drain_patches
+    /// [`drain_patches`]: crate::event::ProcEvents::drain_patches
     fn apply(&mut self, patch: Self::Patch);
 }
 

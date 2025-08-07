@@ -7,11 +7,10 @@ use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
     diff::{Diff, Patch},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     StreamInfo,
 };
@@ -151,14 +150,14 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
+        // Information about the process block.
+        info: &ProcInfo,
         // The buffers of data to process.
         buffers: ProcBuffers,
-        // Additional information about the process.
-        proc_info: &ProcInfo,
         // The list of events for our node to process.
-        events: &mut NodeEventList,
-        // A realtime-safe logger helper.
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        // Extra buffers and utilities.
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<RmsNode>() {
             self.params.apply(patch);
@@ -174,9 +173,9 @@ impl AudioNodeProcessor for Processor {
         }
 
         let mut frames_processed = 0;
-        while frames_processed < proc_info.frames {
-            let process_frames = (proc_info.frames - frames_processed)
-                .min(self.window_frames - self.num_squared_values);
+        while frames_processed < info.frames {
+            let process_frames =
+                (info.frames - frames_processed).min(self.window_frames - self.num_squared_values);
 
             for &s in buffers.inputs[0][frames_processed..frames_processed + process_frames].iter()
             {

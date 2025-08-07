@@ -13,11 +13,10 @@ use firewheel::{
         declick::{Declicker, FadeType},
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     SilenceMask, StreamInfo,
@@ -122,14 +121,14 @@ impl AudioNodeProcessor for Processor {
     // The realtime process method.
     fn process(
         &mut self,
+        // Information about the process block.
+        info: &ProcInfo,
         // The buffers of data to process.
         buffers: ProcBuffers,
-        // Additional information about the process.
-        proc_info: &ProcInfo,
         // The list of events for our node to process.
-        events: &mut NodeEventList,
-        // A realtime-safe logger helper.
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        // Extra buffers and utilities.
+        extra: &mut ProcExtra,
     ) -> ProcessStatus {
         // Process the events.
         //
@@ -146,7 +145,7 @@ impl AudioNodeProcessor for Processor {
                 FilterNodePatch::Enabled(enabled) => {
                     // Tell the declicker to crossfade.
                     self.enable_declicker
-                        .fade_to_enabled(enabled, proc_info.declick_values);
+                        .fade_to_enabled(enabled, &extra.declick_values);
                 }
             }
         }
@@ -160,7 +159,7 @@ impl AudioNodeProcessor for Processor {
         // there is no need to process.
         let gain_is_silent = !self.gain.is_smoothing() && self.gain.target_value() < 0.00001;
 
-        if proc_info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
+        if info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
@@ -178,20 +177,20 @@ impl AudioNodeProcessor for Processor {
         //
         // Doing it this way allows the compiler to better optimize the processing
         // loops below.
-        let in1 = &buffers.inputs[0][..proc_info.frames];
-        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let in1 = &buffers.inputs[0][..info.frames];
+        let in2 = &buffers.inputs[1][..info.frames];
         let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
-        let out1 = &mut out1[..proc_info.frames];
-        let out2 = &mut out2[0][..proc_info.frames];
+        let out1 = &mut out1[..info.frames];
+        let out2 = &mut out2[0][..info.frames];
 
         // Retrieve a buffer of the smoothed gain values.
         //
         // The redundant slicing is not strictly necessary, but it may help make sure
         // the compiler properly optimizes the below processing loops.
-        let gain = &self.gain.get_buffer(proc_info.frames).0[..proc_info.frames];
+        let gain = &self.gain.get_buffer(info.frames).0[..info.frames];
 
         if self.cutoff_hz.is_smoothing() {
-            for i in 0..proc_info.frames {
+            for i in 0..info.frames {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
@@ -218,7 +217,7 @@ impl AudioNodeProcessor for Processor {
                 .set_cutoff(self.cutoff_hz.target_value(), self.sample_rate_recip);
             self.filter_r.copy_cutoff_from(&self.filter_l);
 
-            for i in 0..proc_info.frames {
+            for i in 0..info.frames {
                 let fl = self.filter_l.process(in1[i]);
                 let fr = self.filter_r.process(in2[i]);
 
@@ -231,8 +230,8 @@ impl AudioNodeProcessor for Processor {
         self.enable_declicker.process_crossfade(
             buffers.inputs,
             buffers.outputs,
-            proc_info.frames,
-            proc_info.declick_values,
+            info.frames,
+            &extra.declick_values,
             FadeType::EqualPower3dB,
         );
 

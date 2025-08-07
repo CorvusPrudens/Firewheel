@@ -10,11 +10,11 @@ use core::{
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
-    event::{NodeEventList, NodeEventType},
+    event::{NodeEventType, ProcEvents},
     log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
 };
 use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
@@ -374,10 +374,10 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for mut event in events.drain() {
             if let Some(out_stream_event) = event.downcast_mut::<NewOutputStreamEvent>() {
@@ -403,7 +403,7 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        let status = prod.push(buffers.inputs, 0..proc_info.frames);
+        let status = prod.push(buffers.inputs, 0..info.frames);
 
         match status {
             PushStatus::OverflowOccurred {

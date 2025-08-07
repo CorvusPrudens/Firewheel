@@ -4,9 +4,8 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
-    event::NodeEventList,
-    log::RealtimeLogger,
-    node::{NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
+    event::ProcEvents,
+    node::{NodeID, ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
     ConnectedMask, SilenceMask,
 };
 
@@ -36,10 +35,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         mut dropped_frames: u32,
     ) {
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
-            let _ = self.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
+            let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
         }
         if input_stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
-            let _ = self.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
+            let _ = self.extra.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
         }
 
         // --- Poll messages ------------------------------------------------------------------
@@ -168,14 +167,12 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         // -- Prepare process info ------------------------------------------------------------
 
-        let mut scratch_buffers = self.scratch_buffers.get_mut(self.max_block_frames);
-
         #[cfg(feature = "musical_transport")]
         let transport_info = self
             .proc_transport_state
             .transport_info(&proc_transport_info);
 
-        let mut proc_info = ProcInfo {
+        let mut info = ProcInfo {
             frames: block_frames,
             in_silence_mask: SilenceMask::default(),
             out_silence_mask: SilenceMask::default(),
@@ -185,24 +182,22 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             sample_rate_recip,
             clock_samples,
             duration_since_stream_start,
-            #[cfg(feature = "musical_transport")]
-            transport_info,
             stream_status,
             dropped_frames,
-            declick_values: &self.declick_values,
+            #[cfg(feature = "musical_transport")]
+            transport_info,
         };
 
         // -- Find scheduled events that have elapsed this block ------------------------------
 
         #[cfg(feature = "scheduled_events")]
         self.event_scheduler
-            .prepare_process_block(&proc_info, &mut self.nodes);
+            .prepare_process_block(&info, &mut self.nodes);
 
         // -- Audio graph node processing closure ---------------------------------------------
 
         schedule_data.schedule.process(
             block_frames,
-            &mut scratch_buffers,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
@@ -213,10 +208,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
                 // Add the mask information to proc info.
-                proc_info.in_silence_mask = in_silence_mask;
-                proc_info.out_silence_mask = out_silence_mask;
-                proc_info.in_connected_mask = in_connected_mask;
-                proc_info.out_connected_mask = out_connected_mask;
+                info.in_silence_mask = in_silence_mask;
+                info.out_silence_mask = out_silence_mask;
+                info.in_connected_mask = in_connected_mask;
+                info.out_connected_mask = out_connected_mask;
 
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
@@ -229,16 +224,16 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     node_entry,
                     block_frames,
                     clock_samples,
-                    &mut proc_info,
-                    &mut self.node_event_queue,
-                    &mut self.logger,
+                    &mut info,
+                    &mut self.extra,
+                    &mut self.proc_event_queue,
                     proc_buffers,
                     |sub_chunk_info: SubChunkInfo,
                      node_entry: &mut NodeEntry,
-                     proc_info: &mut ProcInfo,
-                     events: &mut NodeEventList,
+                     info: &mut ProcInfo,
                      proc_buffers: &mut ProcBuffers,
-                     logger: &mut RealtimeLogger| {
+                     events: &mut ProcEvents,
+                     extra: &mut ProcExtra| {
                         let SubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
@@ -246,8 +241,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                         let sub_chunk_frames = sub_chunk_range.end - sub_chunk_range.start;
 
                         // Set the timing information for the process info for this sub-chunk.
-                        proc_info.frames = sub_chunk_frames;
-                        proc_info.clock_samples = sub_clock_samples;
+                        info.frames = sub_chunk_frames;
+                        info.clock_samples = sub_clock_samples;
 
                         // Call the node's process method.
                         let process_status = {
@@ -257,15 +252,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                 let sub_proc_buffers = ProcBuffers {
                                     inputs: proc_buffers.inputs,
                                     outputs: proc_buffers.outputs,
-                                    scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
-                                node_entry.processor.process(
-                                    sub_proc_buffers,
-                                    &proc_info,
-                                    events,
-                                    logger,
-                                )
+                                node_entry
+                                    .processor
+                                    .process(&info, sub_proc_buffers, events, extra)
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -287,16 +278,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                 let sub_proc_buffers = ProcBuffers {
                                     inputs: sub_inputs.as_slice(),
                                     outputs: sub_outputs.as_mut_slice(),
-                                    // Scratch buffers don't need to change length.
-                                    scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
-                                node_entry.processor.process(
-                                    sub_proc_buffers,
-                                    &proc_info,
-                                    events,
-                                    logger,
-                                )
+                                node_entry
+                                    .processor
+                                    .process(&info, sub_proc_buffers, events, extra)
                             }
                         };
 

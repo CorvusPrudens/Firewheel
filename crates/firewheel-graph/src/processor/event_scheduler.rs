@@ -6,9 +6,9 @@ use bevy_platform::prelude::Vec;
 use arrayvec::ArrayVec;
 use firewheel_core::{
     clock::{DurationSamples, InstantSamples},
-    event::{NodeEvent, NodeEventList, NodeEventListIndex},
+    event::{NodeEvent, ProcEvents, ProcEventsIndex},
     log::RealtimeLogger,
-    node::{NodeID, ProcBuffers, ProcInfo},
+    node::{NodeID, ProcBuffers, ProcExtra, ProcInfo},
 };
 use thunderdome::Arena;
 
@@ -514,21 +514,21 @@ impl EventScheduler {
         node_entry: &mut NodeEntry,
         block_frames: usize,
         clock_samples: InstantSamples,
-        proc_info: &mut ProcInfo,
-        node_event_queue: &mut Vec<NodeEventListIndex>,
-        logger: &mut RealtimeLogger,
+        info: &mut ProcInfo,
+        extra: &mut ProcExtra,
+        proc_event_queue: &mut Vec<ProcEventsIndex>,
         mut proc_buffers: ProcBuffers,
         mut on_sub_chunk: impl FnMut(
             SubChunkInfo,
             &mut NodeEntry,
             &mut ProcInfo,
-            &mut NodeEventList,
             &mut ProcBuffers,
-            &mut RealtimeLogger,
+            &mut ProcEvents,
+            &mut ProcExtra,
         ),
     ) {
-        let push_event = |node_event_queue: &mut Vec<NodeEventListIndex>,
-                          event: NodeEventListIndex,
+        let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
+                          event: ProcEventsIndex,
                           logger: &mut RealtimeLogger| {
             if node_event_queue.len() == node_event_queue.capacity() {
                 match self.buffer_out_of_space_mode {
@@ -592,9 +592,9 @@ impl EventScheduler {
                     // If the scheduled event elapses on or before the start of this
                     // sub-chunk, add it to the processing queue.
                     push_event(
-                        node_event_queue,
-                        NodeEventListIndex::Scheduled(slot),
-                        logger,
+                        proc_event_queue,
+                        ProcEventsIndex::Scheduled(slot),
+                        &mut extra.logger,
                     );
                 } else {
                     // Else set the length of this sub-chunk to process up to this event.
@@ -624,9 +624,9 @@ impl EventScheduler {
                 .enumerate()
             {
                 push_event(
-                    node_event_queue,
-                    NodeEventListIndex::Immediate(*clump_event_start_i),
-                    logger,
+                    proc_event_queue,
+                    ProcEventsIndex::Immediate(*clump_event_start_i),
+                    &mut extra.logger,
                 );
 
                 node_entry.event_data.num_immediate_events -= 1;
@@ -643,9 +643,9 @@ impl EventScheduler {
                     if let Some(event) = maybe_event {
                         if event.node_id == node_id {
                             push_event(
-                                node_event_queue,
-                                NodeEventListIndex::Immediate(event_i as u32),
-                                logger,
+                                proc_event_queue,
+                                ProcEventsIndex::Immediate(event_i as u32),
+                                &mut extra.logger,
                             );
 
                             node_entry.event_data.num_immediate_events -= 1;
@@ -666,11 +666,11 @@ impl EventScheduler {
             }
             node_entry.event_data.immediate_event_clump_indices.clear();
 
-            let mut node_event_list = NodeEventList::new(
+            let mut node_event_list = ProcEvents::new(
                 &mut self.immediate_event_buffer,
                 #[cfg(feature = "scheduled_events")]
                 &mut self.scheduled_event_arena,
-                node_event_queue,
+                proc_event_queue,
             );
 
             (on_sub_chunk)(
@@ -679,18 +679,16 @@ impl EventScheduler {
                     sub_clock_samples,
                 },
                 node_entry,
-                proc_info,
-                &mut node_event_list,
+                info,
                 &mut proc_buffers,
-                logger,
+                &mut node_event_list,
+                extra,
             );
 
             // Ensure that all `ArcGc`s have been cleaned up.
             for event in node_event_list.drain() {
                 let _ = event;
             }
-
-            node_event_queue.clear();
 
             // If there was an upcoming scheduled event, add it to the processing queue
             // for the next sub-chunk.
@@ -701,9 +699,9 @@ impl EventScheduler {
                 assert_ne!(frames_processed + sub_chunk_frames, block_frames);
 
                 push_event(
-                    node_event_queue,
-                    NodeEventListIndex::Scheduled(slot),
-                    logger,
+                    proc_event_queue,
+                    ProcEventsIndex::Scheduled(slot),
+                    &mut extra.logger,
                 );
             }
 
