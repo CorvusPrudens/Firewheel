@@ -176,8 +176,10 @@ impl AudioNodeProcessor for VolumeProcessor {
                 out1[i] = in1[i] * gain;
             }
         } else {
+            let scratch_buffer = extra.scratch_buffers.first_mut();
+
             self.gain
-                .process_into_buffer(&mut extra.scratch_buffers[0][..info.frames]);
+                .process_into_buffer(&mut scratch_buffer[..info.frames]);
 
             for (ch_i, (out_ch, in_ch)) in buffers
                 .outputs
@@ -195,7 +197,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 for ((os, &is), &g) in out_ch
                     .iter_mut()
                     .zip(in_ch.iter())
-                    .zip(extra.scratch_buffers[0][..info.frames].iter())
+                    .zip(scratch_buffer[..info.frames].iter())
                 {
                     *os = is * g;
                 }

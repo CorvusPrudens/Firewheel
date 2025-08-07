@@ -344,10 +344,12 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
+        let scratch_buffer = extra.scratch_buffers.first_mut();
+
         let (in1, in2) = if info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {
             if self.params.downmix {
                 // Downmix the stereo signal to mono.
-                for (out_s, (&in1, &in2)) in extra.scratch_buffers[0][..info.frames].iter_mut().zip(
+                for (out_s, (&in1, &in2)) in scratch_buffer[..info.frames].iter_mut().zip(
                     buffers.inputs[0][..info.frames]
                         .iter()
                         .zip(buffers.inputs[1][..info.frames].iter()),
@@ -356,8 +358,8 @@ impl AudioNodeProcessor for Processor {
                 }
 
                 (
-                    &extra.scratch_buffers[0][..info.frames],
-                    &extra.scratch_buffers[0][..info.frames],
+                    &scratch_buffer[..info.frames],
+                    &scratch_buffer[..info.frames],
                 )
             } else {
                 (

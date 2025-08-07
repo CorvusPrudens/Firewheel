@@ -27,7 +27,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     self.event_scheduler.push_event_group(
                         &mut event_group,
                         &mut self.nodes,
-                        &mut self.logger,
+                        &mut self.extra.logger,
                         #[cfg(feature = "scheduled_events")]
                         self.sample_rate,
                         #[cfg(feature = "musical_transport")]
@@ -154,7 +154,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.sync_shared_clock(None);
 
         for (_, node) in self.nodes.iter_mut() {
-            node.processor.stream_stopped(&mut self.logger);
+            node.processor.stream_stopped(&mut self.extra.logger);
         }
     }
 
@@ -189,13 +189,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             self.sample_rate = stream_info.sample_rate;
             self.sample_rate_recip = stream_info.sample_rate_recip;
 
-            self.declick_values = DeclickValues::new(stream_info.declick_frames);
+            self.extra.declick_values = DeclickValues::new(stream_info.declick_frames);
         }
 
         if self.max_block_frames != stream_info.max_block_frames.get() as usize {
             self.max_block_frames = stream_info.max_block_frames.get() as usize;
 
-            self.scratch_buffers = ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
+            self.extra.scratch_buffers =
+                ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
         }
     }
 }

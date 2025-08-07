@@ -145,7 +145,7 @@ impl AudioNodeProcessor for Processor {
                 FilterNodePatch::Enabled(enabled) => {
                     // Tell the declicker to crossfade.
                     self.enable_declicker
-                        .fade_to_enabled(enabled, extra.declick_values);
+                        .fade_to_enabled(enabled, &extra.declick_values);
                 }
             }
         }
@@ -231,7 +231,7 @@ impl AudioNodeProcessor for Processor {
             buffers.inputs,
             buffers.outputs,
             info.frames,
-            extra.declick_values,
+            &extra.declick_values,
             FadeType::EqualPower3dB,
         );
 

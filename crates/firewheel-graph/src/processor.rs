@@ -11,7 +11,7 @@ use firewheel_core::{
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, ProcEventsIndex},
     log::RealtimeLogger,
-    node::{AudioNodeProcessor, StreamStatus, NUM_SCRATCH_BUFFERS},
+    node::{AudioNodeProcessor, ProcExtra, StreamStatus},
     StreamInfo,
 };
 
@@ -112,7 +112,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
 
     event_scheduler: EventScheduler,
-    node_event_queue: Vec<ProcEventsIndex>,
+    proc_event_queue: Vec<ProcEventsIndex>,
 
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
@@ -126,10 +126,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
 
     hard_clip_outputs: bool,
 
-    scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
-    declick_values: DeclickValues,
-
-    logger: RealtimeLogger,
+    extra: ProcExtra,
 
     /// If a panic occurs while processing, this flag is set to let the
     /// main thread know that it shouldn't try spawning a new audio stream
@@ -162,7 +159,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 scheduled_event_buffer_capacity,
                 buffer_out_of_space_mode,
             ),
-            node_event_queue: Vec::with_capacity(node_event_buffer_capacity),
+            proc_event_queue: Vec::with_capacity(node_event_buffer_capacity),
             sample_rate: stream_info.sample_rate,
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
@@ -171,9 +168,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             #[cfg(feature = "musical_transport")]
             proc_transport_state: ProcTransportState::new(),
             hard_clip_outputs,
-            scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
-            declick_values: DeclickValues::new(stream_info.declick_frames),
-            logger,
+            extra: ProcExtra {
+                scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
+                declick_values: DeclickValues::new(stream_info.declick_frames),
+                logger,
+            },
             poisoned: false,
         }
     }

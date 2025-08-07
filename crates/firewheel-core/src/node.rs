@@ -5,6 +5,7 @@ use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
+use crate::dsp::buffer::ChannelBuffer;
 use crate::log::RealtimeLogger;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -449,21 +450,21 @@ pub struct ProcBuffers<'a, 'b> {
 }
 
 /// Extra buffers and utilities for [`AudioNodeProcessor::process`]
-pub struct ProcExtra<'a, 'b> {
+pub struct ProcExtra {
     /// A list of extra scratch buffers that can be used for processing.
     /// This removes the need for nodes to allocate their own scratch buffers.
     /// Each buffer has a length of [`StreamInfo::max_block_frames`]. These
     /// buffers are shared across all nodes, so assume that they contain junk
     /// data.
-    pub scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
+    pub scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
 
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when
     /// pausing/resuming/stopping.
-    pub declick_values: &'a DeclickValues,
+    pub declick_values: DeclickValues,
 
     /// A realtime-safe logger helper.
-    pub logger: &'a mut RealtimeLogger,
+    pub logger: RealtimeLogger,
 }
 
 /// Information for [`AudioNodeProcessor::process`]

@@ -514,9 +514,9 @@ impl EventScheduler {
         node_entry: &mut NodeEntry,
         block_frames: usize,
         clock_samples: InstantSamples,
-        proc_info: &mut ProcInfo,
-        proc_extra: &mut ProcExtra,
-        node_event_queue: &mut Vec<ProcEventsIndex>,
+        info: &mut ProcInfo,
+        extra: &mut ProcExtra,
+        proc_event_queue: &mut Vec<ProcEventsIndex>,
         mut proc_buffers: ProcBuffers,
         mut on_sub_chunk: impl FnMut(
             SubChunkInfo,
@@ -592,9 +592,9 @@ impl EventScheduler {
                     // If the scheduled event elapses on or before the start of this
                     // sub-chunk, add it to the processing queue.
                     push_event(
-                        node_event_queue,
+                        proc_event_queue,
                         ProcEventsIndex::Scheduled(slot),
-                        proc_extra.logger,
+                        &mut extra.logger,
                     );
                 } else {
                     // Else set the length of this sub-chunk to process up to this event.
@@ -624,9 +624,9 @@ impl EventScheduler {
                 .enumerate()
             {
                 push_event(
-                    node_event_queue,
+                    proc_event_queue,
                     ProcEventsIndex::Immediate(*clump_event_start_i),
-                    proc_extra.logger,
+                    &mut extra.logger,
                 );
 
                 node_entry.event_data.num_immediate_events -= 1;
@@ -643,9 +643,9 @@ impl EventScheduler {
                     if let Some(event) = maybe_event {
                         if event.node_id == node_id {
                             push_event(
-                                node_event_queue,
+                                proc_event_queue,
                                 ProcEventsIndex::Immediate(event_i as u32),
-                                proc_extra.logger,
+                                &mut extra.logger,
                             );
 
                             node_entry.event_data.num_immediate_events -= 1;
@@ -670,7 +670,7 @@ impl EventScheduler {
                 &mut self.immediate_event_buffer,
                 #[cfg(feature = "scheduled_events")]
                 &mut self.scheduled_event_arena,
-                node_event_queue,
+                proc_event_queue,
             );
 
             (on_sub_chunk)(
@@ -679,10 +679,10 @@ impl EventScheduler {
                     sub_clock_samples,
                 },
                 node_entry,
-                proc_info,
+                info,
                 &mut proc_buffers,
                 &mut node_event_list,
-                proc_extra,
+                extra,
             );
 
             // Ensure that all `ArcGc`s have been cleaned up.
@@ -699,9 +699,9 @@ impl EventScheduler {
                 assert_ne!(frames_processed + sub_chunk_frames, block_frames);
 
                 push_event(
-                    node_event_queue,
+                    proc_event_queue,
                     ProcEventsIndex::Scheduled(slot),
-                    proc_extra.logger,
+                    &mut extra.logger,
                 );
             }
 

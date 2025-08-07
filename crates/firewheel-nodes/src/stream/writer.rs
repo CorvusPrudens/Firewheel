@@ -380,7 +380,7 @@ impl AudioNodeProcessor for Processor {
             && !self.shared_state.paused.load(Ordering::Relaxed);
 
         self.pause_declicker
-            .fade_to_enabled(enabled, extra.declick_values);
+            .fade_to_enabled(enabled, &extra.declick_values);
 
         if self.pause_declicker.disabled() {
             return ProcessStatus::ClearAllOutputs;
@@ -419,7 +419,7 @@ impl AudioNodeProcessor for Processor {
             self.pause_declicker.process(
                 buffers.outputs,
                 0..info.frames,
-                extra.declick_values,
+                &extra.declick_values,
                 1.0,
                 FadeType::EqualPower3dB,
             );

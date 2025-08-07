@@ -35,10 +35,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         mut dropped_frames: u32,
     ) {
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
-            let _ = self.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
+            let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
         }
         if input_stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
-            let _ = self.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
+            let _ = self.extra.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
         }
 
         // --- Poll messages ------------------------------------------------------------------
@@ -172,7 +172,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             .proc_transport_state
             .transport_info(&proc_transport_info);
 
-        let mut proc_info = ProcInfo {
+        let mut info = ProcInfo {
             frames: block_frames,
             in_silence_mask: SilenceMask::default(),
             out_silence_mask: SilenceMask::default(),
@@ -188,19 +188,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             transport_info,
         };
 
-        let mut scratch_buffers = self.scratch_buffers.get_mut(self.max_block_frames);
-
-        let mut proc_extra = ProcExtra {
-            scratch_buffers: &mut scratch_buffers,
-            declick_values: &self.declick_values,
-            logger: &mut self.logger,
-        };
-
         // -- Find scheduled events that have elapsed this block ------------------------------
 
         #[cfg(feature = "scheduled_events")]
         self.event_scheduler
-            .prepare_process_block(&proc_info, &mut self.nodes);
+            .prepare_process_block(&info, &mut self.nodes);
 
         // -- Audio graph node processing closure ---------------------------------------------
 
@@ -216,10 +208,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
                 // Add the mask information to proc info.
-                proc_info.in_silence_mask = in_silence_mask;
-                proc_info.out_silence_mask = out_silence_mask;
-                proc_info.in_connected_mask = in_connected_mask;
-                proc_info.out_connected_mask = out_connected_mask;
+                info.in_silence_mask = in_silence_mask;
+                info.out_silence_mask = out_silence_mask;
+                info.in_connected_mask = in_connected_mask;
+                info.out_connected_mask = out_connected_mask;
 
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
@@ -232,16 +224,16 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     node_entry,
                     block_frames,
                     clock_samples,
-                    &mut proc_info,
-                    &mut proc_extra,
-                    &mut self.node_event_queue,
+                    &mut info,
+                    &mut self.extra,
+                    &mut self.proc_event_queue,
                     proc_buffers,
                     |sub_chunk_info: SubChunkInfo,
                      node_entry: &mut NodeEntry,
-                     proc_info: &mut ProcInfo,
+                     info: &mut ProcInfo,
                      proc_buffers: &mut ProcBuffers,
                      events: &mut ProcEvents,
-                     proc_extra: &mut ProcExtra| {
+                     extra: &mut ProcExtra| {
                         let SubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
@@ -249,8 +241,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                         let sub_chunk_frames = sub_chunk_range.end - sub_chunk_range.start;
 
                         // Set the timing information for the process info for this sub-chunk.
-                        proc_info.frames = sub_chunk_frames;
-                        proc_info.clock_samples = sub_clock_samples;
+                        info.frames = sub_chunk_frames;
+                        info.clock_samples = sub_clock_samples;
 
                         // Call the node's process method.
                         let process_status = {
@@ -262,12 +254,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                     outputs: proc_buffers.outputs,
                                 };
 
-                                node_entry.processor.process(
-                                    &proc_info,
-                                    sub_proc_buffers,
-                                    events,
-                                    proc_extra,
-                                )
+                                node_entry
+                                    .processor
+                                    .process(&info, sub_proc_buffers, events, extra)
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -291,12 +280,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                     outputs: sub_outputs.as_mut_slice(),
                                 };
 
-                                node_entry.processor.process(
-                                    &proc_info,
-                                    sub_proc_buffers,
-                                    events,
-                                    proc_extra,
-                                )
+                                node_entry
+                                    .processor
+                                    .process(&info, sub_proc_buffers, events, extra)
                             }
                         };
 

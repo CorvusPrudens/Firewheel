@@ -14,6 +14,8 @@ pub struct ChannelBuffer<T: Clone + Copy + Default, const CHANNELS: usize> {
 
 impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS> {
     pub const fn empty() -> Self {
+        assert!(CHANNELS > 0);
+
         Self {
             buffer: Vec::new(),
             frames: 0,
@@ -21,6 +23,8 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
     }
 
     pub fn new(frames: usize) -> Self {
+        assert!(CHANNELS > 0);
+
         let buffer_len = frames * CHANNELS;
 
         let mut buffer = Vec::new();
@@ -34,7 +38,97 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
         self.frames
     }
 
-    pub fn get(&self, frames: usize) -> [&[T]; CHANNELS] {
+    /// Get an immutable reference to the first channel.
+    #[inline]
+    pub fn first(&self) -> &[T] {
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        unsafe { core::slice::from_raw_parts(self.buffer.as_ptr(), self.frames) }
+    }
+
+    /// Get a mutable reference to the first channel.
+    #[inline]
+    pub fn first_mut(&mut self) -> &mut [T] {
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * `self` is borrowed mutably in this method, so all mutability rules are
+        // being upheld.
+        unsafe { core::slice::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.frames) }
+    }
+
+    /// Get an immutable reference to the first channel with the given number of
+    /// frames.
+    ///
+    /// The length of the returned slice will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    #[inline]
+    pub fn first_with_frames(&self, frames: usize) -> &[T] {
+        let frames = frames.min(self.frames);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // and we have constrained `frames` above, so this is always within range.
+        unsafe { core::slice::from_raw_parts(self.buffer.as_ptr(), frames) }
+    }
+
+    /// Get a mutable reference to the first channel with the given number of
+    /// frames.
+    ///
+    /// The length of the returned slice will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    #[inline]
+    pub fn first_with_frames_mut(&mut self, frames: usize) -> &mut [T] {
+        let frames = frames.min(self.frames);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // and we have constrained `frames` above, so this is always within range.
+        // * `self` is borrowed mutably in this method, so all mutability rules are
+        // being upheld.
+        unsafe { core::slice::from_raw_parts_mut(self.buffer.as_mut_ptr(), frames) }
+    }
+
+    /// Get an immutable reference to all channels in this buffer.
+    pub fn all(&self) -> [&[T]; CHANNELS] {
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts(
+                    self.buffer.as_ptr().add(ch_i * self.frames),
+                    self.frames,
+                )
+            })
+        }
+    }
+
+    /// Get a mutable reference to all channels in this buffer.
+    pub fn all_mut(&mut self) -> [&mut [T]; CHANNELS] {
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * None of these slices overlap, and `self` is borrowed mutably in this method,
+        // so all mutability rules are being upheld.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts_mut(
+                    self.buffer.as_mut_ptr().add(ch_i * self.frames),
+                    self.frames,
+                )
+            })
+        }
+    }
+
+    /// Get an immutable reference to all channels with the given number of frames.
+    ///
+    /// The length of the returned slices will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    pub fn all_with_frames(&self, frames: usize) -> [&[T]; CHANNELS] {
         let frames = frames.min(self.frames);
 
         // SAFETY:
@@ -48,7 +142,11 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
         }
     }
 
-    pub fn get_mut(&mut self, frames: usize) -> [&mut [T]; CHANNELS] {
+    /// Get a mutable reference to all channels with the given number of frames.
+    ///
+    /// The length of the returned slices will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    pub fn all_with_frames_mut(&mut self, frames: usize) -> [&mut [T]; CHANNELS] {
         let frames = frames.min(self.frames);
 
         // SAFETY:
@@ -97,13 +195,13 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         self.frames
     }
 
-    pub fn channels(&self) -> NonZeroUsize {
+    pub fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
 
-    pub fn get(&self, channels: usize, frames: usize) -> ArrayVec<&[T], MAX_CHANNELS> {
+    pub fn channels(&self, num_channels: usize, frames: usize) -> ArrayVec<&[T], MAX_CHANNELS> {
         let frames = frames.min(self.frames);
-        let channels = channels.min(self.channels.get());
+        let channels = num_channels.min(self.channels.get());
 
         let mut res = ArrayVec::new();
 
@@ -125,9 +223,13 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         res
     }
 
-    pub fn get_mut(&mut self, channels: usize, frames: usize) -> ArrayVec<&mut [T], MAX_CHANNELS> {
+    pub fn channels_mut(
+        &mut self,
+        num_channels: usize,
+        frames: usize,
+    ) -> ArrayVec<&mut [T], MAX_CHANNELS> {
         let frames = frames.min(self.frames);
-        let channels = channels.min(self.channels.get());
+        let channels = num_channels.min(self.channels.get());
 
         let mut res = ArrayVec::new();
 
@@ -183,7 +285,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         self.frames
     }
 
-    pub fn channels(&self) -> NonZeroUsize {
+    pub fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
 
@@ -191,7 +293,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         self.num_instances
     }
 
-    pub fn get(
+    pub fn instance(
         &self,
         instance_index: usize,
         channels: usize,
@@ -226,7 +328,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         Some(res)
     }
 
-    pub fn get_mut(
+    pub fn instance_mut(
         &mut self,
         instance_index: usize,
         channels: usize,
