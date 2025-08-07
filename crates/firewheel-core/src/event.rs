@@ -261,18 +261,18 @@ param_data_from!(glam::Vec2, Vector2D);
 param_data_from!(glam::Vec3, Vector3D);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
-pub struct NodeEventList<'a> {
+pub struct ProcEvents<'a> {
     immediate_event_buffer: &'a mut [Option<NodeEvent>],
     #[cfg(feature = "scheduled_events")]
     scheduled_event_arena: &'a mut [Option<NodeEvent>],
-    indices: &'a mut Vec<NodeEventListIndex>,
+    indices: &'a mut Vec<ProcEventsIndex>,
 }
 
-impl<'a> NodeEventList<'a> {
+impl<'a> ProcEvents<'a> {
     pub fn new(
         immediate_event_buffer: &'a mut [Option<NodeEvent>],
         #[cfg(feature = "scheduled_events")] scheduled_event_arena: &'a mut [Option<NodeEvent>],
-        indices: &'a mut Vec<NodeEventListIndex>,
+        indices: &'a mut Vec<ProcEventsIndex>,
     ) -> Self {
         Self {
             immediate_event_buffer,
@@ -289,14 +289,14 @@ impl<'a> NodeEventList<'a> {
     /// Iterate over all events, draining the events from the list.
     pub fn drain<'b>(&'b mut self) -> impl IntoIterator<Item = NodeEventType> + use<'b> {
         self.indices.drain(..).map(|index_type| match index_type {
-            NodeEventListIndex::Immediate(i) => {
+            ProcEventsIndex::Immediate(i) => {
                 self.immediate_event_buffer[i as usize]
                     .take()
                     .unwrap()
                     .event
             }
             #[cfg(feature = "scheduled_events")]
-            NodeEventListIndex::Scheduled(i) => {
+            ProcEventsIndex::Scheduled(i) => {
                 self.scheduled_event_arena[i as usize].take().unwrap().event
             }
         })
@@ -314,12 +314,12 @@ impl<'a> NodeEventList<'a> {
         &'b mut self,
     ) -> impl IntoIterator<Item = (NodeEventType, Option<EventInstant>)> + use<'b> {
         self.indices.drain(..).map(|index_type| match index_type {
-            NodeEventListIndex::Immediate(i) => {
+            ProcEventsIndex::Immediate(i) => {
                 let event = self.immediate_event_buffer[i as usize].take().unwrap();
 
                 (event.event, event.time)
             }
-            NodeEventListIndex::Scheduled(i) => {
+            ProcEventsIndex::Scheduled(i) => {
                 let event = self.scheduled_event_arena[i as usize].take().unwrap();
 
                 (event.event, event.time)
@@ -330,8 +330,8 @@ impl<'a> NodeEventList<'a> {
     /// Iterate over patches for `T`, draining the events from the list.
     ///
     /// ```
-    /// # use firewheel_core::{diff::*, event::NodeEventList};
-    /// # fn for_each_example(mut event_list: NodeEventList) {
+    /// # use firewheel_core::{diff::*, event::ProcEvents};
+    /// # fn for_each_example(mut event_list: ProcEvents) {
     /// #[derive(Patch, Default)]
     /// struct FilterNode {
     ///     frequency: f32,
@@ -375,8 +375,8 @@ impl<'a> NodeEventList<'a> {
     /// was not scheduled, then the latter will be `None`.
     ///
     /// ```
-    /// # use firewheel_core::{diff::*, event::NodeEventList};
-    /// # fn for_each_example(mut event_list: NodeEventList) {
+    /// # use firewheel_core::{diff::*, event::ProcEvents};
+    /// # fn for_each_example(mut event_list: ProcEvents) {
     /// #[derive(Patch, Default)]
     /// struct FilterNode {
     ///     frequency: f32,
@@ -419,7 +419,7 @@ impl<'a> NodeEventList<'a> {
 
 /// Used internally by the Firewheel processor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeEventListIndex {
+pub enum ProcEventsIndex {
     Immediate(u32),
     #[cfg(feature = "scheduled_events")]
     Scheduled(u32),

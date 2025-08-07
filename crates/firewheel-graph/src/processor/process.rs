@@ -4,9 +4,8 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
-    event::NodeEventList,
-    log::RealtimeLogger,
-    node::{NodeID, ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
+    event::ProcEvents,
+    node::{NodeID, ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
     ConnectedMask, SilenceMask,
 };
 
@@ -168,8 +167,6 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         // -- Prepare process info ------------------------------------------------------------
 
-        let mut scratch_buffers = self.scratch_buffers.get_mut(self.max_block_frames);
-
         #[cfg(feature = "musical_transport")]
         let transport_info = self
             .proc_transport_state
@@ -185,11 +182,18 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             sample_rate_recip,
             clock_samples,
             duration_since_stream_start,
-            #[cfg(feature = "musical_transport")]
-            transport_info,
             stream_status,
             dropped_frames,
+            #[cfg(feature = "musical_transport")]
+            transport_info,
+        };
+
+        let mut scratch_buffers = self.scratch_buffers.get_mut(self.max_block_frames);
+
+        let mut proc_extra = ProcExtra {
+            scratch_buffers: &mut scratch_buffers,
             declick_values: &self.declick_values,
+            logger: &mut self.logger,
         };
 
         // -- Find scheduled events that have elapsed this block ------------------------------
@@ -202,7 +206,6 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         schedule_data.schedule.process(
             block_frames,
-            &mut scratch_buffers,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
@@ -230,15 +233,15 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     block_frames,
                     clock_samples,
                     &mut proc_info,
+                    &mut proc_extra,
                     &mut self.node_event_queue,
-                    &mut self.logger,
                     proc_buffers,
                     |sub_chunk_info: SubChunkInfo,
                      node_entry: &mut NodeEntry,
                      proc_info: &mut ProcInfo,
-                     events: &mut NodeEventList,
                      proc_buffers: &mut ProcBuffers,
-                     logger: &mut RealtimeLogger| {
+                     events: &mut ProcEvents,
+                     proc_extra: &mut ProcExtra| {
                         let SubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
@@ -257,14 +260,13 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                 let sub_proc_buffers = ProcBuffers {
                                     inputs: proc_buffers.inputs,
                                     outputs: proc_buffers.outputs,
-                                    scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
                                 node_entry.processor.process(
-                                    sub_proc_buffers,
                                     &proc_info,
+                                    sub_proc_buffers,
                                     events,
-                                    logger,
+                                    proc_extra,
                                 )
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
@@ -287,15 +289,13 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                 let sub_proc_buffers = ProcBuffers {
                                     inputs: sub_inputs.as_slice(),
                                     outputs: sub_outputs.as_mut_slice(),
-                                    // Scratch buffers don't need to change length.
-                                    scratch_buffers: proc_buffers.scratch_buffers,
                                 };
 
                                 node_entry.processor.process(
-                                    sub_proc_buffers,
                                     &proc_info,
+                                    sub_proc_buffers,
                                     events,
-                                    logger,
+                                    proc_extra,
                                 )
                             }
                         };

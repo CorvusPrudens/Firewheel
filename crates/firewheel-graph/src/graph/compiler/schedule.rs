@@ -5,7 +5,7 @@ use thunderdome::Arena;
 
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
-    node::{AudioNodeProcessor, ProcBuffers, ProcessStatus, NUM_SCRATCH_BUFFERS},
+    node::{AudioNodeProcessor, ProcBuffers, ProcessStatus},
     ConnectedMask, SilenceMask,
 };
 
@@ -319,7 +319,6 @@ impl CompiledSchedule {
     pub fn process<'a, 'b>(
         &mut self,
         frames: usize,
-        scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
         mut process: impl FnMut(
             NodeID,
             SilenceMask,
@@ -393,7 +392,6 @@ impl CompiledSchedule {
                 ProcBuffers {
                     inputs: inputs.as_slice(),
                     outputs: outputs.as_mut_slice(),
-                    scratch_buffers,
                 },
             );
 

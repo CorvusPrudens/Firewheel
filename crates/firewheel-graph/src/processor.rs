@@ -9,7 +9,7 @@ use bevy_platform::prelude::{Box, Vec};
 use firewheel_core::{
     clock::InstantSamples,
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
-    event::{NodeEvent, NodeEventListIndex},
+    event::{NodeEvent, ProcEventsIndex},
     log::RealtimeLogger,
     node::{AudioNodeProcessor, StreamStatus, NUM_SCRATCH_BUFFERS},
     StreamInfo,
@@ -112,7 +112,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
 
     event_scheduler: EventScheduler,
-    node_event_queue: Vec<NodeEventListIndex>,
+    node_event_queue: Vec<ProcEventsIndex>,
 
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,

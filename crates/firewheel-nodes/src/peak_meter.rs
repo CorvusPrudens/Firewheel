@@ -8,11 +8,10 @@ use firewheel_core::{
     collector::ArcGc,
     diff::{Diff, Patch},
     dsp::volume::{amp_to_db, DbMeterNormalizer},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
 };
 
@@ -239,10 +238,10 @@ struct Processor<const NUM_CHANNELS: usize> {
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 
@@ -266,7 +265,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
             .zip(self.shared_state.peak_gains.iter())
             .enumerate()
         {
-            if proc_info.in_silence_mask.is_channel_silent(i) {
+            if info.in_silence_mask.is_channel_silent(i) {
                 peak_shared.store(0.0, Ordering::Relaxed);
             } else {
                 peak_shared.store(

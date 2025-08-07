@@ -2,6 +2,7 @@
 // on rewriting the sampler engine using a state machine.
 
 use firewheel_core::clock::{DurationSamples, DurationSeconds};
+use firewheel_core::node::{ProcBuffers, ProcExtra};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -12,7 +13,6 @@ use core::{
     ops::Range,
 };
 use firewheel_core::diff::RealtimeClone;
-use firewheel_core::log::RealtimeLogger;
 use smallvec::SmallVec;
 
 use firewheel_core::{
@@ -25,10 +25,10 @@ use firewheel_core::{
         declick::{DeclickValues, Declicker, FadeType},
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
-    event::{NodeEventList, NodeEventType, ParamData},
+    event::{NodeEventType, ParamData, ProcEvents},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus, NUM_SCRATCH_BUFFERS,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcInfo,
+        ProcessStatus, NUM_SCRATCH_BUFFERS,
     },
     sample_resource::SampleResource,
     SilenceMask, StreamInfo,
@@ -767,10 +767,10 @@ impl SamplerProcessor {
 impl AudioNodeProcessor for SamplerProcessor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut sample_changed = self.is_first_process;
         let mut playback_changed = false;
@@ -841,7 +841,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                 #[cfg(feature = "scheduled_events")]
                 if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
-                    if queued_playback_instant.to_samples(proc_info).is_some() {
+                    if queued_playback_instant.to_samples(info).is_some() {
                         playback_instant = Some(queued_playback_instant);
                     } else {
                         // Handle an edge case where the user sent a scheduled play event at
@@ -853,9 +853,9 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
 
             self.stop(
-                proc_info.declick_values,
+                extra.declick_values,
                 buffers.outputs.len(),
-                buffers.scratch_buffers,
+                extra.scratch_buffers,
             );
 
             self.loaded_sample_state = None;
@@ -873,9 +873,9 @@ impl AudioNodeProcessor for SamplerProcessor {
             match *self.params.playback {
                 PlaybackState::Stop => {
                     self.stop(
-                        proc_info.declick_values,
+                        extra.declick_values,
                         buffers.outputs.len(),
-                        buffers.scratch_buffers,
+                        extra.scratch_buffers,
                     );
 
                     self.playback_state = PlaybackState::Stop;
@@ -884,7 +884,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     if self.playback_state.is_playing() {
                         self.playback_state = PlaybackState::Pause;
 
-                        self.declicker.fade_to_0(proc_info.declick_values);
+                        self.declicker.fade_to_0(extra.declick_values);
                     }
                 }
                 PlaybackState::Play { playhead } => {
@@ -903,7 +903,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         }
 
                         let playhead_frames_at_play_instant = playhead
-                            .map(|p| p.as_frames(proc_info.sample_rate))
+                            .map(|p| p.as_frames(info.sample_rate))
                             .unwrap_or_else(|| match self.playback_state {
                                 PlaybackState::Stop => 0,
                                 _ => prev_playhead_frames,
@@ -913,10 +913,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                         let mut new_playhead_frames =
                             if let Some(playback_instant) = playback_instant {
                                 let playback_instant_samples = playback_instant
-                                    .to_samples(proc_info)
-                                    .unwrap_or(proc_info.clock_samples);
-                                let delay = if playback_instant_samples < proc_info.clock_samples {
-                                    (proc_info.clock_samples - playback_instant_samples).0 as u64
+                                    .to_samples(info)
+                                    .unwrap_or(info.clock_samples);
+                                let delay = if playback_instant_samples < info.clock_samples {
+                                    (info.clock_samples - playback_instant_samples).0 as u64
                                 } else {
                                     0
                                 };
@@ -967,9 +967,9 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                         if prev_playhead_frames != new_playhead_frames {
                             self.stop(
-                                proc_info.declick_values,
+                                extra.declick_values,
                                 buffers.outputs.len(),
-                                buffers.scratch_buffers,
+                                extra.scratch_buffers,
                             );
 
                             self.loaded_sample_state.as_mut().unwrap().playhead_frames =
@@ -990,7 +990,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                                     && self.config.crossfade_on_seek)
                             {
                                 self.declicker.reset_to_0();
-                                self.declicker.fade_to_1(proc_info.declick_values);
+                                self.declicker.fade_to_1(extra.declick_values);
                             } else {
                                 self.declicker.reset_to_1();
                             }
@@ -1042,10 +1042,10 @@ impl AudioNodeProcessor for SamplerProcessor {
 
             let (finished, n_channels) = self.process_internal(
                 buffers.outputs,
-                proc_info.frames,
+                info.frames,
                 looping,
-                proc_info.declick_values,
-                buffers.scratch_buffers,
+                extra.declick_values,
+                extra.scratch_buffers,
             );
 
             num_filled_channels = n_channels;
@@ -1070,8 +1070,8 @@ impl AudioNodeProcessor for SamplerProcessor {
             .enumerate()
             .skip(num_filled_channels)
         {
-            if !proc_info.out_silence_mask.is_channel_silent(i) {
-                out_buf[..proc_info.frames].fill(0.0);
+            if !info.out_silence_mask.is_channel_silent(i) {
+                out_buf[..info.frames].fill(0.0);
             }
         }
 
@@ -1088,7 +1088,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     .get(declicker_i, declicker.channels, fade_out_frames)
                     .unwrap();
 
-                let copy_frames = proc_info.frames.min(declicker.frames_left);
+                let copy_frames = info.frames.min(declicker.frames_left);
                 let start_frame = fade_out_frames - declicker.frames_left;
 
                 for (out_buf, tmp_buf) in buffers.outputs.iter_mut().zip(tmp_buffers.iter()) {

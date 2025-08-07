@@ -10,7 +10,7 @@ use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
     dsp::declick::DeclickValues,
-    event::{NodeEvent, NodeEventList, NodeEventType},
+    event::{NodeEvent, NodeEventType, ProcEvents},
     ConnectedMask, SilenceMask, StreamInfo,
 };
 
@@ -398,16 +398,16 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// If any output buffers contain all zeros up to `samples` (silent),
     /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
     ///
+    /// * `info` - Information about this processing block.
     /// * `buffers` - The buffers of data to process.
-    /// * `proc_info` - Additional information about the process.
     /// * `events` - A list of events for this node to process.
-    /// * `logger` - A realtime-safe logger helper.
+    /// * `extra` - Additional buffers and utilities.
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
@@ -427,8 +427,8 @@ pub trait AudioNodeProcessor: 'static + Send {
 
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
-/// The buffers used in [`AudioNodeProcessor::process`].
-pub struct ProcBuffers<'a, 'b, 'c, 'd> {
+/// The buffers used in [`AudioNodeProcessor::process`]
+pub struct ProcBuffers<'a, 'b> {
     /// The audio input buffers.
     ///
     /// The number of channels will always equal the [`ChannelConfig::num_inputs`]
@@ -446,17 +446,28 @@ pub struct ProcBuffers<'a, 'b, 'c, 'd> {
     ///
     /// These buffers may contain junk data.
     pub outputs: &'a mut [&'b mut [f32]],
+}
 
+/// Extra buffers and utilities for [`AudioNodeProcessor::process`]
+pub struct ProcExtra<'a, 'b> {
     /// A list of extra scratch buffers that can be used for processing.
     /// This removes the need for nodes to allocate their own scratch buffers.
     /// Each buffer has a length of [`StreamInfo::max_block_frames`]. These
     /// buffers are shared across all nodes, so assume that they contain junk
     /// data.
-    pub scratch_buffers: &'c mut [&'d mut [f32]; NUM_SCRATCH_BUFFERS],
+    pub scratch_buffers: &'a mut [&'b mut [f32]; NUM_SCRATCH_BUFFERS],
+
+    /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
+    /// which can be used to implement efficient declicking when
+    /// pausing/resuming/stopping.
+    pub declick_values: &'a DeclickValues,
+
+    /// A realtime-safe logger helper.
+    pub logger: &'a mut RealtimeLogger,
 }
 
-/// Additional information for processing audio
-pub struct ProcInfo<'a> {
+/// Information for [`AudioNodeProcessor::process`]
+pub struct ProcInfo {
     /// The number of frames (samples in a single channel of audio) in
     /// this processing block.
     ///
@@ -507,13 +518,6 @@ pub struct ProcInfo<'a> {
     /// Note, this clock is not as accurate as the audio clock.
     pub duration_since_stream_start: Duration,
 
-    /// Information about the musical transport.
-    ///
-    /// This will be `None` if no musical transport is currently active,
-    /// or if the current transport is currently paused.
-    #[cfg(feature = "musical_transport")]
-    pub transport_info: Option<TransportInfo>,
-
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
 
@@ -529,13 +533,15 @@ pub struct ProcInfo<'a> {
     /// If an underrun did not occur, then this will be `0`.
     pub dropped_frames: u32,
 
-    /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
-    /// which can be used to implement efficient declicking when
-    /// pausing/resuming/stopping.
-    pub declick_values: &'a DeclickValues,
+    /// Information about the musical transport.
+    ///
+    /// This will be `None` if no musical transport is currently active,
+    /// or if the current transport is currently paused.
+    #[cfg(feature = "musical_transport")]
+    pub transport_info: Option<TransportInfo>,
 }
 
-impl<'a> ProcInfo<'a> {
+impl ProcInfo {
     /// The current time of the audio clock at the first frame in this
     /// processing block, equal to the total number of seconds of data that
     /// have been processed since this Firewheel context was first started.

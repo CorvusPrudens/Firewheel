@@ -1,10 +1,9 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
 };
 
@@ -39,12 +38,12 @@ struct StereoToMonoProcessor;
 impl AudioNodeProcessor for StereoToMonoProcessor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        _events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        _events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        if proc_info.in_silence_mask.all_channels_silent(2)
+        if info.in_silence_mask.all_channels_silent(2)
             || buffers.inputs.len() < 2
             || buffers.outputs.is_empty()
         {

@@ -61,8 +61,8 @@ libm = ["num-traits/libm"]
 # Users can still schedule events for your node even if you have this
 # feature disabled in your library.
 #
-# If your node makes use of `NodeEventList::drain_with_timestamps` or
-# `NodeEventLIst::drain_patches_with_timestamps`, please consider adding
+# If your node makes use of `ProcEvents::drain_with_timestamps` or
+# `ProcEvents::drain_patches_with_timestamps`, please consider adding
 # a "scheduled_events" feature to your library that can also be disabled.
 # For an example of this, see
 # https://github.com/BillyDM/Firewheel/blob/4b06aa276d99b66e1b488d14a0fd3a6217149daa/crates/firewheel-nodes/src/sampler.rs#L771

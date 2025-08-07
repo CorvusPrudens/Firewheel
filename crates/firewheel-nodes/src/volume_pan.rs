@@ -2,11 +2,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{pan_law::PanLaw, volume::Volume},
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -125,10 +124,10 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut updated = false;
         for mut patch in events.drain_patches::<VolumePanNode>() {
@@ -156,7 +155,7 @@ impl AudioNodeProcessor for Processor {
 
         self.prev_block_was_silent = false;
 
-        if proc_info.in_silence_mask.all_channels_silent(2) {
+        if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset();
             self.gain_r.reset();
             self.prev_block_was_silent = true;
@@ -164,11 +163,11 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let in1 = &buffers.inputs[0][..proc_info.frames];
-        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let in1 = &buffers.inputs[0][..info.frames];
+        let in2 = &buffers.inputs[1][..info.frames];
         let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
-        let out1 = &mut out1[..proc_info.frames];
-        let out2 = &mut out2[0][..proc_info.frames];
+        let out1 = &mut out1[..info.frames];
+        let out2 = &mut out2[0][..info.frames];
 
         if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
             if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
@@ -178,15 +177,15 @@ impl AudioNodeProcessor for Processor {
 
                 ProcessStatus::ClearAllOutputs
             } else {
-                for i in 0..proc_info.frames {
+                for i in 0..info.frames {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
                 }
 
-                ProcessStatus::outputs_modified(proc_info.in_silence_mask)
+                ProcessStatus::outputs_modified(info.in_silence_mask)
             }
         } else {
-            for i in 0..proc_info.frames {
+            for i in 0..info.frames {
                 let gain_l = self.gain_l.next_smoothed();
                 let gain_r = self.gain_r.next_smoothed();
 

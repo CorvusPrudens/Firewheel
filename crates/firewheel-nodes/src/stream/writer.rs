@@ -11,11 +11,11 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     dsp::declick::{Declicker, FadeType},
-    event::{NodeEventList, NodeEventType},
+    event::{NodeEventType, ProcEvents},
     log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     SilenceMask,
 };
@@ -363,10 +363,10 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for mut event in events.drain() {
             if let Some(in_stream_event) = event.downcast_mut::<NewInputStreamEvent>() {
@@ -380,7 +380,7 @@ impl AudioNodeProcessor for Processor {
             && !self.shared_state.paused.load(Ordering::Relaxed);
 
         self.pause_declicker
-            .fade_to_enabled(enabled, proc_info.declick_values);
+            .fade_to_enabled(enabled, extra.declick_values);
 
         if self.pause_declicker.disabled() {
             return ProcessStatus::ClearAllOutputs;
@@ -397,7 +397,7 @@ impl AudioNodeProcessor for Processor {
             .channel_started
             .store(true, Ordering::Relaxed);
 
-        let status = cons.read(buffers.outputs, 0..proc_info.frames);
+        let status = cons.read(buffers.outputs, 0..info.frames);
 
         match status {
             ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
@@ -418,8 +418,8 @@ impl AudioNodeProcessor for Processor {
         if !self.pause_declicker.is_settled() {
             self.pause_declicker.process(
                 buffers.outputs,
-                0..proc_info.frames,
-                proc_info.declick_values,
+                0..info.frames,
+                extra.declick_values,
                 1.0,
                 FadeType::EqualPower3dB,
             );
@@ -435,7 +435,7 @@ impl AudioNodeProcessor for Processor {
                     silence_mask.set_channel(ch_i, true);
                 } else {
                     let mut all_silent = true;
-                    for &s in ch[..proc_info.frames].iter() {
+                    for &s in ch[..info.frames].iter() {
                         if s != 0.0 {
                             all_silent = false;
                             break;

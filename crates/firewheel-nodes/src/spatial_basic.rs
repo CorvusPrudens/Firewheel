@@ -13,11 +13,10 @@ use firewheel_core::{
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
-    event::NodeEventList,
-    log::RealtimeLogger,
+    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     vector::Vec3,
@@ -281,10 +280,10 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
+        info: &ProcInfo,
         buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        events: &mut NodeEventList,
-        _logger: &mut RealtimeLogger,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut updated = false;
         for mut patch in events.drain_patches::<SpatialBasicNode>() {
@@ -333,7 +332,7 @@ impl AudioNodeProcessor for Processor {
 
         self.prev_block_was_silent = false;
 
-        if proc_info.in_silence_mask.all_channels_silent(2) {
+        if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset();
             self.gain_r.reset();
             self.damping_cutoff_hz.reset();
@@ -345,47 +344,44 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let (in1, in2) = if proc_info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {
+        let (in1, in2) = if info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {
             if self.params.downmix {
                 // Downmix the stereo signal to mono.
-                for (out_s, (&in1, &in2)) in buffers.scratch_buffers[0][..proc_info.frames]
-                    .iter_mut()
-                    .zip(
-                        buffers.inputs[0][..proc_info.frames]
-                            .iter()
-                            .zip(buffers.inputs[1][..proc_info.frames].iter()),
-                    )
-                {
+                for (out_s, (&in1, &in2)) in extra.scratch_buffers[0][..info.frames].iter_mut().zip(
+                    buffers.inputs[0][..info.frames]
+                        .iter()
+                        .zip(buffers.inputs[1][..info.frames].iter()),
+                ) {
                     *out_s = (in1 + in2) * 0.5;
                 }
 
                 (
-                    &buffers.scratch_buffers[0][..proc_info.frames],
-                    &buffers.scratch_buffers[0][..proc_info.frames],
+                    &extra.scratch_buffers[0][..info.frames],
+                    &extra.scratch_buffers[0][..info.frames],
                 )
             } else {
                 (
-                    &buffers.inputs[0][..proc_info.frames],
-                    &buffers.inputs[1][..proc_info.frames],
+                    &buffers.inputs[0][..info.frames],
+                    &buffers.inputs[1][..info.frames],
                 )
             }
         } else {
             // Only one (or none) channels are connected, so just use the first
             // channel as input.
             (
-                &buffers.inputs[0][..proc_info.frames],
-                &buffers.inputs[0][..proc_info.frames],
+                &buffers.inputs[0][..info.frames],
+                &buffers.inputs[0][..info.frames],
             )
         };
 
         // Make doubly sure that the compiler optimizes away the bounds checking
         // in the loop.
-        let in1 = &in1[..proc_info.frames];
-        let in2 = &in2[..proc_info.frames];
+        let in1 = &in1[..info.frames];
+        let in2 = &in2[..info.frames];
 
         let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
-        let out1 = &mut out1[..proc_info.frames];
-        let out2 = &mut out2[0][..proc_info.frames];
+        let out1 = &mut out1[..info.frames];
+        let out2 = &mut out2[0][..info.frames];
 
         if !self.gain_l.is_smoothing()
             && !self.gain_r.is_smoothing()
@@ -402,7 +398,7 @@ impl AudioNodeProcessor for Processor {
 
                 return ProcessStatus::ClearAllOutputs;
             } else if self.damping_disabled {
-                for i in 0..proc_info.frames {
+                for i in 0..info.frames {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
                 }
@@ -411,10 +407,10 @@ impl AudioNodeProcessor for Processor {
                 // only updating the filter coefficients once.
                 let coeff = OnePoleIirLPFCoeff::new(
                     self.damping_cutoff_hz.target_value(),
-                    proc_info.sample_rate_recip as f32,
+                    info.sample_rate_recip as f32,
                 );
 
-                for i in 0..proc_info.frames {
+                for i in 0..info.frames {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
 
@@ -423,10 +419,10 @@ impl AudioNodeProcessor for Processor {
                 }
             }
 
-            ProcessStatus::outputs_modified(proc_info.in_silence_mask);
+            ProcessStatus::outputs_modified(info.in_silence_mask);
         } else {
             if self.damping_disabled && !self.damping_cutoff_hz.is_smoothing() {
-                for i in 0..proc_info.frames {
+                for i in 0..info.frames {
                     let gain_l = self.gain_l.next_smoothed();
                     let gain_r = self.gain_r.next_smoothed();
 
@@ -436,7 +432,7 @@ impl AudioNodeProcessor for Processor {
             } else {
                 let mut coeff = OnePoleIirLPFCoeff::default();
 
-                for i in 0..proc_info.frames {
+                for i in 0..info.frames {
                     let cutoff_hz = self.damping_cutoff_hz.next_smoothed();
                     let gain_l = self.gain_l.next_smoothed();
                     let gain_r = self.gain_r.next_smoothed();
@@ -448,8 +444,7 @@ impl AudioNodeProcessor for Processor {
                     // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
                     // frames.
                     if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
-                        coeff =
-                            OnePoleIirLPFCoeff::new(cutoff_hz, proc_info.sample_rate_recip as f32);
+                        coeff = OnePoleIirLPFCoeff::new(cutoff_hz, info.sample_rate_recip as f32);
                     }
 
                     out1[i] = self.filter_l.process(out1[i], coeff);
