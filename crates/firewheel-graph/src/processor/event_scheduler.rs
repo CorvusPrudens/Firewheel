@@ -690,8 +690,6 @@ impl EventScheduler {
                 let _ = event;
             }
 
-            node_event_queue.clear();
-
             // If there was an upcoming scheduled event, add it to the processing queue
             // for the next sub-chunk.
             #[cfg(feature = "scheduled_events")]
