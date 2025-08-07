@@ -111,9 +111,13 @@ impl RealtimeLogger {
     }
 
     /// Returns the number of slots that are available for debug messages.
-    #[cfg(debug_assertions)]
+    ///
+    /// This will always return `0` when compiled without debug assertions.
     pub fn available_debug_slots(&self) -> usize {
-        self.debug_cons.occupied_len()
+        #[cfg(debug_assertions)]
+        return self.debug_cons.occupied_len();
+        #[cfg(not(debug_assertions))]
+        return 0;
     }
 
     /// Returns the number of slots that are available for error messages.
@@ -125,28 +129,36 @@ impl RealtimeLogger {
     ///
     /// *NOTE*, avoid using this method in the final release of your node.
     /// This is only meant for debugging purposes while developing.
-    #[cfg(debug_assertions)]
+    ///
+    /// This will do nothing when compiled without debug assertions.
+    #[allow(unused)]
     pub fn try_debug(&mut self, message: &str) -> Result<(), RealtimeLogError> {
-        if message.len() > self.max_msg_length {
-            self.shared_state
-                .message_too_long_occured
-                .store(true, Ordering::Relaxed);
-            return Err(RealtimeLogError::MessageTooLong);
+        #[cfg(debug_assertions)]
+        {
+            if message.len() > self.max_msg_length {
+                self.shared_state
+                    .message_too_long_occured
+                    .store(true, Ordering::Relaxed);
+                return Err(RealtimeLogError::MessageTooLong);
+            }
+
+            let Some(mut slot) = self.debug_cons.try_pop() else {
+                self.shared_state
+                    .not_enough_slots_occured
+                    .store(true, Ordering::Relaxed);
+                return Err(RealtimeLogError::OutOfSlots);
+            };
+
+            slot.clear();
+            slot.push_str(message);
+
+            let _ = self.debug_prod.try_push(slot);
+
+            return Ok(());
         }
 
-        let Some(mut slot) = self.debug_cons.try_pop() else {
-            self.shared_state
-                .not_enough_slots_occured
-                .store(true, Ordering::Relaxed);
-            return Err(RealtimeLogError::OutOfSlots);
-        };
-
-        slot.clear();
-        slot.push_str(message);
-
-        let _ = self.debug_prod.try_push(slot);
-
-        Ok(())
+        #[cfg(not(debug_assertions))]
+        return Ok(());
     }
 
     /// Log a debug message into the given string.
@@ -156,22 +168,30 @@ impl RealtimeLogger {
     ///
     /// *NOTE*, avoid using this method in the final release of your node.
     /// This is only meant for debugging purposes while developing.
-    #[cfg(debug_assertions)]
+    ///
+    /// This will do nothing when compiled without debug assertions.
+    #[allow(unused)]
     pub fn try_debug_with(&mut self, f: impl FnOnce(&mut String)) -> Result<(), RealtimeLogError> {
-        let Some(mut slot) = self.debug_cons.try_pop() else {
-            self.shared_state
-                .not_enough_slots_occured
-                .store(true, Ordering::Relaxed);
-            return Err(RealtimeLogError::OutOfSlots);
-        };
+        #[cfg(debug_assertions)]
+        {
+            let Some(mut slot) = self.debug_cons.try_pop() else {
+                self.shared_state
+                    .not_enough_slots_occured
+                    .store(true, Ordering::Relaxed);
+                return Err(RealtimeLogError::OutOfSlots);
+            };
 
-        slot.clear();
+            slot.clear();
 
-        (f)(&mut slot);
+            (f)(&mut slot);
 
-        let _ = self.debug_prod.try_push(slot);
+            let _ = self.debug_prod.try_push(slot);
 
-        Ok(())
+            return Ok(());
+        }
+
+        #[cfg(not(debug_assertions))]
+        return Ok(());
     }
 
     /// Log the given error message.
