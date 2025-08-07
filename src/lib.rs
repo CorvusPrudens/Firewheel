@@ -10,5 +10,5 @@ pub use firewheel_cpal::*;
 #[cfg(feature = "cpal")]
 pub type FirewheelContext = FirewheelCtx<CpalBackend>;
 
-#[cfg(feature = "sampler_pool")]
-pub mod sampler_pool;
+#[cfg(feature = "pool")]
+pub use firewheel_pool as pool;
