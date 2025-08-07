@@ -382,7 +382,7 @@ mod reflect {
             1usize
         }
 
-        fn iter_fields(&self) -> bevy_reflect::FieldIter {
+        fn iter_fields<'a>(&'a self) -> bevy_reflect::FieldIter<'a> {
             bevy_reflect::FieldIter::new(self)
         }
 
@@ -444,12 +444,12 @@ mod reflect {
         }
 
         #[inline]
-        fn reflect_ref(&self) -> bevy_reflect::ReflectRef {
+        fn reflect_ref<'a>(&'a self) -> bevy_reflect::ReflectRef<'a> {
             bevy_reflect::ReflectRef::Struct(self)
         }
 
         #[inline]
-        fn reflect_mut(&mut self) -> bevy_reflect::ReflectMut {
+        fn reflect_mut<'a>(&'a mut self) -> bevy_reflect::ReflectMut<'a> {
             bevy_reflect::ReflectMut::Struct(self)
         }
 
