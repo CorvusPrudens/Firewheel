@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use eframe::App;
 use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke, StrokeKind};
-use firewheel::{dsp::distance_attenuator::DistanceModel, Volume};
+use firewheel::{dsp::distance_attenuation::DistanceModel, Volume};
 
 use crate::system::AudioSystem;
 
@@ -114,32 +114,61 @@ impl App for DemoApp {
                 ))
                 .changed();
 
-            let before = self.audio_system.spatial_basic_node.distance_model;
+            let before = self
+                .audio_system
+                .spatial_basic_node
+                .distance_attenuation
+                .distance_model;
             egui::ComboBox::from_label("distance model")
-                .selected_text(match self.audio_system.spatial_basic_node.distance_model {
-                    DistanceModel::Inverse => "Inverse",
-                    DistanceModel::Linear => "Linear",
-                    DistanceModel::Exponential => "Exponential",
-                })
+                .selected_text(
+                    match self
+                        .audio_system
+                        .spatial_basic_node
+                        .distance_attenuation
+                        .distance_model
+                    {
+                        DistanceModel::Inverse => "Inverse",
+                        DistanceModel::Linear => "Linear",
+                        DistanceModel::Exponential => "Exponential",
+                    },
+                )
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
-                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        &mut self
+                            .audio_system
+                            .spatial_basic_node
+                            .distance_attenuation
+                            .distance_model,
                         DistanceModel::Inverse,
                         "Inverse",
                     );
                     ui.selectable_value(
-                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        &mut self
+                            .audio_system
+                            .spatial_basic_node
+                            .distance_attenuation
+                            .distance_model,
                         DistanceModel::Linear,
                         "Linear",
                     );
                     ui.selectable_value(
-                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        &mut self
+                            .audio_system
+                            .spatial_basic_node
+                            .distance_attenuation
+                            .distance_model,
                         DistanceModel::Exponential,
                         "Exponential",
                     );
                 });
 
-            if self.audio_system.spatial_basic_node.distance_model != before {
+            if self
+                .audio_system
+                .spatial_basic_node
+                .distance_attenuation
+                .distance_model
+                != before
+            {
                 updated = true;
             }
 
@@ -147,7 +176,11 @@ impl App for DemoApp {
                 updated |= ui
                     .add(
                         egui::Slider::new(
-                            &mut self.audio_system.spatial_basic_node.distance_gain_factor,
+                            &mut self
+                                .audio_system
+                                .spatial_basic_node
+                                .distance_attenuation
+                                .distance_gain_factor,
                             0.0001..=10.0,
                         )
                         .step_by(0.0)
@@ -162,7 +195,11 @@ impl App for DemoApp {
                 updated |= ui
                     .add(
                         egui::Slider::new(
-                            &mut self.audio_system.spatial_basic_node.reference_distance,
+                            &mut self
+                                .audio_system
+                                .spatial_basic_node
+                                .distance_attenuation
+                                .reference_distance,
                             0.0001..=50.0,
                         )
                         .step_by(0.0)
@@ -175,7 +212,11 @@ impl App for DemoApp {
                 updated |= ui
                     .add(
                         egui::Slider::new(
-                            &mut self.audio_system.spatial_basic_node.max_distance,
+                            &mut self
+                                .audio_system
+                                .spatial_basic_node
+                                .distance_attenuation
+                                .max_distance,
                             1.0..=500.0,
                         )
                         .step_by(0.0)
@@ -190,7 +231,11 @@ impl App for DemoApp {
                 updated |= ui
                     .add(
                         egui::Slider::new(
-                            &mut self.audio_system.spatial_basic_node.distance_muffle_factor,
+                            &mut self
+                                .audio_system
+                                .spatial_basic_node
+                                .distance_attenuation
+                                .distance_muffle_factor,
                             0.0..=10.0,
                         )
                         .step_by(0.0)
@@ -204,7 +249,11 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.max_muffle_distance,
+                        &mut self
+                            .audio_system
+                            .spatial_basic_node
+                            .distance_attenuation
+                            .max_muffle_distance,
                         1.0..=500.0,
                     )
                     .step_by(0.0)
@@ -218,6 +267,7 @@ impl App for DemoApp {
                         &mut self
                             .audio_system
                             .spatial_basic_node
+                            .distance_attenuation
                             .max_distance_muffle_cutoff_hz,
                         20.0..=20_480.0,
                     )

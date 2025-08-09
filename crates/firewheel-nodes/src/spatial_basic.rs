@@ -9,7 +9,9 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        distance_attenuator::{DistanceAttenuatorStereoDsp, DistanceModel, MUFFLE_CUTOFF_HZ_MAX},
+        distance_attenuation::{
+            DistanceAttenuation, DistanceAttenuatorStereoDsp, MUFFLE_CUTOFF_HZ_MAX,
+        },
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
         pan_law::PanLaw,
         volume::Volume,
@@ -65,91 +67,9 @@ pub struct SpatialBasicNode {
     /// By default this is set to `true`.
     pub downmix: bool,
 
-    /// The method in which to calculate the volume of a sound based on the distance from
+    /// The parameters which describe how to attenuate a sound based on its distance from
     /// the listener.
-    ///
-    /// by default this is set to [`DistanceModel::Inverse`].
-    ///
-    /// Based on <https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel>
-    ///
-    /// Interactive graph of the different models: <https://www.desmos.com/calculator/g1pbsc5m9y>
-    pub distance_model: DistanceModel,
-
-    /// The factor by which the sound gets quieter the farther away it is from the
-    /// listener.
-    ///
-    /// Values less than `1.0` will attenuate the sound less per unit distance, and values
-    /// greater than `1.0` will attenuate the sound more per unit distance.
-    ///
-    /// Set to a value `<= 0.00001` to disable attenuating the sound.
-    ///
-    /// By default this is set to `1.0`.
-    ///
-    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
-    /// how these parameters affect the final volume of a sound for each distance model.
-    pub distance_gain_factor: f32,
-
-    /// The minimum distance at which a sound is considered to be at the maximum volume.
-    /// (Distances less than this value will be clamped at the maximum volume).
-    ///
-    /// If this value is `< 0.00001`, then it will be clamped to `0.00001`.
-    ///
-    /// By default this is set to `5.0`.
-    ///
-    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
-    /// how these parameters affect the final volume of a sound for each distance model.
-    pub reference_distance: f32,
-
-    /// When using [`DistanceModel::Linear`], the maximum reference distance (at a
-    /// rolloff factor of `1.0`) of a sound before it is considered to be "silent".
-    /// (Distances greater than this value will be clamped to silence).
-    ///
-    /// If this value is `< 0.0`, then it will be clamped to `0.0`.
-    ///
-    /// By default this is set to `200.0`.
-    ///
-    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
-    /// how these parameters affect the final volume of a sound for each distance model.
-    pub max_distance: f32,
-
-    /// The factor which determines the curve of the high frequency damping (lowpass)
-    /// in relation to distance.
-    ///
-    /// Higher values dampen the high frequencies faster, while smaller values dampen
-    /// the high frequencies slower.
-    ///
-    /// Set to a value `<= 0.00001` to disable muffling the sound based on distance.
-    ///
-    /// By default this is set to `1.9`.
-    ///
-    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
-    /// how these parameters affect the final lowpass cuttoff frequency.
-    pub distance_muffle_factor: f32,
-
-    /// The distance at which the high frequencies of a sound become fully muffled
-    /// (lowpassed).
-    ///
-    /// Distances less than `reference_distance` will have no muffling.
-    ///
-    /// This has no effect if `muffle_factor` is `None`.
-    ///
-    /// By default this is set to `200.0`.
-    ///
-    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
-    /// how these parameters affect the final lowpass cuttoff frequency.
-    pub max_muffle_distance: f32,
-
-    /// The amount of muffling (lowpass) at `max_muffle_distance` in the range
-    /// `[20.0, 20_480.0]`, where `20_480.0` is no muffling and `20.0` is maximum
-    /// muffling.
-    ///
-    /// This has no effect if `muffle_factor` is `None`.
-    ///
-    /// By default this is set to `20.0`.
-    ///
-    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
-    /// how these parameters affect the final lowpass cuttoff frequency.
-    pub max_distance_muffle_cutoff_hz: f32,
+    pub distance_attenuation: DistanceAttenuation,
 
     /// The amount of muffling (lowpass) in the range `[20.0, 20_480.0]`,
     /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
@@ -181,13 +101,7 @@ impl Default for SpatialBasicNode {
             offset: Vec3::new(0.0, 0.0, 0.0),
             panning_threshold: 0.6,
             downmix: true,
-            distance_model: DistanceModel::Inverse,
-            distance_gain_factor: 1.0,
-            reference_distance: 5.0,
-            max_distance: 200.0,
-            distance_muffle_factor: 1.9,
-            max_muffle_distance: 200.0,
-            max_distance_muffle_cutoff_hz: 20.0,
+            distance_attenuation: DistanceAttenuation::default(),
             muffle_cutoff_hz: MUFFLE_CUTOFF_HZ_MAX,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: 0.0001,
@@ -339,13 +253,7 @@ impl AudioNodeProcessor for Processor {
 
             self.distance_attenuator.compute_values(
                 computed_values.distance,
-                self.params.distance_model,
-                self.params.distance_gain_factor,
-                self.params.reference_distance,
-                self.params.max_distance,
-                self.params.distance_muffle_factor,
-                self.params.max_muffle_distance,
-                self.params.max_distance_muffle_cutoff_hz,
+                &self.params.distance_attenuation,
                 self.params.muffle_cutoff_hz,
                 self.params.min_gain,
             );

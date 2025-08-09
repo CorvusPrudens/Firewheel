@@ -78,6 +78,113 @@ impl DistanceModel {
     }
 }
 
+/// The parameters which describe how to attenuate a sound based on its distance from
+/// the listener.
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+pub struct DistanceAttenuation {
+    /// The method in which to calculate the volume of a sound based on the distance from
+    /// the listener.
+    ///
+    /// by default this is set to [`DistanceModel::Inverse`].
+    ///
+    /// Based on <https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel>
+    ///
+    /// Interactive graph of the different models: <https://www.desmos.com/calculator/g1pbsc5m9y>
+    pub distance_model: DistanceModel,
+
+    /// The factor by which the sound gets quieter the farther away it is from the
+    /// listener.
+    ///
+    /// Values less than `1.0` will attenuate the sound less per unit distance, and values
+    /// greater than `1.0` will attenuate the sound more per unit distance.
+    ///
+    /// Set to a value `<= 0.00001` to disable attenuating the sound.
+    ///
+    /// By default this is set to `1.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub distance_gain_factor: f32,
+
+    /// The minimum distance at which a sound is considered to be at the maximum volume.
+    /// (Distances less than this value will be clamped at the maximum volume).
+    ///
+    /// If this value is `< 0.00001`, then it will be clamped to `0.00001`.
+    ///
+    /// By default this is set to `5.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub reference_distance: f32,
+
+    /// When using [`DistanceModel::Linear`], the maximum reference distance (at a
+    /// rolloff factor of `1.0`) of a sound before it is considered to be "silent".
+    /// (Distances greater than this value will be clamped to silence).
+    ///
+    /// If this value is `< 0.0`, then it will be clamped to `0.0`.
+    ///
+    /// By default this is set to `200.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub max_distance: f32,
+
+    /// The factor which determines the curve of the high frequency damping (lowpass)
+    /// in relation to distance.
+    ///
+    /// Higher values dampen the high frequencies faster, while smaller values dampen
+    /// the high frequencies slower.
+    ///
+    /// Set to a value `<= 0.00001` to disable muffling the sound based on distance.
+    ///
+    /// By default this is set to `1.9`.
+    ///
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub distance_muffle_factor: f32,
+
+    /// The distance at which the high frequencies of a sound become fully muffled
+    /// (lowpassed).
+    ///
+    /// Distances less than `reference_distance` will have no muffling.
+    ///
+    /// This has no effect if `muffle_factor` is `None`.
+    ///
+    /// By default this is set to `200.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub max_muffle_distance: f32,
+
+    /// The amount of muffling (lowpass) at `max_muffle_distance` in the range
+    /// `[20.0, 20_480.0]`, where `20_480.0` is no muffling and `20.0` is maximum
+    /// muffling.
+    ///
+    /// This has no effect if `muffle_factor` is `None`.
+    ///
+    /// By default this is set to `20.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub max_distance_muffle_cutoff_hz: f32,
+}
+
+impl Default for DistanceAttenuation {
+    fn default() -> Self {
+        Self {
+            distance_model: DistanceModel::Inverse,
+            distance_gain_factor: 1.0,
+            reference_distance: 5.0,
+            max_distance: 200.0,
+            distance_muffle_factor: 1.9,
+            max_muffle_distance: 200.0,
+            max_distance_muffle_cutoff_hz: 20.0,
+        }
+    }
+}
+
 pub struct DistanceAttenuatorStereoDsp {
     pub gain: SmoothedParam,
     pub muffle_cutoff_hz: SmoothedParam,
@@ -109,23 +216,19 @@ impl DistanceAttenuatorStereoDsp {
     pub fn compute_values(
         &mut self,
         distance: f32,
-        distance_model: DistanceModel,
-        distance_gain_factor: f32,
-        reference_distance: f32,
-        max_distance: f32,
-        distance_muffle_factor: f32,
-        max_muffle_distance: f32,
-        max_distance_muffle_cutoff_hz: f32,
+        params: &DistanceAttenuation,
         muffle_cutoff_hz: f32,
         min_gain: f32,
     ) {
-        let reference_distance = reference_distance.max(0.00001);
-        let max_distance = max_distance.max(0.0);
-        let max_distance_muffle_cutoff_hz = max_distance_muffle_cutoff_hz.max(MUFFLE_CUTOFF_HZ_MIN);
+        let reference_distance = params.reference_distance.max(0.00001);
+        let max_distance = params.max_distance.max(0.0);
+        let max_distance_muffle_cutoff_hz = params
+            .max_distance_muffle_cutoff_hz
+            .max(MUFFLE_CUTOFF_HZ_MIN);
 
-        let distance_gain = distance_model.calculate_gain(
+        let distance_gain = params.distance_model.calculate_gain(
             distance,
-            distance_gain_factor,
+            params.distance_gain_factor,
             reference_distance,
             max_distance,
         );
@@ -136,17 +239,17 @@ impl DistanceAttenuatorStereoDsp {
             distance_gain
         };
 
-        let distance_cutoff_norm = if distance_muffle_factor <= 0.00001
+        let distance_cutoff_norm = if params.distance_muffle_factor <= 0.00001
             || distance <= reference_distance
-            || max_muffle_distance <= reference_distance
+            || params.max_muffle_distance <= reference_distance
             || max_distance_muffle_cutoff_hz >= MUFFLE_CUTOFF_HZ_MAX
         {
             1.0
         } else {
             let num = distance - reference_distance;
-            let den = max_muffle_distance - reference_distance;
+            let den = params.max_muffle_distance - reference_distance;
 
-            let norm = 1.0 - (num / den).powf(distance_muffle_factor.recip());
+            let norm = 1.0 - (num / den).powf(params.distance_muffle_factor.recip());
 
             let min_norm = (max_distance_muffle_cutoff_hz - MUFFLE_CUTOFF_HZ_MIN)
                 * MUFFLE_CUTOFF_HZ_RANGE_RECIP;
