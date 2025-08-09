@@ -23,8 +23,9 @@ use firewheel_core::{
     ConnectedMask, SilenceMask,
 };
 
-const DAMPING_CUTOFF_HZ_MIN: f32 = 20.0;
-const DAMPING_CUTOFF_HZ_MAX: f32 = 20_480.0;
+const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
+const MUFFLE_CUTOFF_HZ_MAX: f32 = 20_480.0;
+const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN);
 const CALC_FILTER_COEFF_INTERVAL: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,6 +39,8 @@ pub struct SpatialBasicConfig {
 
     /// If the resutling amplitude of the volume is less than or equal to this
     /// value, then the amplitude will be clamped to `0.0` (silence).
+    ///
+    /// By default this is set to "0.0001" (-80 dB).
     pub amp_epsilon: f32,
 }
 
@@ -46,6 +49,66 @@ impl Default for SpatialBasicConfig {
         Self {
             smooth_secs: 10.0 / 1_000.0,
             amp_epsilon: DEFAULT_AMP_EPSILON,
+        }
+    }
+}
+
+/// The method in which to calculate the volume of a sound based on the distance from
+/// the listener.
+///
+/// Based on https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel
+///
+/// Interactive graph of the different models: https://www.desmos.com/calculator/g1pbsc5m9y
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+pub enum DistanceModel {
+    #[default]
+    /// A linear distance model calculates the gain by:
+    ///
+    /// `reference_distance / (reference_distance + rolloff_factor * (max(distance, reference_distance) - reference_distance))`
+    ///
+    /// This mostly closely matches how sound is attenuated in the real world, and is the default model.
+    Inverse,
+    /// A linear distance model calculates the gain by:
+    ///
+    /// `(1.0 - rolloff_factor * (distance - reference_distance) / (max_distance - reference_distance)).clamp(0.0, 1.0)`
+    Linear,
+    /// An exponential distance model calculates the gain by:
+    ///
+    /// `pow((max(distance, reference_distance) / reference_distance, -rolloff_factor)`
+    ///
+    /// This is equivalent to [`DistanceModel::Inverse`] when `rolloff_factor = 1.0`.
+    Exponential,
+}
+
+impl DistanceModel {
+    fn calculate_gain(
+        &self,
+        distance: f32,
+        rolloff_factor: f32,
+        reference_distance: f32,
+        maximum_distance: f32,
+    ) -> f32 {
+        if distance <= reference_distance || rolloff_factor <= 0.00001 {
+            return 1.0;
+        }
+
+        match self {
+            DistanceModel::Inverse => {
+                reference_distance
+                    / (reference_distance + (rolloff_factor * (distance - reference_distance)))
+            }
+            DistanceModel::Linear => {
+                if maximum_distance <= reference_distance {
+                    1.0
+                } else {
+                    (1.0 - (rolloff_factor * (distance - reference_distance)
+                        / (maximum_distance - reference_distance)))
+                        .clamp(0.0, 1.0)
+                }
+            }
+            DistanceModel::Exponential => (distance / reference_distance).powf(-rolloff_factor),
         }
     }
 }
@@ -69,34 +132,55 @@ pub struct SpatialBasicNode {
     /// * `-y` is below the listener, and `+y` is above the listener.
     /// * `-z` is in front of the listener, and `+z` is behind the listener
     ///
-    /// The origin `(0.0, 0.0, 0.0)` will have a volume equal to the original signal
-    /// (with the `normalized_volume` paramter applied). A  distance  of `10.0`
-    /// from the origin will have a volume equal to `-6dB`, a distance of `20.0` will
-    /// have a volume equal to `-12dB`, a distance of `40.0` will have a volume equal
-    /// to `-24dB`, and so on (every doubling of distance is a 6dB reduction in
-    /// volume).
-    ///
-    /// 1 unit is roughly equal to 1 meter (if I did my math right), but you may wish
-    /// to scale this unit as you see fit.
-    ///
     /// By default this is set to `(0.0, 0.0, 0.0)`
     pub offset: Vec3,
 
-    /// The distance at which the signal becomes fully dampened (lowpassed).
+    /// The method in which to calculate the volume of a sound based on the distance from
+    /// the listener.
     ///
-    /// Set to a negative value or NAN for no damping.
+    /// by default this is set to [`DistanceModel::Inverse`].
     ///
-    /// By default this is set to `100`.
-    pub damping_distance: f32,
+    /// Based on https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel
+    ///
+    /// Interactive graph of the different models: https://www.desmos.com/calculator/g1pbsc5m9y
+    pub distance_model: DistanceModel,
 
-    /// The amount of muffling (lowpass cutoff hin Hz) in the range `[20.0, 20_480.0]`,
-    /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
+    /// The factor by which the sound gets quieter the farther away it is from the
+    /// listener.
     ///
-    /// This can be used to give the effect of a sound being played behind a wall
-    /// or underwater.
+    /// Values less than `1.0` will attenuate the sound less per unit distance, and values
+    /// greater than `1.0` will attenuate the sound more per unit distance.
     ///
-    /// By default this is set to `20_480.0`.
-    pub muffle_cutoff_hz: f32,
+    /// Set to a value `<= 0.00001` to disable attenuating the sound.
+    ///
+    /// By default this is set to `1.0`.
+    ///
+    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub distance_gain_factor: f32,
+
+    /// The minimum distance at which a sound is considered to be at the maximum volume.
+    /// (Distances less than this value will be clamped at the maximum volume).
+    ///
+    /// If this value is `< 0.00001`, then it will be clamped to `0.00001`.
+    ///
+    /// By default this is set to `5.0`.
+    ///
+    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub reference_distance: f32,
+
+    /// When using [`DistanceAlgorithm::Linear`], the maximum reference distance (at a
+    /// rolloff factor of `1.0`) of a sound before it is considered to be "silent".
+    /// (Distances greater than this value will be clamped to silence).
+    ///
+    /// If this value is `< 0.0`, then it will be clamped to `0.0`.
+    ///
+    /// By default this is set to `200.0`.
+    ///
+    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// how these parameters affect the final volume of a sound for each distance model.
+    pub max_distance: f32,
 
     /// The threshold for the maximum amount of panning that can occur, in the range
     /// `[0.0, 1.0]`, where `0.0` is no panning and `1.0` is full panning (where one
@@ -107,6 +191,57 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `0.6`.
     pub panning_threshold: f32,
+
+    /// The factor which determines the curve of the high frequency damping (lowpass)
+    /// in relation to distance.
+    ///
+    /// Higher values dampen the high frequencies faster, while smaller values dampen
+    /// the high frequencies slower.
+    ///
+    /// Set to a value `<= 0.00001` to disable muffling the sound based on distance.
+    ///
+    /// By default this is set to `1.9`.
+    ///
+    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub distance_muffle_factor: f32,
+
+    /// The distance at which the high frequencies of a sound become fully muffled
+    /// (lowpassed).
+    ///
+    /// Distances less than `reference_distance` will have no muffling.
+    ///
+    /// This has no effect if `muffle_factor` is `None`.
+    ///
+    /// By default this is set to `200.0`.
+    ///
+    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub max_muffle_distance: f32,
+
+    /// The amount of muffling (lowpass) at `max_muffle_distance` in the range
+    /// `[20.0, 20_480.0]`, where `20_480.0` is no muffling and `20.0` is maximum
+    /// muffling.
+    ///
+    /// This has no effect if `muffle_factor` is `None`.
+    ///
+    /// By default this is set to `20.0`.
+    ///
+    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub max_distance_muffle_cutoff_hz: f32,
+
+    /// The amount of muffling (lowpass) in the range `[20.0, 20_480.0]`,
+    /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
+    ///
+    /// This can be used to give the effect of a sound being played behind a wall
+    /// or underwater.
+    ///
+    /// By default this is set to `20_480.0`.
+    ///
+    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub muffle_cutoff_hz: f32,
 
     /// If `true`, then any stereo input signals will be downmixed to mono before
     /// going throught the spatialization algorithm. If `false` then the left and
@@ -123,9 +258,15 @@ impl Default for SpatialBasicNode {
         Self {
             volume: Volume::default(),
             offset: Vec3::new(0.0, 0.0, 0.0),
-            damping_distance: 100.0,
-            muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
+            distance_model: DistanceModel::Inverse,
+            distance_gain_factor: 1.0,
+            reference_distance: 5.0,
+            max_distance: 200.0,
             panning_threshold: 0.6,
+            distance_muffle_factor: 1.9,
+            max_muffle_distance: 200.0,
+            max_distance_muffle_cutoff_hz: 20.0,
+            muffle_cutoff_hz: MUFFLE_CUTOFF_HZ_MAX,
             downmix: true,
         }
     }
@@ -137,7 +278,12 @@ impl SpatialBasicNode {
         let xyz_distance = (x2_z2 + (self.offset.y * self.offset.y)).sqrt();
         let xz_distance = x2_z2.sqrt();
 
-        let distance_gain = 10.0f32.powf(-0.03 * xyz_distance);
+        let distance_gain = self.distance_model.calculate_gain(
+            xyz_distance,
+            self.distance_gain_factor,
+            self.reference_distance,
+            self.max_distance,
+        );
 
         let pan = if xz_distance > 0.0 {
             (self.offset.x / xz_distance) * self.panning_threshold.clamp(0.0, 1.0)
@@ -154,32 +300,40 @@ impl SpatialBasicNode {
             volume_gain = 0.0;
         }
 
-        let muffle_cutoff_hz = if self.muffle_cutoff_hz > DAMPING_CUTOFF_HZ_MAX - 0.00001 {
-            DAMPING_CUTOFF_HZ_MAX
+        let distance_cutoff_norm = if self.distance_muffle_factor <= 0.00001
+            || xyz_distance <= self.reference_distance
+            || self.max_muffle_distance <= self.reference_distance
+            || self.max_distance_muffle_cutoff_hz >= MUFFLE_CUTOFF_HZ_MAX
+        {
+            1.0
         } else {
-            self.muffle_cutoff_hz
-                .clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX)
+            let num = xyz_distance - self.reference_distance;
+            let den = self.max_muffle_distance - self.reference_distance;
+
+            let norm = 1.0 - (num / den).powf(self.distance_muffle_factor.recip());
+
+            let min_norm = (self.max_distance_muffle_cutoff_hz - MUFFLE_CUTOFF_HZ_MIN)
+                * MUFFLE_CUTOFF_HZ_RANGE_RECIP;
+
+            norm.max(min_norm)
         };
 
-        let damping_cutoff_hz = if self.damping_distance.is_finite() && self.damping_distance >= 0.0
+        let damping_cutoff_hz = if (self.muffle_cutoff_hz < MUFFLE_CUTOFF_HZ_MAX - 0.01)
+            || distance_cutoff_norm < 1.0
         {
-            if self.damping_distance < 0.00001 {
-                Some(DAMPING_CUTOFF_HZ_MIN)
+            let hz = if distance_cutoff_norm < 1.0 {
+                let muffle_cutoff_norm =
+                    (self.muffle_cutoff_hz - MUFFLE_CUTOFF_HZ_MIN) * MUFFLE_CUTOFF_HZ_RANGE_RECIP;
+                let final_norm = muffle_cutoff_norm * distance_cutoff_norm;
+
+                (final_norm * (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN)) + MUFFLE_CUTOFF_HZ_MIN
             } else {
-                let damp_normal =
-                    1.0 - (xyz_distance.min(self.damping_distance) / self.damping_distance);
-                Some(
-                    (DAMPING_CUTOFF_HZ_MIN
-                        + ((muffle_cutoff_hz - DAMPING_CUTOFF_HZ_MIN) * damp_normal))
-                        .clamp(DAMPING_CUTOFF_HZ_MIN, muffle_cutoff_hz),
-                )
-            }
+                self.muffle_cutoff_hz
+            };
+
+            Some(hz.clamp(MUFFLE_CUTOFF_HZ_MIN, MUFFLE_CUTOFF_HZ_MAX))
         } else {
-            if muffle_cutoff_hz == DAMPING_CUTOFF_HZ_MAX {
-                None
-            } else {
-                Some(muffle_cutoff_hz)
-            }
+            None
         };
 
         let mut gain_l = pan_gain_l * distance_gain * volume_gain;
@@ -245,7 +399,7 @@ impl AudioNode for SpatialBasicNode {
             damping_cutoff_hz: SmoothedParam::new(
                 computed_values
                     .damping_cutoff_hz
-                    .unwrap_or(DAMPING_CUTOFF_HZ_MAX),
+                    .unwrap_or(MUFFLE_CUTOFF_HZ_MAX),
                 SmootherConfig {
                     smooth_secs: config.smooth_secs,
                     ..Default::default()
@@ -293,8 +447,23 @@ impl AudioNodeProcessor for Processor {
                         *offset = Vec3::default();
                     }
                 }
+                SpatialBasicNodePatch::DistanceGainFactor(f) => {
+                    *f = f.max(0.0);
+                }
+                SpatialBasicNodePatch::ReferenceDistance(d) => {
+                    *d = d.max(0.00001);
+                }
+                SpatialBasicNodePatch::MaxDistance(d) => {
+                    *d = d.max(0.0);
+                }
+                SpatialBasicNodePatch::DistanceMuffleFactor(f) => {
+                    *f = f.max(0.0);
+                }
+                SpatialBasicNodePatch::MaxDistanceMuffleCutoffHz(cutoff) => {
+                    *cutoff = cutoff.clamp(MUFFLE_CUTOFF_HZ_MIN, MUFFLE_CUTOFF_HZ_MAX);
+                }
                 SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
-                    *cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
+                    *cutoff = cutoff.clamp(MUFFLE_CUTOFF_HZ_MIN, MUFFLE_CUTOFF_HZ_MAX);
                 }
                 SpatialBasicNodePatch::PanningThreshold(threshold) => {
                     *threshold = threshold.clamp(0.0, 1.0);
@@ -316,7 +485,7 @@ impl AudioNodeProcessor for Processor {
                 self.damping_cutoff_hz.set_value(cutoff_hz);
                 self.damping_disabled = false;
             } else {
-                self.damping_cutoff_hz.set_value(DAMPING_CUTOFF_HZ_MAX);
+                self.damping_cutoff_hz.set_value(MUFFLE_CUTOFF_HZ_MAX);
                 self.damping_disabled = true;
             }
 
