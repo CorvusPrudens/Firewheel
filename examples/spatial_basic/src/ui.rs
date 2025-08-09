@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use eframe::App;
 use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke, StrokeKind};
-use firewheel::{nodes::spatial_basic::DistanceModel, Volume};
+use firewheel::{dsp::distance_attenuator::DistanceModel, Volume};
 
 use crate::system::AudioSystem;
 
@@ -96,6 +96,24 @@ impl App for DemoApp {
                 )
                 .changed();
 
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.panning_threshold,
+                        0.0..=1.0,
+                    )
+                    .step_by(0.0)
+                    .text("panning threshold"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(egui::Checkbox::new(
+                    &mut self.audio_system.spatial_basic_node.downmix,
+                    "downmix stereo to mono",
+                ))
+                .changed();
+
             let before = self.audio_system.spatial_basic_node.distance_model;
             egui::ComboBox::from_label("distance model")
                 .selected_text(match self.audio_system.spatial_basic_node.distance_model {
@@ -168,17 +186,6 @@ impl App for DemoApp {
                 ui.label("(only has effect with linear distance model)");
             });
 
-            updated |= ui
-                .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.panning_threshold,
-                        0.0..=1.0,
-                    )
-                    .step_by(0.0)
-                    .text("panning threshold"),
-                )
-                .changed();
-
             ui.horizontal(|ui| {
                 updated |= ui
                     .add(
@@ -230,13 +237,6 @@ impl App for DemoApp {
                     .logarithmic(true)
                     .text("muffle cutoff hz"),
                 )
-                .changed();
-
-            updated |= ui
-                .add(egui::Checkbox::new(
-                    &mut self.audio_system.spatial_basic_node.downmix,
-                    "downmix stereo to mono",
-                ))
                 .changed();
 
             updated |= ui
