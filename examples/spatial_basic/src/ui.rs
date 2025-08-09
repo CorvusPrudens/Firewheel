@@ -171,6 +171,18 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.min_gain,
+                        0.0..=1.0,
+                    )
+                    .logarithmic(true)
+                    .step_by(0.0)
+                    .text("minimum gain (raw amplitude, not decibels)"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
                         &mut self.audio_system.spatial_basic_node.panning_threshold,
                         0.0..=1.0,
                     )

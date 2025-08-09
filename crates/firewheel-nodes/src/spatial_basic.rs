@@ -11,7 +11,7 @@ use firewheel_core::{
     dsp::{
         filter::single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
         pan_law::PanLaw,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::Volume,
     },
     event::ProcEvents,
     node::{
@@ -36,19 +36,12 @@ pub struct SpatialBasicConfig {
     ///
     /// By default this is set to `0.01` (10ms).
     pub smooth_secs: f32,
-
-    /// If the resutling amplitude of the volume is less than or equal to this
-    /// value, then the amplitude will be clamped to `0.0` (silence).
-    ///
-    /// By default this is set to "0.0001" (-80 dB).
-    pub amp_epsilon: f32,
 }
 
 impl Default for SpatialBasicConfig {
     fn default() -> Self {
         Self {
             smooth_secs: 10.0 / 1_000.0,
-            amp_epsilon: DEFAULT_AMP_EPSILON,
         }
     }
 }
@@ -182,6 +175,12 @@ pub struct SpatialBasicNode {
     /// how these parameters affect the final volume of a sound for each distance model.
     pub max_distance: f32,
 
+    /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
+    /// to this value, the the gain will be clamped to `0` (silence).
+    ///
+    /// By default this is set to "0.0001" (-80 dB).
+    pub min_gain: f32,
+
     /// The threshold for the maximum amount of panning that can occur, in the range
     /// `[0.0, 1.0]`, where `0.0` is no panning and `1.0` is full panning (where one
     /// of the channels is fully silent when panned hard left or right).
@@ -262,6 +261,7 @@ impl Default for SpatialBasicNode {
             distance_gain_factor: 1.0,
             reference_distance: 5.0,
             max_distance: 200.0,
+            min_gain: 0.0001,
             panning_threshold: 0.6,
             distance_muffle_factor: 1.9,
             max_muffle_distance: 200.0,
@@ -273,7 +273,7 @@ impl Default for SpatialBasicNode {
 }
 
 impl SpatialBasicNode {
-    pub fn compute_values(&self, amp_epsilon: f32) -> ComputedValues {
+    pub fn compute_values(&self) -> ComputedValues {
         let x2_z2 = (self.offset.x * self.offset.x) + (self.offset.z * self.offset.z);
         let xyz_distance = (x2_z2 + (self.offset.y * self.offset.y)).sqrt();
         let xz_distance = x2_z2.sqrt();
@@ -296,7 +296,7 @@ impl SpatialBasicNode {
         if volume_gain > 0.99999 && volume_gain < 1.00001 {
             volume_gain = 1.0;
         }
-        if volume_gain <= amp_epsilon {
+        if volume_gain <= self.min_gain {
             volume_gain = 0.0;
         }
 
@@ -339,10 +339,10 @@ impl SpatialBasicNode {
         let mut gain_l = pan_gain_l * distance_gain * volume_gain;
         let mut gain_r = pan_gain_r * distance_gain * volume_gain;
 
-        if gain_l <= amp_epsilon {
+        if gain_l <= self.min_gain {
             gain_l = 0.0;
         }
-        if gain_r <= amp_epsilon {
+        if gain_r <= self.min_gain {
             gain_r = 0.0;
         }
 
@@ -377,7 +377,7 @@ impl AudioNode for SpatialBasicNode {
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let computed_values = self.compute_values(config.amp_epsilon);
+        let computed_values = self.compute_values();
 
         Processor {
             gain_l: SmoothedParam::new(
@@ -411,7 +411,6 @@ impl AudioNode for SpatialBasicNode {
             filter_r: OnePoleIirLPF::default(),
             params: *self,
             prev_block_was_silent: true,
-            amp_epsilon: config.amp_epsilon,
         }
     }
 }
@@ -428,7 +427,6 @@ struct Processor {
     params: SpatialBasicNode,
 
     prev_block_was_silent: bool,
-    amp_epsilon: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -456,6 +454,9 @@ impl AudioNodeProcessor for Processor {
                 SpatialBasicNodePatch::MaxDistance(d) => {
                     *d = d.max(0.0);
                 }
+                SpatialBasicNodePatch::MinGain(g) => {
+                    *g = g.clamp(0.0, 1.0);
+                }
                 SpatialBasicNodePatch::DistanceMuffleFactor(f) => {
                     *f = f.max(0.0);
                 }
@@ -476,7 +477,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         if updated {
-            let computed_values = self.params.compute_values(self.amp_epsilon);
+            let computed_values = self.params.compute_values();
 
             self.gain_l.set_value(computed_values.gain_l);
             self.gain_r.set_value(computed_values.gain_r);
