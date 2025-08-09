@@ -9,46 +9,22 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        filter::single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
+        distance_attenuation::{
+            DistanceAttenuation, DistanceAttenuatorStereoDsp, MUFFLE_CUTOFF_HZ_MAX,
+        },
+        filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
         pan_law::PanLaw,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::Volume,
     },
     event::ProcEvents,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     vector::Vec3,
     ConnectedMask, SilenceMask,
 };
-
-const DAMPING_CUTOFF_HZ_MIN: f32 = 20.0;
-const DAMPING_CUTOFF_HZ_MAX: f32 = 20_480.0;
-const CALC_FILTER_COEFF_INTERVAL: usize = 8;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct SpatialBasicConfig {
-    /// The time in seconds of the internal smoothing filter.
-    ///
-    /// By default this is set to `0.01` (10ms).
-    pub smooth_secs: f32,
-
-    /// If the resutling amplitude of the volume is less than or equal to this
-    /// value, then the amplitude will be clamped to `0.0` (silence).
-    pub amp_epsilon: f32,
-}
-
-impl Default for SpatialBasicConfig {
-    fn default() -> Self {
-        Self {
-            smooth_secs: 10.0 / 1_000.0,
-            amp_epsilon: DEFAULT_AMP_EPSILON,
-        }
-    }
-}
 
 /// The parameters for a 3D spatial positioning node using a basic (and naive) algorithm.
 /// It does not make use of any fancy binaural algorithms, rather it just applies basic
@@ -69,34 +45,8 @@ pub struct SpatialBasicNode {
     /// * `-y` is below the listener, and `+y` is above the listener.
     /// * `-z` is in front of the listener, and `+z` is behind the listener
     ///
-    /// The origin `(0.0, 0.0, 0.0)` will have a volume equal to the original signal
-    /// (with the `normalized_volume` paramter applied). A  distance  of `10.0`
-    /// from the origin will have a volume equal to `-6dB`, a distance of `20.0` will
-    /// have a volume equal to `-12dB`, a distance of `40.0` will have a volume equal
-    /// to `-24dB`, and so on (every doubling of distance is a 6dB reduction in
-    /// volume).
-    ///
-    /// 1 unit is roughly equal to 1 meter (if I did my math right), but you may wish
-    /// to scale this unit as you see fit.
-    ///
     /// By default this is set to `(0.0, 0.0, 0.0)`
     pub offset: Vec3,
-
-    /// The distance at which the signal becomes fully dampened (lowpassed).
-    ///
-    /// Set to a negative value or NAN for no damping.
-    ///
-    /// By default this is set to `100`.
-    pub damping_distance: f32,
-
-    /// The amount of muffling (lowpass cutoff hin Hz) in the range `[20.0, 20_480.0]`,
-    /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
-    ///
-    /// This can be used to give the effect of a sound being played behind a wall
-    /// or underwater.
-    ///
-    /// By default this is set to `20_480.0`.
-    pub muffle_cutoff_hz: f32,
 
     /// The threshold for the maximum amount of panning that can occur, in the range
     /// `[0.0, 1.0]`, where `0.0` is no panning and `1.0` is full panning (where one
@@ -116,6 +66,32 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `true`.
     pub downmix: bool,
+
+    /// The amount of muffling (lowpass) in the range `[20.0, 20_480.0]`,
+    /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
+    ///
+    /// This can be used to give the effect of a sound being played behind a wall
+    /// or underwater.
+    ///
+    /// By default this is set to `20_480.0`.
+    ///
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
+    /// how these parameters affect the final lowpass cuttoff frequency.
+    pub muffle_cutoff_hz: f32,
+
+    /// The parameters which describe how to attenuate a sound based on its distance from
+    /// the listener.
+    pub distance_attenuation: DistanceAttenuation,
+
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.015` (15ms).
+    pub smooth_seconds: f32,
+    /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
+    /// to this value, the the gain will be clamped to `0` (silence).
+    ///
+    /// By default this is set to "0.0001" (-80 dB).
+    pub min_gain: f32,
 }
 
 impl Default for SpatialBasicNode {
@@ -123,21 +99,21 @@ impl Default for SpatialBasicNode {
         Self {
             volume: Volume::default(),
             offset: Vec3::new(0.0, 0.0, 0.0),
-            damping_distance: 100.0,
-            muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
             panning_threshold: 0.6,
             downmix: true,
+            distance_attenuation: DistanceAttenuation::default(),
+            muffle_cutoff_hz: MUFFLE_CUTOFF_HZ_MAX,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: 0.0001,
         }
     }
 }
 
 impl SpatialBasicNode {
-    pub fn compute_values(&self, amp_epsilon: f32) -> ComputedValues {
+    fn compute_values(&self) -> ComputedValues {
         let x2_z2 = (self.offset.x * self.offset.x) + (self.offset.z * self.offset.z);
-        let xyz_distance = (x2_z2 + (self.offset.y * self.offset.y)).sqrt();
         let xz_distance = x2_z2.sqrt();
-
-        let distance_gain = 10.0f32.powf(-0.03 * xyz_distance);
+        let distance = (x2_z2 + (self.offset.y * self.offset.y)).sqrt();
 
         let pan = if xz_distance > 0.0 {
             (self.offset.x / xz_distance) * self.panning_threshold.clamp(0.0, 1.0)
@@ -150,64 +126,32 @@ impl SpatialBasicNode {
         if volume_gain > 0.99999 && volume_gain < 1.00001 {
             volume_gain = 1.0;
         }
-        if volume_gain <= amp_epsilon {
-            volume_gain = 0.0;
-        }
 
-        let muffle_cutoff_hz = if self.muffle_cutoff_hz > DAMPING_CUTOFF_HZ_MAX - 0.00001 {
-            DAMPING_CUTOFF_HZ_MAX
-        } else {
-            self.muffle_cutoff_hz
-                .clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX)
-        };
+        let mut gain_l = pan_gain_l * volume_gain;
+        let mut gain_r = pan_gain_r * volume_gain;
 
-        let damping_cutoff_hz = if self.damping_distance.is_finite() && self.damping_distance >= 0.0
-        {
-            if self.damping_distance < 0.00001 {
-                Some(DAMPING_CUTOFF_HZ_MIN)
-            } else {
-                let damp_normal =
-                    1.0 - (xyz_distance.min(self.damping_distance) / self.damping_distance);
-                Some(
-                    (DAMPING_CUTOFF_HZ_MIN
-                        + ((muffle_cutoff_hz - DAMPING_CUTOFF_HZ_MIN) * damp_normal))
-                        .clamp(DAMPING_CUTOFF_HZ_MIN, muffle_cutoff_hz),
-                )
-            }
-        } else {
-            if muffle_cutoff_hz == DAMPING_CUTOFF_HZ_MAX {
-                None
-            } else {
-                Some(muffle_cutoff_hz)
-            }
-        };
-
-        let mut gain_l = pan_gain_l * distance_gain * volume_gain;
-        let mut gain_r = pan_gain_r * distance_gain * volume_gain;
-
-        if gain_l <= amp_epsilon {
+        if gain_l <= self.min_gain {
             gain_l = 0.0;
         }
-        if gain_r <= amp_epsilon {
+        if gain_r <= self.min_gain {
             gain_r = 0.0;
         }
 
         ComputedValues {
+            distance,
             gain_l,
             gain_r,
-            damping_cutoff_hz,
         }
     }
 }
-
-pub struct ComputedValues {
-    pub gain_l: f32,
-    pub gain_r: f32,
-    pub damping_cutoff_hz: Option<f32>,
+struct ComputedValues {
+    distance: f32,
+    gain_l: f32,
+    gain_r: f32,
 }
 
 impl AudioNode for SpatialBasicNode {
-    type Configuration = SpatialBasicConfig;
+    type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo::new()
@@ -220,16 +164,16 @@ impl AudioNode for SpatialBasicNode {
 
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
+        _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let computed_values = self.compute_values(config.amp_epsilon);
+        let computed_values = self.compute_values();
 
         Processor {
             gain_l: SmoothedParam::new(
                 computed_values.gain_l,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -237,27 +181,20 @@ impl AudioNode for SpatialBasicNode {
             gain_r: SmoothedParam::new(
                 computed_values.gain_r,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
             ),
-            damping_cutoff_hz: SmoothedParam::new(
-                computed_values
-                    .damping_cutoff_hz
-                    .unwrap_or(DAMPING_CUTOFF_HZ_MAX),
+            distance_attenuator: DistanceAttenuatorStereoDsp::new(
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
             ),
-            damping_disabled: computed_values.damping_cutoff_hz.is_none(),
-            filter_l: OnePoleIirLPF::default(),
-            filter_r: OnePoleIirLPF::default(),
             params: *self,
             prev_block_was_silent: true,
-            amp_epsilon: config.amp_epsilon,
         }
     }
 }
@@ -265,16 +202,12 @@ impl AudioNode for SpatialBasicNode {
 struct Processor {
     gain_l: SmoothedParam,
     gain_r: SmoothedParam,
-    damping_cutoff_hz: SmoothedParam,
-    damping_disabled: bool,
 
-    filter_l: OnePoleIirLPF,
-    filter_r: OnePoleIirLPF,
+    distance_attenuator: DistanceAttenuatorStereoDsp,
 
     params: SpatialBasicNode,
 
     prev_block_was_silent: bool,
-    amp_epsilon: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -293,11 +226,17 @@ impl AudioNodeProcessor for Processor {
                         *offset = Vec3::default();
                     }
                 }
-                SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
-                    *cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
-                }
                 SpatialBasicNodePatch::PanningThreshold(threshold) => {
                     *threshold = threshold.clamp(0.0, 1.0);
+                }
+                SpatialBasicNodePatch::SmoothSeconds(seconds) => {
+                    self.gain_l.set_smooth_seconds(*seconds, info.sample_rate);
+                    self.gain_r.set_smooth_seconds(*seconds, info.sample_rate);
+                    self.distance_attenuator
+                        .set_smooth_seconds(*seconds, info.sample_rate);
+                }
+                SpatialBasicNodePatch::MinGain(g) => {
+                    *g = g.clamp(0.0, 1.0);
                 }
                 _ => {}
             }
@@ -307,26 +246,23 @@ impl AudioNodeProcessor for Processor {
         }
 
         if updated {
-            let computed_values = self.params.compute_values(self.amp_epsilon);
+            let computed_values = self.params.compute_values();
 
             self.gain_l.set_value(computed_values.gain_l);
             self.gain_r.set_value(computed_values.gain_r);
 
-            if let Some(cutoff_hz) = computed_values.damping_cutoff_hz {
-                self.damping_cutoff_hz.set_value(cutoff_hz);
-                self.damping_disabled = false;
-            } else {
-                self.damping_cutoff_hz.set_value(DAMPING_CUTOFF_HZ_MAX);
-                self.damping_disabled = true;
-            }
+            self.distance_attenuator.compute_values(
+                computed_values.distance,
+                &self.params.distance_attenuation,
+                self.params.muffle_cutoff_hz,
+                self.params.min_gain,
+            );
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
                 self.gain_l.reset();
                 self.gain_r.reset();
-                self.damping_cutoff_hz.reset();
-                self.filter_l.reset();
-                self.filter_r.reset();
+                self.distance_attenuator.reset();
             }
         }
 
@@ -335,9 +271,7 @@ impl AudioNodeProcessor for Processor {
         if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset();
             self.gain_r.reset();
-            self.damping_cutoff_hz.reset();
-            self.filter_l.reset();
-            self.filter_r.reset();
+            self.distance_attenuator.reset();
 
             self.prev_block_was_silent = true;
 
@@ -349,12 +283,12 @@ impl AudioNodeProcessor for Processor {
         let (in1, in2) = if info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {
             if self.params.downmix {
                 // Downmix the stereo signal to mono.
-                for (out_s, (&in1, &in2)) in scratch_buffer[..info.frames].iter_mut().zip(
+                for (scratch_s, (&in1, &in2)) in scratch_buffer[..info.frames].iter_mut().zip(
                     buffers.inputs[0][..info.frames]
                         .iter()
                         .zip(buffers.inputs[1][..info.frames].iter()),
                 ) {
-                    *out_s = (in1 + in2) * 0.5;
+                    *scratch_s = (in1 + in2) * 0.5;
                 }
 
                 (
@@ -385,87 +319,58 @@ impl AudioNodeProcessor for Processor {
         let out1 = &mut out1[..info.frames];
         let out2 = &mut out2[0][..info.frames];
 
-        if !self.gain_l.is_smoothing()
-            && !self.gain_r.is_smoothing()
-            && !self.damping_cutoff_hz.is_smoothing()
-        {
-            if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
+        if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
+            if self.gain_l.target_value() == 0.0
+                && self.gain_r.target_value() == 0.0
+                && self.distance_attenuator.is_silent()
+            {
                 self.gain_l.reset();
                 self.gain_r.reset();
-                self.damping_cutoff_hz.reset();
-                self.filter_l.reset();
-                self.filter_r.reset();
+                self.distance_attenuator.reset();
 
                 self.prev_block_was_silent = true;
 
                 return ProcessStatus::ClearAllOutputs;
-            } else if self.damping_disabled {
-                for i in 0..info.frames {
-                    out1[i] = in1[i] * self.gain_l.target_value();
-                    out2[i] = in2[i] * self.gain_r.target_value();
-                }
             } else {
-                // The cutoff parameter is not currently smoothing, so we can optimize by
-                // only updating the filter coefficients once.
-                let coeff = OnePoleIirLPFCoeff::new(
-                    self.damping_cutoff_hz.target_value(),
-                    info.sample_rate_recip as f32,
-                );
-
                 for i in 0..info.frames {
                     out1[i] = in1[i] * self.gain_l.target_value();
                     out2[i] = in2[i] * self.gain_r.target_value();
-
-                    out1[i] = self.filter_l.process(out1[i], coeff);
-                    out2[i] = self.filter_r.process(out2[i], coeff);
                 }
             }
-
-            ProcessStatus::outputs_modified(info.in_silence_mask);
         } else {
-            if self.damping_disabled && !self.damping_cutoff_hz.is_smoothing() {
-                for i in 0..info.frames {
-                    let gain_l = self.gain_l.next_smoothed();
-                    let gain_r = self.gain_r.next_smoothed();
+            for i in 0..info.frames {
+                let gain_l = self.gain_l.next_smoothed();
+                let gain_r = self.gain_r.next_smoothed();
 
-                    out1[i] = in1[i] * gain_l;
-                    out2[i] = in2[i] * gain_r;
-                }
-            } else {
-                let mut coeff = OnePoleIirLPFCoeff::default();
-
-                for i in 0..info.frames {
-                    let cutoff_hz = self.damping_cutoff_hz.next_smoothed();
-                    let gain_l = self.gain_l.next_smoothed();
-                    let gain_r = self.gain_r.next_smoothed();
-
-                    out1[i] = in1[i] * gain_l;
-                    out2[i] = in2[i] * gain_r;
-
-                    // Because recalculating filter coefficients is expensive, a trick like
-                    // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
-                    // frames.
-                    if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
-                        coeff = OnePoleIirLPFCoeff::new(cutoff_hz, info.sample_rate_recip as f32);
-                    }
-
-                    out1[i] = self.filter_l.process(out1[i], coeff);
-                    out2[i] = self.filter_r.process(out2[i], coeff);
-                }
+                out1[i] = in1[i] * gain_l;
+                out2[i] = in2[i] * gain_r;
             }
 
             self.gain_l.settle();
             self.gain_r.settle();
-            self.damping_cutoff_hz.settle();
         }
 
-        ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
+        let clear_outputs =
+            self.distance_attenuator
+                .process(info.frames, out1, out2, info.sample_rate_recip);
+
+        if clear_outputs {
+            self.gain_l.reset();
+            self.gain_r.reset();
+            self.distance_attenuator.reset();
+
+            self.prev_block_was_silent = true;
+
+            return ProcessStatus::ClearAllOutputs;
+        } else {
+            ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
+        }
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
         self.gain_l.update_sample_rate(stream_info.sample_rate);
         self.gain_r.update_sample_rate(stream_info.sample_rate);
-        self.damping_cutoff_hz
+        self.distance_attenuator
             .update_sample_rate(stream_info.sample_rate);
     }
 }
