@@ -56,9 +56,9 @@ impl Default for SpatialBasicConfig {
 /// The method in which to calculate the volume of a sound based on the distance from
 /// the listener.
 ///
-/// Based on https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel
+/// Based on <https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel>
 ///
-/// Interactive graph of the different models: https://www.desmos.com/calculator/g1pbsc5m9y
+/// Interactive graph of the different models: <https://www.desmos.com/calculator/g1pbsc5m9y>
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -140,9 +140,9 @@ pub struct SpatialBasicNode {
     ///
     /// by default this is set to [`DistanceModel::Inverse`].
     ///
-    /// Based on https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel
+    /// Based on <https://developer.mozilla.org/en-US/docs/Web/API/PannerNode/distanceModel>
     ///
-    /// Interactive graph of the different models: https://www.desmos.com/calculator/g1pbsc5m9y
+    /// Interactive graph of the different models: <https://www.desmos.com/calculator/g1pbsc5m9y>
     pub distance_model: DistanceModel,
 
     /// The factor by which the sound gets quieter the farther away it is from the
@@ -155,7 +155,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `1.0`.
     ///
-    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
     /// how these parameters affect the final volume of a sound for each distance model.
     pub distance_gain_factor: f32,
 
@@ -166,11 +166,11 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `5.0`.
     ///
-    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
     /// how these parameters affect the final volume of a sound for each distance model.
     pub reference_distance: f32,
 
-    /// When using [`DistanceAlgorithm::Linear`], the maximum reference distance (at a
+    /// When using [`DistanceModel::Linear`], the maximum reference distance (at a
     /// rolloff factor of `1.0`) of a sound before it is considered to be "silent".
     /// (Distances greater than this value will be clamped to silence).
     ///
@@ -178,7 +178,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `200.0`.
     ///
-    /// See https://www.desmos.com/calculator/g1pbsc5m9y for an interactive graph of
+    /// See <https://www.desmos.com/calculator/g1pbsc5m9y> for an interactive graph of
     /// how these parameters affect the final volume of a sound for each distance model.
     pub max_distance: f32,
 
@@ -202,7 +202,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `1.9`.
     ///
-    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
     /// how these parameters affect the final lowpass cuttoff frequency.
     pub distance_muffle_factor: f32,
 
@@ -215,7 +215,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `200.0`.
     ///
-    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
     /// how these parameters affect the final lowpass cuttoff frequency.
     pub max_muffle_distance: f32,
 
@@ -227,7 +227,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `20.0`.
     ///
-    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
     /// how these parameters affect the final lowpass cuttoff frequency.
     pub max_distance_muffle_cutoff_hz: f32,
 
@@ -239,7 +239,7 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `20_480.0`.
     ///
-    /// See https://www.desmos.com/calculator/jxp8t9ero4 for an interactive graph of
+    /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
     /// how these parameters affect the final lowpass cuttoff frequency.
     pub muffle_cutoff_hz: f32,
 
