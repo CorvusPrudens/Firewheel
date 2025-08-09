@@ -130,7 +130,7 @@ impl App for DemoApp {
                     .add(
                         egui::Slider::new(
                             &mut self.audio_system.spatial_basic_node.distance_gain_factor,
-                            0.0001..=3.0,
+                            0.0001..=10.0,
                         )
                         .step_by(0.0)
                         .text("distance gain factor"),
@@ -145,7 +145,7 @@ impl App for DemoApp {
                     .add(
                         egui::Slider::new(
                             &mut self.audio_system.spatial_basic_node.reference_distance,
-                            0.0001..=10.0,
+                            0.0001..=50.0,
                         )
                         .step_by(0.0)
                         .text("reference distance"),
@@ -184,7 +184,7 @@ impl App for DemoApp {
                     .add(
                         egui::Slider::new(
                             &mut self.audio_system.spatial_basic_node.distance_muffle_factor,
-                            0.0..=3.0,
+                            0.0..=10.0,
                         )
                         .step_by(0.0)
                         .text("distance muffle factor"),
