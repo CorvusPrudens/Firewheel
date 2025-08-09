@@ -67,10 +67,6 @@ pub struct SpatialBasicNode {
     /// By default this is set to `true`.
     pub downmix: bool,
 
-    /// The parameters which describe how to attenuate a sound based on its distance from
-    /// the listener.
-    pub distance_attenuation: DistanceAttenuation,
-
     /// The amount of muffling (lowpass) in the range `[20.0, 20_480.0]`,
     /// where `20_480.0` is no muffling and `20.0` is maximum muffling.
     ///
@@ -82,6 +78,10 @@ pub struct SpatialBasicNode {
     /// See <https://www.desmos.com/calculator/jxp8t9ero4> for an interactive graph of
     /// how these parameters affect the final lowpass cuttoff frequency.
     pub muffle_cutoff_hz: f32,
+
+    /// The parameters which describe how to attenuate a sound based on its distance from
+    /// the listener.
+    pub distance_attenuation: DistanceAttenuation,
 
     /// The time in seconds of the internal smoothing filter.
     ///
