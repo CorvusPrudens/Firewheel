@@ -171,18 +171,6 @@ impl App for DemoApp {
             updated |= ui
                 .add(
                     egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.min_gain,
-                        0.0..=1.0,
-                    )
-                    .logarithmic(true)
-                    .step_by(0.0)
-                    .text("minimum gain (raw amplitude, not decibels)"),
-                )
-                .changed();
-
-            updated |= ui
-                .add(
-                    egui::Slider::new(
                         &mut self.audio_system.spatial_basic_node.panning_threshold,
                         0.0..=1.0,
                     )
@@ -249,6 +237,29 @@ impl App for DemoApp {
                     &mut self.audio_system.spatial_basic_node.downmix,
                     "downmix stereo to mono",
                 ))
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.min_gain,
+                        0.0..=1.0,
+                    )
+                    .logarithmic(true)
+                    .step_by(0.0)
+                    .text("minimum gain (raw amplitude, not decibels)"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.smooth_seconds,
+                        0.0..=0.15,
+                    )
+                    .step_by(0.0)
+                    .text("smoothing filter seconds"),
+                )
                 .changed();
 
             let offset = &mut self.audio_system.spatial_basic_node.offset;

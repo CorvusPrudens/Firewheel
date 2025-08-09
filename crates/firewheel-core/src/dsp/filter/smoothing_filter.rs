@@ -17,7 +17,7 @@ pub struct SmoothingFilterCoeff {
 
 impl SmoothingFilterCoeff {
     pub fn new(sample_rate: NonZeroU32, smooth_secs: f32) -> Self {
-        assert!(smooth_secs > 0.0);
+        let smooth_secs = smooth_secs.max(0.00001);
 
         let b1 = (-1.0f32 / (smooth_secs * sample_rate.get() as f32)).exp();
         let a0 = 1.0f32 - b1;

@@ -9,14 +9,17 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        filter::single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
+        filter::{
+            single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
+            smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+        },
         pan_law::PanLaw,
         volume::Volume,
     },
     event::ProcEvents,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     vector::Vec3,
@@ -27,24 +30,6 @@ const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
 const MUFFLE_CUTOFF_HZ_MAX: f32 = 20_480.0;
 const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN);
 const CALC_FILTER_COEFF_INTERVAL: usize = 8;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct SpatialBasicConfig {
-    /// The time in seconds of the internal smoothing filter.
-    ///
-    /// By default this is set to `0.01` (10ms).
-    pub smooth_secs: f32,
-}
-
-impl Default for SpatialBasicConfig {
-    fn default() -> Self {
-        Self {
-            smooth_secs: 10.0 / 1_000.0,
-        }
-    }
-}
 
 /// The method in which to calculate the volume of a sound based on the distance from
 /// the listener.
@@ -175,12 +160,6 @@ pub struct SpatialBasicNode {
     /// how these parameters affect the final volume of a sound for each distance model.
     pub max_distance: f32,
 
-    /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
-    /// to this value, the the gain will be clamped to `0` (silence).
-    ///
-    /// By default this is set to "0.0001" (-80 dB).
-    pub min_gain: f32,
-
     /// The threshold for the maximum amount of panning that can occur, in the range
     /// `[0.0, 1.0]`, where `0.0` is no panning and `1.0` is full panning (where one
     /// of the channels is fully silent when panned hard left or right).
@@ -250,6 +229,16 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `true`.
     pub downmix: bool,
+
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.01` (10ms).
+    pub smooth_seconds: f32,
+    /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
+    /// to this value, the the gain will be clamped to `0` (silence).
+    ///
+    /// By default this is set to "0.0001" (-80 dB).
+    pub min_gain: f32,
 }
 
 impl Default for SpatialBasicNode {
@@ -261,13 +250,14 @@ impl Default for SpatialBasicNode {
             distance_gain_factor: 1.0,
             reference_distance: 5.0,
             max_distance: 200.0,
-            min_gain: 0.0001,
             panning_threshold: 0.6,
             distance_muffle_factor: 1.9,
             max_muffle_distance: 200.0,
             max_distance_muffle_cutoff_hz: 20.0,
             muffle_cutoff_hz: MUFFLE_CUTOFF_HZ_MAX,
             downmix: true,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: 0.0001,
         }
     }
 }
@@ -361,7 +351,7 @@ pub struct ComputedValues {
 }
 
 impl AudioNode for SpatialBasicNode {
-    type Configuration = SpatialBasicConfig;
+    type Configuration = EmptyConfig;
 
     fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
         AudioNodeInfo::new()
@@ -374,7 +364,7 @@ impl AudioNode for SpatialBasicNode {
 
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
+        _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let computed_values = self.compute_values();
@@ -383,7 +373,7 @@ impl AudioNode for SpatialBasicNode {
             gain_l: SmoothedParam::new(
                 computed_values.gain_l,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -391,7 +381,7 @@ impl AudioNode for SpatialBasicNode {
             gain_r: SmoothedParam::new(
                 computed_values.gain_r,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -401,7 +391,7 @@ impl AudioNode for SpatialBasicNode {
                     .damping_cutoff_hz
                     .unwrap_or(MUFFLE_CUTOFF_HZ_MAX),
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -454,9 +444,6 @@ impl AudioNodeProcessor for Processor {
                 SpatialBasicNodePatch::MaxDistance(d) => {
                     *d = d.max(0.0);
                 }
-                SpatialBasicNodePatch::MinGain(g) => {
-                    *g = g.clamp(0.0, 1.0);
-                }
                 SpatialBasicNodePatch::DistanceMuffleFactor(f) => {
                     *f = f.max(0.0);
                 }
@@ -468,6 +455,15 @@ impl AudioNodeProcessor for Processor {
                 }
                 SpatialBasicNodePatch::PanningThreshold(threshold) => {
                     *threshold = threshold.clamp(0.0, 1.0);
+                }
+                SpatialBasicNodePatch::SmoothSeconds(seconds) => {
+                    self.gain_l.set_smooth_seconds(*seconds, info.sample_rate);
+                    self.gain_r.set_smooth_seconds(*seconds, info.sample_rate);
+                    self.damping_cutoff_hz
+                        .set_smooth_seconds(*seconds, info.sample_rate);
+                }
+                SpatialBasicNodePatch::MinGain(g) => {
+                    *g = g.clamp(0.0, 1.0);
                 }
                 _ => {}
             }
