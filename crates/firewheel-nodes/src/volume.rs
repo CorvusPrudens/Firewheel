@@ -38,7 +38,7 @@ pub struct VolumeNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.01` (10ms).
+    /// By default this is set to `0.015` (15ms).
     pub smooth_seconds: f32,
     /// If the resutling gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to

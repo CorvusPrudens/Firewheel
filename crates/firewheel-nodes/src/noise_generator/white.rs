@@ -29,7 +29,7 @@ pub struct WhiteNoiseGenNode {
     pub enabled: bool,
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.01` (10ms).
+    /// By default this is set to `0.015` (15ms).
     pub smooth_seconds: f32,
 }
 
