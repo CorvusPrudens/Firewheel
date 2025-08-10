@@ -182,9 +182,9 @@ primitive_diff!(DurationMusical, DurationMusical);
 primitive_diff!(Vec2, Vector2D);
 primitive_diff!(Vec3, Vector3D);
 
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 primitive_diff!(glam::Vec2, Vector2D);
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 primitive_diff!(glam::Vec3, Vector3D);
 
 impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
