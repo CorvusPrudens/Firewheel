@@ -255,9 +255,9 @@ param_data_from!(InstantMusical, InstantMusical);
 #[cfg(feature = "musical_transport")]
 param_data_from!(DurationMusical, DurationMusical);
 
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 param_data_from!(glam::Vec2, Vector2D);
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 param_data_from!(glam::Vec3, Vector3D);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].

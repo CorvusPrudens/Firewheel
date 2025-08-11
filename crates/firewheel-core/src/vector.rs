@@ -83,30 +83,30 @@ impl From<Vec3> for (f32, f32, f32) {
     }
 }
 
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 impl From<glam::Vec2> for Vec2 {
     fn from(value: glam::Vec2) -> Self {
         Self::new(value.x, value.y)
     }
 }
 
-#[cfg(feature = "glam")]
+#[cfg(feature = "glam-29")]
 impl From<glam::Vec3> for Vec3 {
     fn from(value: glam::Vec3) -> Self {
         Self::new(value.x, value.y, value.z)
     }
 }
 
-#[cfg(feature = "glam")]
-impl Into<glam::Vec2> for Vec2 {
-    fn into(self) -> glam::Vec2 {
-        glam::Vec2::new(self.x, self.y)
+#[cfg(feature = "glam-29")]
+impl From<Vec2> for glam::Vec2 {
+    fn from(value: Vec2) -> Self {
+        Self::new(value.x, value.y)
     }
 }
 
-#[cfg(feature = "glam")]
-impl Into<glam::Vec3> for Vec3 {
-    fn into(self) -> glam::Vec3 {
-        glam::Vec3::new(self.x, self.y, self.z)
+#[cfg(feature = "glam-29")]
+impl From<Vec3> for glam::Vec3 {
+    fn from(value: Vec3) -> Self {
+        Self::new(value.x, value.y, value.z)
     }
 }

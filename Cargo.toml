@@ -85,8 +85,8 @@ bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
-# Enables `glam::Vec2` and `glam::Vec3` parameter derives.
-glam = ["firewheel-core/glam"]
+# Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.29.
+glam-29 = ["firewheel-core/glam-29"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
 
