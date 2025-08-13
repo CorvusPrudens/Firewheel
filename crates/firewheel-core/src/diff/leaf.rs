@@ -182,10 +182,33 @@ primitive_diff!(DurationMusical, DurationMusical);
 primitive_diff!(Vec2, Vector2D);
 primitive_diff!(Vec3, Vector3D);
 
-#[cfg(feature = "glam-29")]
+#[cfg(feature = "glam")]
 primitive_diff!(glam::Vec2, Vector2D);
-#[cfg(feature = "glam-29")]
+#[cfg(feature = "glam")]
 primitive_diff!(glam::Vec3, Vector3D);
+
+impl Diff for Notify<()> {
+    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+        if self != baseline {
+            event_queue.push_param(ParamData::None, path);
+        }
+    }
+}
+
+impl Patch for Notify<()> {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
+        match data {
+            ParamData::None => Ok(Notify::new((()).into())),
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn apply(&mut self, value: Self::Patch) {
+        *self = value;
+    }
+}
 
 impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {

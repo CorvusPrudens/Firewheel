@@ -255,10 +255,44 @@ param_data_from!(InstantMusical, InstantMusical);
 #[cfg(feature = "musical_transport")]
 param_data_from!(DurationMusical, DurationMusical);
 
-#[cfg(feature = "glam-29")]
+#[cfg(feature = "glam")]
 param_data_from!(glam::Vec2, Vector2D);
-#[cfg(feature = "glam-29")]
+#[cfg(feature = "glam")]
 param_data_from!(glam::Vec3, Vector3D);
+
+impl From<()> for ParamData {
+    fn from(_value: ()) -> Self {
+        Self::None
+    }
+}
+
+impl TryInto<()> for &ParamData {
+    type Error = crate::diff::PatchError;
+
+    fn try_into(self) -> Result<(), crate::diff::PatchError> {
+        match self {
+            ParamData::None => Ok(()),
+            _ => Err(crate::diff::PatchError::InvalidData),
+        }
+    }
+}
+
+impl From<Notify<()>> for ParamData {
+    fn from(_value: Notify<()>) -> Self {
+        Self::None
+    }
+}
+
+impl TryInto<Notify<()>> for &ParamData {
+    type Error = crate::diff::PatchError;
+
+    fn try_into(self) -> Result<Notify<()>, crate::diff::PatchError> {
+        match self {
+            ParamData::None => Ok(Notify::new(())),
+            _ => Err(crate::diff::PatchError::InvalidData),
+        }
+    }
+}
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct ProcEvents<'a> {
