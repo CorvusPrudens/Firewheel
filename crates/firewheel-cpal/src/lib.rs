@@ -49,6 +49,8 @@ pub struct CpalOutputConfig {
     /// Smaller values may give better latency, but is not supported on
     /// all platforms and may lead to performance issues.
     ///
+    /// This currently has no effect on iOS platforms.
+    ///
     /// By default this is set to `Some(1024)`.
     pub desired_block_frames: Option<u32>,
 
@@ -89,6 +91,8 @@ pub struct CpalInputConfig {
     ///
     /// Smaller values may give better latency, but is not supported on
     /// all platforms and may lead to performance issues.
+    ///
+    /// This currently has no effect on iOS platforms.
     ///
     /// By default this is set to `Some(1024)`.
     pub desired_block_frames: Option<u32>,
@@ -334,6 +338,7 @@ impl AudioBackend for CpalBackend {
         // Try to use the common sample rates by default.
         let try_common_sample_rates = default_sample_rate != 44100 && default_sample_rate != 48000;
 
+        #[cfg(not(target_os = "ios"))]
         let desired_block_frames =
             if let &cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
                 config
@@ -343,6 +348,12 @@ impl AudioBackend for CpalBackend {
             } else {
                 None
             };
+
+        // For some reason fixed buffer sizes on iOS doesn't work in CPAL.
+        // I'm not sure if this is a problem on CPAL's end, but I have disabled
+        // it for the time being.
+        #[cfg(target_os = "ios")]
+        let desired_block_frames: Option<u32> = None;
 
         let mut supports_desired_sample_rate = false;
         let mut supports_44100 = false;
@@ -607,12 +618,19 @@ fn start_input_stream(
 
     let default_config = in_device.default_input_config()?;
 
+    #[cfg(not(target_os = "ios"))]
     let desired_block_frames =
         if let &cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
             config.desired_block_frames.map(|f| f.clamp(min, max))
         } else {
             None
         };
+
+    // For some reason fixed buffer sizes on iOS doesn't work in CPAL.
+    // I'm not sure if this is a problem on CPAL's end, but I have disabled
+    // it for the time being.
+    #[cfg(target_os = "ios")]
+    let desired_block_frames: Option<u32> = None;
 
     let supported_configs = in_device.supported_input_configs()?;
 
