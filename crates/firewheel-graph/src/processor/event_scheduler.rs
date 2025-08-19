@@ -167,7 +167,7 @@ impl EventScheduler {
 
             if !self.scheduled_events_need_sorting {
                 if let Some((_, last_instant)) = self.sorted_event_buffer_indices.last() {
-                    if time_samples > *last_instant {
+                    if time_samples < *last_instant {
                         self.scheduled_events_need_sorting = true;
                     }
                 }
