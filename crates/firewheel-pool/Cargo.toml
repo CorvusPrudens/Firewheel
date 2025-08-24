@@ -16,7 +16,12 @@ exclude.workspace = true
 all-features = true
 
 [features]
-default = ["sampler"]
+default = ["std", "sampler"]
+std = [
+    "firewheel-core/std",
+    "firewheel-graph/std",
+    "firewheel-nodes/std"
+]
 scheduled_events = ["firewheel-core/scheduled_events", "firewheel-graph/scheduled_events"]
 sampler = ["firewheel-nodes/sampler"]
 spatial_basic = ["firewheel-nodes/spatial_basic"]

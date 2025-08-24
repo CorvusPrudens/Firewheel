@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use firewheel_core::{
     channel_config::NonZeroChannelCount,
     node::{AudioNode, NodeID},

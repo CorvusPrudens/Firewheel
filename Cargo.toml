@@ -25,11 +25,20 @@ repository = "https://github.com/BillyDM/firewheel"
 
 [features]
 default = [
+    "std",
     "cpal",
     "symphonium",
     "symphonium_resample",
     "sampler_node",
 ]
+std = [
+    "firewheel-core/std",
+    "firewheel-graph/std",
+    "firewheel-nodes/std",
+    "firewheel-pool?/std",
+]
+# Enable this if "std" is disabled.
+libm = ["firewheel-core/libm"]
 # Enables scheduling events for nodes
 scheduled_events = [
     "firewheel-core/scheduled_events",
@@ -44,7 +53,7 @@ musical_transport = [
     "firewheel-graph/musical_transport"
 ]
 # Enables the cpal backend
-cpal = ["dep:firewheel-cpal"]
+cpal = ["std", "dep:firewheel-cpal"]
 # Enables resampling input streams in the cpal backend
 cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
 # Enables using Symphonium for loading audio files
@@ -126,10 +135,10 @@ bevy_reflect = { version = "0.16", default-features = false }
 num-traits = {version =  "0.2", default-features = false }
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.7.0" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.7.0" }
+firewheel-core = { path = "crates/firewheel-core", version = "0.7.0", default-features = false }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.7.0", default-features = false }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.7.0", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.7.0", default-features = false, features = ["std"] }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.7.0", default-features = false }
 firewheel-pool = { path = "crates/firewheel-pool", version = "0.7.0", default-features = false, optional = true }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
