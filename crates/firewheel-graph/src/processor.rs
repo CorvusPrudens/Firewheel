@@ -1,4 +1,4 @@
-use core::{num::NonZeroU32, time::Duration, usize};
+use core::{num::NonZeroU32, usize};
 
 use ringbuf::traits::Producer;
 use thunderdome::Arena;
@@ -11,12 +11,12 @@ use firewheel_core::{
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, ProcEventsIndex},
     log::RealtimeLogger,
-    node::{AudioNodeProcessor, ProcExtra, StreamStatus},
+    node::{AudioNodeProcessor, ProcExtra},
     StreamInfo,
 };
 
 use crate::{
-    backend::AudioBackend,
+    backend::{AudioBackend, BackendProcessInfo},
     graph::ScheduleHeapData,
     processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
 };
@@ -78,28 +78,10 @@ impl<B: AudioBackend> FirewheelProcessor<B> {
         &mut self,
         input: &[f32],
         output: &mut [f32],
-        num_in_channels: usize,
-        num_out_channels: usize,
-        frames: usize,
-        process_timestamp: B::Instant,
-        duration_since_stream_start: Duration,
-        input_stream_status: StreamStatus,
-        output_stream_status: StreamStatus,
-        dropped_frames: u32,
+        info: BackendProcessInfo<B>,
     ) {
         if let Some(inner) = &mut self.inner {
-            inner.process_interleaved(
-                input,
-                output,
-                num_in_channels,
-                num_out_channels,
-                frames,
-                process_timestamp,
-                duration_since_stream_start,
-                input_stream_status,
-                output_stream_status,
-                dropped_frames,
-            );
+            inner.process_interleaved(input, output, info);
         }
     }
 }

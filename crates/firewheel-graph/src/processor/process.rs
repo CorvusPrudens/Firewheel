@@ -10,7 +10,7 @@ use firewheel_core::{
 };
 
 use crate::{
-    backend::AudioBackend,
+    backend::{AudioBackend, BackendProcessInfo},
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, SharedClock},
 };
 
@@ -25,15 +25,19 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         &mut self,
         input: &[f32],
         output: &mut [f32],
-        num_in_channels: usize,
-        num_out_channels: usize,
-        frames: usize,
-        process_timestamp: B::Instant,
-        duration_since_stream_start: Duration,
-        input_stream_status: StreamStatus,
-        mut output_stream_status: StreamStatus,
-        mut dropped_frames: u32,
+        info: BackendProcessInfo<B>,
     ) {
+        let BackendProcessInfo {
+            num_in_channels,
+            num_out_channels,
+            frames,
+            process_timestamp,
+            duration_since_stream_start,
+            input_stream_status,
+            mut output_stream_status,
+            mut dropped_frames,
+        } = info;
+
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
             let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
         }

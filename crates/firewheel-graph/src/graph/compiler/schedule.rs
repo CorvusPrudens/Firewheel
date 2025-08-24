@@ -532,7 +532,7 @@ fn sum_inputs(
 #[inline]
 #[allow(clippy::mut_from_ref)]
 fn buffer_slice_mut<'a>(
-    buffers: &'a Vec<f32>,
+    buffers: &'a [f32],
     buffer_index: usize,
     max_block_frames: usize,
     frames: usize,

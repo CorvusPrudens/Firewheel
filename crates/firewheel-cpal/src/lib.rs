@@ -10,7 +10,7 @@ use bevy_platform::time::Instant;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
-    backend::{AudioBackend, DeviceInfo},
+    backend::{AudioBackend, BackendProcessInfo, DeviceInfo},
     processor::FirewheelProcessor,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
@@ -877,7 +877,7 @@ impl DataCallback {
         //     (ClockSeconds(0.0), false)
         // };
 
-        let (num_in_chanenls, input_stream_status) = if let Some(cons) = &mut self.input_stream_cons
+        let (num_in_channels, input_stream_status) = if let Some(cons) = &mut self.input_stream_cons
         {
             let num_in_channels = cons.num_channels().get();
 
@@ -906,16 +906,18 @@ impl DataCallback {
             }
 
             processor.process_interleaved(
-                &self.input_buffer[..frames * num_in_chanenls],
+                &self.input_buffer[..frames * num_in_channels],
                 output,
-                num_in_chanenls,
-                self.num_out_channels,
-                frames,
-                process_timestamp,
-                duration_since_stream_start,
-                input_stream_status,
-                output_stream_status,
-                dropped_frames,
+                BackendProcessInfo {
+                    num_in_channels,
+                    num_out_channels: self.num_out_channels,
+                    frames,
+                    process_timestamp,
+                    duration_since_stream_start,
+                    input_stream_status,
+                    output_stream_status,
+                    dropped_frames,
+                },
             );
         } else {
             output.fill(0.0);

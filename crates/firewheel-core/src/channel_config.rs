@@ -48,17 +48,15 @@ impl From<usize> for ChannelCount {
     }
 }
 
-impl Into<u32> for ChannelCount {
-    #[inline]
-    fn into(self) -> u32 {
-        self.get()
+impl From<ChannelCount> for u32 {
+    fn from(value: ChannelCount) -> Self {
+        value.get()
     }
 }
 
-impl Into<usize> for ChannelCount {
-    #[inline]
-    fn into(self) -> usize {
-        self.get() as usize
+impl From<ChannelCount> for usize {
+    fn from(value: ChannelCount) -> Self {
+        value.get() as usize
     }
 }
 
@@ -113,17 +111,15 @@ impl From<usize> for NonZeroChannelCount {
     }
 }
 
-impl Into<NonZeroU32> for NonZeroChannelCount {
-    #[inline]
-    fn into(self) -> NonZeroU32 {
-        NonZeroU32::new(self.get().get()).unwrap()
+impl From<NonZeroChannelCount> for NonZeroU32 {
+    fn from(value: NonZeroChannelCount) -> Self {
+        NonZeroU32::new(value.get().get()).unwrap()
     }
 }
 
-impl Into<usize> for NonZeroChannelCount {
-    #[inline]
-    fn into(self) -> usize {
-        self.get().get() as usize
+impl From<NonZeroChannelCount> for usize {
+    fn from(value: NonZeroChannelCount) -> Self {
+        value.get().get() as usize
     }
 }
 

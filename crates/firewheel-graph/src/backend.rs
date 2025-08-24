@@ -4,7 +4,7 @@ use core::time::Duration;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{String, Vec};
 
-use firewheel_core::StreamInfo;
+use firewheel_core::{node::StreamStatus, StreamInfo};
 
 use crate::processor::FirewheelProcessor;
 
@@ -64,4 +64,15 @@ pub struct DeviceInfo {
     pub name: String,
     pub num_channels: u16,
     pub is_default: bool,
+}
+
+pub struct BackendProcessInfo<B: AudioBackend> {
+    pub num_in_channels: usize,
+    pub num_out_channels: usize,
+    pub frames: usize,
+    pub process_timestamp: B::Instant,
+    pub duration_since_stream_start: Duration,
+    pub input_stream_status: StreamStatus,
+    pub output_stream_status: StreamStatus,
+    pub dropped_frames: u32,
 }

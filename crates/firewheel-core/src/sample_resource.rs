@@ -331,9 +331,9 @@ impl DecodedAudio {
 }
 
 #[cfg(feature = "symphonium")]
-impl Into<crate::collector::ArcGc<dyn SampleResource>> for DecodedAudio {
-    fn into(self) -> crate::collector::ArcGc<dyn SampleResource> {
-        self.into_dyn_resource()
+impl From<DecodedAudio> for crate::collector::ArcGc<dyn SampleResource> {
+    fn from(value: DecodedAudio) -> Self {
+        value.into_dyn_resource()
     }
 }
 

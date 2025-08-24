@@ -333,9 +333,9 @@ impl From<f64> for InstantSeconds {
     }
 }
 
-impl Into<f64> for InstantSeconds {
-    fn into(self) -> f64 {
-        self.0
+impl From<InstantSeconds> for f64 {
+    fn from(value: InstantSeconds) -> Self {
+        value.0
     }
 }
 
@@ -345,9 +345,9 @@ impl From<f64> for DurationSeconds {
     }
 }
 
-impl Into<f64> for DurationSeconds {
-    fn into(self) -> f64 {
-        self.0
+impl From<DurationSeconds> for f64 {
+    fn from(value: DurationSeconds) -> Self {
+        value.0
     }
 }
 
@@ -570,9 +570,9 @@ impl From<i64> for InstantSamples {
     }
 }
 
-impl Into<i64> for InstantSamples {
-    fn into(self) -> i64 {
-        self.0
+impl From<InstantSamples> for i64 {
+    fn from(value: InstantSamples) -> Self {
+        value.0
     }
 }
 
@@ -582,9 +582,9 @@ impl From<i64> for DurationSamples {
     }
 }
 
-impl Into<i64> for DurationSamples {
-    fn into(self) -> i64 {
-        self.0
+impl From<DurationSamples> for i64 {
+    fn from(value: DurationSamples) -> Self {
+        value.0
     }
 }
 
@@ -750,9 +750,9 @@ impl From<f64> for InstantMusical {
 }
 
 #[cfg(feature = "musical_transport")]
-impl Into<f64> for InstantMusical {
-    fn into(self) -> f64 {
-        self.0
+impl From<InstantMusical> for f64 {
+    fn from(value: InstantMusical) -> Self {
+        value.0
     }
 }
 
@@ -764,9 +764,9 @@ impl From<f64> for DurationMusical {
 }
 
 #[cfg(feature = "musical_transport")]
-impl Into<f64> for DurationMusical {
-    fn into(self) -> f64 {
-        self.0
+impl From<DurationMusical> for f64 {
+    fn from(value: DurationMusical) -> Self {
+        value.0
     }
 }
 

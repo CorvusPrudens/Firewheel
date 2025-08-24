@@ -110,14 +110,20 @@ impl AudioNodeInfo {
     }
 }
 
-impl Into<AudioNodeInfoInner> for AudioNodeInfo {
-    fn into(self) -> AudioNodeInfoInner {
+impl Default for AudioNodeInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<AudioNodeInfo> for AudioNodeInfoInner {
+    fn from(value: AudioNodeInfo) -> Self {
         AudioNodeInfoInner {
-            debug_name: self.debug_name,
-            channel_config: self.channel_config,
-            call_update_method: self.call_update_method,
-            custom_state: self.custom_state,
-            latency_frames: self.latency_frames,
+            debug_name: value.debug_name,
+            channel_config: value.channel_config,
+            call_update_method: value.call_update_method,
+            custom_state: value.custom_state,
+            latency_frames: value.latency_frames,
         }
     }
 }

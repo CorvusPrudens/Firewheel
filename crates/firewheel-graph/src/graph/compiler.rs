@@ -118,7 +118,7 @@ impl BufferAllocator {
 }
 
 /// Main compilation algorithm
-pub fn compile<'a>(
+pub fn compile(
     nodes: &mut Arena<NodeEntry>,
     edges: &mut Arena<Edge>,
     graph_in_id: NodeID,
