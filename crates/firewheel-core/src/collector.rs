@@ -7,6 +7,7 @@ use core::{
     any::Any,
     cell::UnsafeCell,
     fmt::Debug,
+    hash::Hash,
     ops::{Deref, DerefMut},
 };
 
@@ -26,7 +27,7 @@ use bevy_platform::sync::{
 /// pointer equivalence. If you need to evaluate the equality of the
 /// values contained by [`ArcGc`], you'll need to be careful to ensure you
 /// explicitly take references of the inner data.
-#[derive(Debug, Hash)]
+#[derive(Debug)]
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
     collector: C,
