@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.7.0"
+version = "0.7.1"
 description = "A low-level open source audio graph engine for games and other applications"
 repository.workspace = true
 edition.workspace = true
