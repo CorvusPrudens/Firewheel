@@ -15,7 +15,7 @@ use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
-use crate::error::{AddEdgeError, CompileGraphError};
+use crate::error::{AddEdgeError, CompileGraphError, RemoveNodeError};
 use crate::FirewheelConfig;
 use firewheel_core::node::{
     dummy::{DummyNode, DummyNodeConfig},
@@ -166,17 +166,24 @@ impl AudioGraph {
     /// On success, this returns a list of all edges that were removed
     /// from the graph as a result of removing this node.
     ///
-    /// This will return an error if a node with the given ID does not
-    /// exist in the graph, or if the ID is of the graph input or graph
+    /// This will return an error if the ID is of the graph input or graph
     /// output node.
-    pub fn remove_node(&mut self, node_id: NodeID) -> Result<SmallVec<[EdgeID; 4]>, ()> {
-        if node_id == self.graph_in_id || node_id == self.graph_out_id {
-            return Err(());
+    pub fn remove_node(
+        &mut self,
+        node_id: NodeID,
+    ) -> Result<SmallVec<[EdgeID; 4]>, RemoveNodeError> {
+        if node_id == self.graph_in_id {
+            return Err(RemoveNodeError::CannotRemoveGraphInNode);
+        }
+        if node_id == self.graph_out_id {
+            return Err(RemoveNodeError::CannotRemoveGraphOutNode);
         }
 
-        let node_entry = self.nodes.remove(node_id.0).ok_or(())?;
-
         let mut removed_edges = SmallVec::new();
+
+        let Some(node_entry) = self.nodes.remove(node_id.0) else {
+            return Ok(removed_edges);
+        };
 
         for port_idx in 0..node_entry.info.channel_config.num_inputs.get() {
             removed_edges.append(&mut self.remove_edges_with_input_port(node_id, port_idx));

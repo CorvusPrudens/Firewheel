@@ -22,6 +22,7 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
+use crate::error::RemoveNodeError;
 use crate::processor::BufferOutOfSpaceMode;
 use crate::{
     backend::{AudioBackend, DeviceInfo},
@@ -723,10 +724,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// On success, this returns a list of all edges that were removed
     /// from the graph as a result of removing this node.
     ///
-    /// This will return an error if a node with the given ID does not
-    /// exist in the graph, or if the ID is of the graph input or graph
+    /// This will return an error if the ID is of the graph input or graph
     /// output node.
-    pub fn remove_node(&mut self, node_id: NodeID) -> Result<SmallVec<[EdgeID; 4]>, ()> {
+    pub fn remove_node(
+        &mut self,
+        node_id: NodeID,
+    ) -> Result<SmallVec<[EdgeID; 4]>, RemoveNodeError> {
         self.graph.remove_node(node_id)
     }
 

@@ -6,7 +6,7 @@ use firewheel_core::{
 use firewheel_graph::{backend::AudioBackend, ContextQueue, FirewheelCtx};
 use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerNode, SamplerState};
 
-use crate::PoolableNode;
+use crate::{PoolError, PoolableNode};
 
 /// A struct which uses a [`SamplerNode`] as the first node in an
 /// [`AudioNodePool`](crate::AudioNodePool).
@@ -35,10 +35,13 @@ impl PoolableNode for SamplerPool {
     /// Return `true` if the node state of the given node is stopped.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn node_is_stopped<B: AudioBackend>(node_id: NodeID, cx: &FirewheelCtx<B>) -> Result<bool, ()> {
+    fn node_is_stopped<B: AudioBackend>(
+        node_id: NodeID,
+        cx: &FirewheelCtx<B>,
+    ) -> Result<bool, PoolError> {
         cx.node_state::<SamplerState>(node_id)
             .map(|s| s.stopped())
-            .ok_or(())
+            .ok_or(PoolError::InvalidNodeID(node_id))
     }
 
     /// Return a score of how ready this node is to accept new work.
@@ -50,10 +53,10 @@ impl PoolableNode for SamplerPool {
         params: &SamplerNode,
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
-    ) -> Result<u64, ()> {
+    ) -> Result<u64, PoolError> {
         cx.node_state::<SamplerState>(node_id)
             .map(|s| s.worker_score(params))
-            .ok_or(())
+            .ok_or(PoolError::InvalidNodeID(node_id))
     }
 
     /// Diff the new parameters and push the changes into the event queue.
@@ -78,10 +81,10 @@ impl PoolableNode for SamplerPool {
         stopped: bool,
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), PoolError> {
         cx.node_state_mut::<SamplerState>(node_id)
             .map(|s| s.mark_stopped(stopped))
-            .ok_or(())
+            .ok_or(PoolError::InvalidNodeID(node_id))
     }
 
     /// Pause the sequence in the node parameters

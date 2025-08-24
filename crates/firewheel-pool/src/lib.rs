@@ -91,7 +91,10 @@ pub trait PoolableNode {
     /// Return `true` if the node state of the given node is stopped.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn node_is_stopped<B: AudioBackend>(node_id: NodeID, cx: &FirewheelCtx<B>) -> Result<bool, ()>;
+    fn node_is_stopped<B: AudioBackend>(
+        node_id: NodeID,
+        cx: &FirewheelCtx<B>,
+    ) -> Result<bool, PoolError>;
 
     /// Return a score of how ready this node is to accept new work.
     ///
@@ -102,7 +105,7 @@ pub trait PoolableNode {
         params: &Self::AudioNode,
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
-    ) -> Result<u64, ()>;
+    ) -> Result<u64, PoolError>;
 
     /// Diff the new parameters and push the changes into the event queue.
     fn diff<B: AudioBackend>(
@@ -124,7 +127,7 @@ pub trait PoolableNode {
         stopped: bool,
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
-    ) -> Result<(), ()>;
+    ) -> Result<(), PoolError>;
 
     /// Pause the sequence in the node parameters
     fn pause(params: &mut Self::AudioNode);
@@ -631,4 +634,10 @@ pub enum NewWorkerError {
     ParameterStateIsStop,
     #[error("Could not create new audio node pool worker: the worker pool is full")]
     NoMoreWorkers,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PoolError {
+    #[error("A node with ID {0:?} does not exist in this pool")]
+    InvalidNodeID(NodeID),
 }

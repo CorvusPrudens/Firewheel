@@ -91,3 +91,14 @@ pub enum UpdateError<E: Error> {
     #[error("The audio stream stopped unexpectedly: {0}")]
     StreamStoppedUnexpectedly(Option<E>),
 }
+
+/// An error while removing a node in [`FirewheelCtx`][crate::context::FirewheelCtx].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RemoveNodeError {
+    /// Removing the graph in node is not allowed.
+    #[error("Removing the graph in node is not allowed")]
+    CannotRemoveGraphInNode,
+    /// Removing the graph out node is not allowed.
+    #[error("Removing the graph out node is not allowed")]
+    CannotRemoveGraphOutNode,
+}
