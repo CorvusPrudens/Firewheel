@@ -38,7 +38,7 @@ std = [
     "firewheel-pool?/std",
 ]
 # Enable this if "std" is disabled.
-libm = ["firewheel-core/libm"]
+libm = ["firewheel-core/libm", "firewheel-nodes/libm"]
 # Enables scheduling events for nodes
 scheduled_events = [
     "firewheel-core/scheduled_events",
