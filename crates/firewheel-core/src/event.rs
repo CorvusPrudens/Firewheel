@@ -113,6 +113,7 @@ impl NodeEventType {
 }
 
 /// Data that can be used to patch an individual parameter.
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ParamData {
     F32(f32),

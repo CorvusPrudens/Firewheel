@@ -869,6 +869,9 @@ impl AudioNodeProcessor for SamplerProcessor {
             match *self.params.playback {
                 PlaybackState::Stop => {
                     self.stop(buffers.outputs.len(), extra);
+                    self.shared_state
+                        .finished
+                        .store(self.params.playback.id(), Ordering::Relaxed);
 
                     self.playback_state = PlaybackState::Stop;
                 }
@@ -972,6 +975,9 @@ impl AudioNodeProcessor for SamplerProcessor {
                             == self.loaded_sample_state.as_ref().unwrap().sample_len_frames
                         {
                             self.playback_state = PlaybackState::Stop;
+                            self.shared_state
+                                .finished
+                                .store(self.params.playback.id(), Ordering::Relaxed);
                         } else {
                             if new_playhead_frames != 0
                                 || (self.num_active_stop_declickers > 0

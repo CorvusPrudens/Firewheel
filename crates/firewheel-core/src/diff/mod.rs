@@ -372,7 +372,7 @@ pub trait Diff {
 }
 
 /// A path of indices that uniquely describes an arbitrarily nested field.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum ParamPath {
     /// A path of one element.
     ///
