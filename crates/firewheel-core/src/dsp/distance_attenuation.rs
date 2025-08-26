@@ -13,7 +13,7 @@ use crate::{
 pub const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
 pub const MUFFLE_CUTOFF_HZ_MAX: f32 = 20_480.0;
 const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN);
-const CALC_FILTER_COEFF_INTERVAL: usize = 64;
+const CALC_FILTER_COEFF_INTERVAL: usize = 16;
 
 /// The method in which to calculate the volume of a sound based on the distance from
 /// the listener.
@@ -349,7 +349,9 @@ impl DistanceAttenuatorStereoDsp {
                     // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
                     // frames.
                     //
-                    // TODO: use core::hint::unlikely once that stabilizes
+                    // TODO: use core::hint::cold_path() once that stabilizes
+                    //
+                    // TODO: Alternatively, this could be optimized using a lookup table
                     if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
                         coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
                             cutoff_hz,

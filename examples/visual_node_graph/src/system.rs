@@ -5,6 +5,9 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        fast_filters::{
+            bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
+        },
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
@@ -24,6 +27,9 @@ pub enum NodeType {
     VolumeMono,
     VolumeStereo,
     VolumePan,
+    FastLowpass,
+    FastHighpass,
+    FastBandpass,
 }
 
 pub struct AudioSystem {
@@ -65,6 +71,9 @@ impl AudioSystem {
                 }),
             ),
             NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
+            NodeType::FastLowpass => self.cx.add_node(FastLowpassNode::<2>::default(), None),
+            NodeType::FastHighpass => self.cx.add_node(FastHighpassNode::<2>::default(), None),
+            NodeType::FastBandpass => self.cx.add_node(FastBandpassNode::<2>::default(), None),
         };
 
         match node_type {
@@ -90,6 +99,18 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::VolumePan => GuiAudioNode::VolumePan {
+                id,
+                params: Default::default(),
+            },
+            NodeType::FastLowpass => GuiAudioNode::FastLowpass {
+                id,
+                params: Default::default(),
+            },
+            NodeType::FastHighpass => GuiAudioNode::FastHighpass {
+                id,
+                params: Default::default(),
+            },
+            NodeType::FastBandpass => GuiAudioNode::FastBandpass {
                 id,
                 params: Default::default(),
             },

@@ -159,7 +159,9 @@ impl AudioNodeProcessor for Processor {
         // there is no need to process.
         let gain_is_silent = !self.gain.is_smoothing() && self.gain.target_value() < 0.00001;
 
-        if info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
+        if (info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
+            && self.enable_declicker.is_settled()
+        {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
@@ -194,7 +196,7 @@ impl AudioNodeProcessor for Processor {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
-                // this can be use to only recalculate them every 16 frames.
+                // this can be use to only recalculate them every 64 frames.
                 if i & (16 - 1) == 0 {
                     self.filter_l.set_cutoff(cutoff_hz, self.sample_rate_recip);
                     self.filter_r.copy_cutoff_from(&self.filter_l);
@@ -232,7 +234,7 @@ impl AudioNodeProcessor for Processor {
             buffers.outputs,
             info.frames,
             &extra.declick_values,
-            FadeType::EqualPower3dB,
+            FadeType::Linear,
         );
 
         // Notify the engine that we have modified the output buffers.

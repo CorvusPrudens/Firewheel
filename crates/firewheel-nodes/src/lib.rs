@@ -18,6 +18,9 @@ pub mod stream;
 #[cfg(feature = "noise_generators")]
 pub mod noise_generator;
 
+#[cfg(feature = "noise_generators")]
+pub mod fast_filters;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;

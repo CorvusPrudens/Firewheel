@@ -8,6 +8,10 @@ use firewheel::{
     diff::Memo,
     nodes::{
         beep_test::BeepTestNode,
+        fast_filters::{
+            bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
+            MAX_HZ, MIN_HZ,
+        },
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
         volume::VolumeNode,
         volume_pan::VolumePanNode,
@@ -50,6 +54,18 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<VolumePanNode>,
     },
+    FastLowpass {
+        id: firewheel::node::NodeID,
+        params: Memo<FastLowpassNode<2>>,
+    },
+    FastHighpass {
+        id: firewheel::node::NodeID,
+        params: Memo<FastHighpassNode<2>>,
+    },
+    FastBandpass {
+        id: firewheel::node::NodeID,
+        params: Memo<FastBandpassNode<2>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -64,6 +80,9 @@ impl GuiAudioNode {
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
             &Self::VolumePan { id, .. } => id,
+            &Self::FastLowpass { id, .. } => id,
+            &Self::FastHighpass { id, .. } => id,
+            &Self::FastBandpass { id, .. } => id,
         }
     }
 
@@ -78,6 +97,9 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
             &Self::VolumePan { .. } => "Volume & Pan",
+            &Self::FastLowpass { .. } => "Fast Lowpass",
+            &Self::FastHighpass { .. } => "Fast Highpass",
+            &Self::FastBandpass { .. } => "Fast Bandpass",
         }
         .into()
     }
@@ -93,6 +115,9 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::FastLowpass { .. } => 2,
+            &Self::FastHighpass { .. } => 2,
+            &Self::FastBandpass { .. } => 2,
         }
     }
 
@@ -107,6 +132,9 @@ impl GuiAudioNode {
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::FastLowpass { .. } => 2,
+            &Self::FastHighpass { .. } => 2,
+            &Self::FastBandpass { .. } => 2,
         }
     }
 }
@@ -244,6 +272,21 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
+        if ui.button("Fast Lowpass").clicked() {
+            let node = self.audio_system.add_node(NodeType::FastLowpass);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
+        if ui.button("Fast Highpass").clicked() {
+            let node = self.audio_system.add_node(NodeType::FastHighpass);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
+        if ui.button("Fast Bandpass").clicked() {
+            let node = self.audio_system.add_node(NodeType::FastBandpass);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
     }
 
     fn has_dropped_wire_menu(
@@ -292,7 +335,10 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             | GuiAudioNode::VolumePan { .. }
             | GuiAudioNode::BeepTest { .. }
             | GuiAudioNode::WhiteNoiseGen { .. }
-            | GuiAudioNode::PinkNoiseGen { .. } => true,
+            | GuiAudioNode::PinkNoiseGen { .. }
+            | GuiAudioNode::FastLowpass { .. }
+            | GuiAudioNode::FastHighpass { .. }
+            | GuiAudioNode::FastBandpass { .. } => true,
             _ => false,
         }
     }
@@ -388,6 +434,45 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     }
 
                     ui.add(egui::Slider::new(&mut params.pan, -1.0..=1.0).text("pan"));
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::FastLowpass { id, params } => {
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::Slider::new(&mut params.cutoff_hz, MIN_HZ..=MAX_HZ)
+                            .logarithmic(true)
+                            .text("cutoff hz"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::FastHighpass { id, params } => {
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::Slider::new(&mut params.cutoff_hz, MIN_HZ..=MAX_HZ)
+                            .logarithmic(true)
+                            .text("cutoff hz"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::FastBandpass { id, params } => {
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::Slider::new(&mut params.cutoff_hz, MIN_HZ..=MAX_HZ)
+                            .logarithmic(true)
+                            .text("cutoff hz"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
