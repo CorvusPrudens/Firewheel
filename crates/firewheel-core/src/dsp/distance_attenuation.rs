@@ -6,14 +6,14 @@ use core::num::NonZeroU32;
 use firewheel_macros::{Diff, Patch};
 
 use crate::{
-    dsp::filter::single_pole_iir::{OnePoleIirLPF, OnePoleIirLPFCoeff},
+    dsp::filter::single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
 pub const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
 pub const MUFFLE_CUTOFF_HZ_MAX: f32 = 20_480.0;
 const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN);
-const CALC_FILTER_COEFF_INTERVAL: usize = 8;
+const CALC_FILTER_COEFF_INTERVAL: usize = 64;
 
 /// The method in which to calculate the volume of a sound based on the distance from
 /// the listener.
@@ -190,8 +190,7 @@ pub struct DistanceAttenuatorStereoDsp {
     pub muffle_cutoff_hz: SmoothedParam,
     pub damping_disabled: bool,
 
-    pub filter_l: OnePoleIirLPF,
-    pub filter_r: OnePoleIirLPF,
+    pub filter: OnePoleIirLPFSimd<2>,
 }
 
 impl DistanceAttenuatorStereoDsp {
@@ -204,8 +203,7 @@ impl DistanceAttenuatorStereoDsp {
                 sample_rate,
             ),
             damping_disabled: true,
-            filter_l: OnePoleIirLPF::default(),
-            filter_r: OnePoleIirLPF::default(),
+            filter: OnePoleIirLPFSimd::default(),
         }
     }
 
@@ -304,8 +302,7 @@ impl DistanceAttenuatorStereoDsp {
             if !self.gain.is_smoothing() && self.gain.target_value() == 0.0 {
                 self.gain.reset();
                 self.muffle_cutoff_hz.reset();
-                self.filter_l.reset();
-                self.filter_r.reset();
+                self.filter.reset();
 
                 return true;
             } else if self.damping_disabled {
@@ -316,17 +313,21 @@ impl DistanceAttenuatorStereoDsp {
             } else {
                 // The cutoff parameter is not currently smoothing, so we can optimize by
                 // only updating the filter coefficients once.
-                let coeff = OnePoleIirLPFCoeff::new(
+                let coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
                     self.muffle_cutoff_hz.target_value(),
                     sample_rate_recip as f32,
-                );
+                ));
 
                 for i in 0..frames {
-                    let l = out1[i] * self.gain.target_value();
-                    let r = out2[i] * self.gain.target_value();
+                    let s = [
+                        out1[i] * self.gain.target_value(),
+                        out2[i] * self.gain.target_value(),
+                    ];
 
-                    out1[i] = self.filter_l.process(l, coeff);
-                    out2[i] = self.filter_r.process(r, coeff);
+                    let [l, r] = self.filter.process(s, &coeff);
+
+                    out1[i] = l;
+                    out2[i] = r;
                 }
             }
         } else {
@@ -338,24 +339,30 @@ impl DistanceAttenuatorStereoDsp {
                     out2[i] = out2[i] * gain;
                 }
             } else {
-                let mut coeff = OnePoleIirLPFCoeff::default();
+                let mut coeff = OnePoleIirLPFCoeffSimd::default();
 
                 for i in 0..frames {
                     let cutoff_hz = self.muffle_cutoff_hz.next_smoothed();
                     let gain = self.gain.next_smoothed();
 
-                    let l = out1[i] * gain;
-                    let r = out2[i] * gain;
-
                     // Because recalculating filter coefficients is expensive, a trick like
                     // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
                     // frames.
+                    //
+                    // TODO: use core::hint::unlikely once that stabilizes
                     if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
-                        coeff = OnePoleIirLPFCoeff::new(cutoff_hz, sample_rate_recip as f32);
+                        coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
+                            cutoff_hz,
+                            sample_rate_recip as f32,
+                        ));
                     }
 
-                    out1[i] = self.filter_l.process(l, coeff);
-                    out2[i] = self.filter_r.process(r, coeff);
+                    let s = [out1[i] * gain, out2[i] * gain];
+
+                    let [l, r] = self.filter.process(s, &coeff);
+
+                    out1[i] = l;
+                    out2[i] = r;
                 }
             }
 
@@ -369,8 +376,7 @@ impl DistanceAttenuatorStereoDsp {
     pub fn reset(&mut self) {
         self.gain.reset();
         self.muffle_cutoff_hz.reset();
-        self.filter_l.reset();
-        self.filter_r.reset();
+        self.filter.reset();
     }
 
     pub fn set_smooth_seconds(&mut self, seconds: f32, sample_rate: NonZeroU32) {
