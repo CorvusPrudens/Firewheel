@@ -240,11 +240,6 @@ impl CompiledSchedule {
         self.max_block_frames
     }
 
-    pub fn clear_buffers(&mut self) {
-        self.buffers.as_mut_slice().fill(0.0);
-        self.buffer_silence_flags.as_mut_slice().fill(true);
-    }
-
     pub fn prepare_graph_inputs(
         &mut self,
         frames: usize,
@@ -324,6 +319,7 @@ impl CompiledSchedule {
     pub fn process<'a, 'b>(
         &mut self,
         frames: usize,
+        debug_force_clear_buffers: bool,
         mut process: impl FnMut(
             NodeID,
             SilenceMask,
@@ -365,8 +361,10 @@ impl CompiledSchedule {
                 let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
                 if b.should_clear {
-                    buf[..frames].fill(0.0);
-                    *s = true;
+                    if !*s || debug_force_clear_buffers {
+                        buf[..frames].fill(0.0);
+                        *s = true;
+                    }
                 }
 
                 if *s {
@@ -380,6 +378,11 @@ impl CompiledSchedule {
                 let buf =
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+
+                if debug_force_clear_buffers {
+                    buf[..frames].fill(0.0);
+                    *s = true;
+                }
 
                 if *s {
                     out_silence_mask.set_channel(i, true);
@@ -401,7 +404,7 @@ impl CompiledSchedule {
             );
 
             let clear_buffer = |buffer_index: usize, silence_flag: &mut bool| {
-                if !*silence_flag {
+                if !*silence_flag || debug_force_clear_buffers {
                     buffer_slice_mut(&self.buffers, buffer_index, self.max_block_frames, frames)
                         .fill(0.0);
                     *silence_flag = true;
