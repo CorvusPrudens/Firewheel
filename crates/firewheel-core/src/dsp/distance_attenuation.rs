@@ -200,7 +200,8 @@ impl DistanceAttenuatorStereoDsp {
     pub fn new(
         smoother_config: SmootherConfig,
         sample_rate: NonZeroU32,
-        coeff_update_factor: CoeffUpdateFactor,
+        // TODO: Add this back in version 0.8
+        //coeff_update_factor: CoeffUpdateFactor,
     ) -> Self {
         Self {
             gain: SmoothedParam::new(1.0, smoother_config, sample_rate),
@@ -211,7 +212,8 @@ impl DistanceAttenuatorStereoDsp {
             ),
             damping_disabled: true,
             filter: OnePoleIirLPFSimd::default(),
-            coeff_update_mask: coeff_update_factor.mask(),
+            coeff_update_mask: CoeffUpdateFactor::default().mask(),
+            //coeff_update_mask: coeff_update_factor.mask(),
         }
     }
 
