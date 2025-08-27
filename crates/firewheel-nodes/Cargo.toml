@@ -56,9 +56,9 @@ noise_generators = []
 # directly to/from the audio graph from another thread.
 stream = ["std", "dep:fixed-resample"]
 # Enables `Component` derive macros
-bevy = ["dep:bevy_ecs"]
+bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros
-bevy_reflect = ["dep:bevy_reflect"]
+bevy_reflect = ["dep:bevy_reflect", "firewheel-core/bevy_reflect"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.7.2", default-features = false }
