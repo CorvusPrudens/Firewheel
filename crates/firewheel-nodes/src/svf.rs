@@ -19,7 +19,7 @@ use firewheel_core::{
         ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask, StreamInfo,
+    StreamInfo,
 };
 
 pub const DEFAULT_Q: f32 = Q_BUTTERWORTH_ORD2;
@@ -972,9 +972,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             FadeType::Linear,
         );
 
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {

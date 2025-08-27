@@ -15,7 +15,6 @@ use firewheel_core::{
         ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
 };
 
 const COEFF_A: [i32; 5] = [14055, 12759, 10733, 12273, 15716];
@@ -165,9 +164,7 @@ impl AudioNodeProcessor for Processor {
             *s = r * self.gain.next_smoothed();
         }
 
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 }
 

@@ -719,6 +719,11 @@ pub enum ProcessStatus {
     /// as possible.
     Bypass,
     /// All output buffers were filled with data.
+    ///
+    /// WARNING: Incorrectly marking a channel as containing silence
+    /// when it doesn't will result in audio glitches. Please take
+    /// great care when using this, or preferrably just use
+    /// [`ProcessStatus::outputs_not_silent()`] instead.
     OutputsModified { out_silence_mask: SilenceMask },
 }
 
@@ -731,6 +736,11 @@ impl ProcessStatus {
     }
 
     /// All output buffers were filled with data.
+    ///
+    /// WARNING: Incorrectly marking a channel as containing silence
+    /// when it doesn't will result in audio glitches. Please take
+    /// great care when using this, or preferrably just use
+    /// [`ProcessStatus::outputs_not_silent()`] instead.
     pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
         Self::OutputsModified { out_silence_mask }
     }

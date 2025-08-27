@@ -13,7 +13,6 @@ use firewheel_core::{
         ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
 };
 
 /// A simple node that generates white noise. (Mono output only)
@@ -137,8 +136,6 @@ impl AudioNodeProcessor for Processor {
             *s = r * self.gain.next_smoothed();
         }
 
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 }

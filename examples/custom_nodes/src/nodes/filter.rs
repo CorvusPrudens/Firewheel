@@ -19,7 +19,7 @@ use firewheel::{
         ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
-    SilenceMask, StreamInfo,
+    StreamInfo,
 };
 
 // The node struct holds all of the parameters of the node as plain values.
@@ -237,9 +237,7 @@ impl AudioNodeProcessor for Processor {
         );
 
         // Notify the engine that we have modified the output buffers.
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 
     // Called when a new stream has been created. Because the new stream may have a

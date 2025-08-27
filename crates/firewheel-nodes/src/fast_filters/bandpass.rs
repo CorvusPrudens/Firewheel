@@ -18,7 +18,7 @@ use firewheel_core::{
         ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask, StreamInfo,
+    StreamInfo,
 };
 
 use super::{MAX_HZ, MIN_HZ};
@@ -272,9 +272,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             FadeType::Linear,
         );
 
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {

@@ -9,7 +9,6 @@ use firewheel::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcessStatus,
     },
-    SilenceMask,
 };
 
 // The node struct holds all of the parameters of the node as plain values.
@@ -156,8 +155,6 @@ impl AudioNodeProcessor for Processor {
         }
 
         // Notify the engine that we have modified the output buffers.
-        ProcessStatus::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+        ProcessStatus::outputs_not_silent()
     }
 }
