@@ -11,7 +11,7 @@ use super::butterworth::{
 /// The coefficients for an SVF (state variable filter) model.
 ///
 /// This is based on the filter model developed by Andrew Simper:
-/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
+/// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct SvfCoeff {
     pub a1: f32,
@@ -182,7 +182,7 @@ impl SvfCoeff {
 /// The state of an SVF (state variable filter) model.
 ///
 /// This is based on the filter model developed by Andrew Simper:
-/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
+/// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct SvfState {
     pub ic1eq: f32,
@@ -212,7 +212,7 @@ impl SvfState {
 /// auto-vectorization.
 ///
 /// This is based on the filter model developed by Andrew Simper:
-/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
+/// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvfCoeffSimd<const LANES: usize> {
     pub a1: [f32; LANES],
@@ -288,7 +288,7 @@ impl<const LANES: usize> Default for SvfCoeffSimd<LANES> {
 /// for auto-vectorization.
 ///
 /// This is based on the filter model developed by Andrew Simper:
-/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
+/// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvfStateSimd<const LANES: usize> {
     pub ic1eq: [f32; LANES],

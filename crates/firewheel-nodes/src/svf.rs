@@ -107,7 +107,7 @@ pub fn bandwidth_octaves_to_q(bandwidth_octaves: f32) -> f32 {
 /// An SVF (state variable filter) node.
 ///
 /// This is based on the filter model developed by Andrew Simper:
-/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
+/// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
