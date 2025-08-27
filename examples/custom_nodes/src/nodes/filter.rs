@@ -194,8 +194,8 @@ impl AudioNodeProcessor for Processor {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
-                // this can be used to only recalculate them every 64 frames.
-                if i & (16 - 1) == 0 {
+                // this can be used to only recalculate them every 32 frames.
+                if i & (32 - 1) == 0 {
                     self.filter_l
                         .set_cutoff(cutoff_hz, info.sample_rate_recip as f32);
                     self.filter_r.copy_cutoff_from(&self.filter_l);
