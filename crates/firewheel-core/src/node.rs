@@ -77,6 +77,10 @@ impl AudioNodeInfo {
     ///
     /// By default this has a channel configuration with zero input and output
     /// channels.
+    ///
+    /// WARNING: Audio nodes *MUST* either completely fill all output buffers
+    /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+    /// Failing to do this will result in audio glitches.
     pub const fn channel_config(mut self, channel_config: ChannelConfig) -> Self {
         self.channel_config = channel_config;
         self
@@ -168,6 +172,9 @@ pub struct AudioNodeInfoInner {
 /// then sent to the audio thread.
 /// 6. The Firewheel processor calls [`AudioNodeProcessor::process`] whenever there
 /// is a new block of audio data to process.
+/// > WARNING: Audio nodes *MUST* either completely fill all output buffers
+/// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+/// Failing to do this will result in audio glitches.
 /// 7. (Graceful shutdown)
 ///
 ///     7a. The Firewheel processor calls [`AudioNodeProcessor::stream_stopped`].
@@ -399,16 +406,18 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// Process the given block of audio. Only process data in the
     /// buffers up to `samples`.
     ///
-    /// The node *MUST* either return `ProcessStatus::ClearAllOutputs`
-    /// or fill all output buffers with data.
-    ///
-    /// If any output buffers contain all zeros up to `samples` (silent),
-    /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
+    /// WARNING: The node *MUST* either completely fill all output buffers
+    /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+    /// Failing to do this will result in audio glitches.
     ///
     /// * `info` - Information about this processing block.
     /// * `buffers` - The buffers of data to process.
     /// * `events` - A list of events for this node to process.
     /// * `extra` - Additional buffers and utilities.
+    ///
+    /// WARNING: Audio nodes *MUST* either completely fill all output buffers
+    /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+    /// Failing to do this will result in audio glitches.
     fn process(
         &mut self,
         info: &ProcInfo,
@@ -445,6 +454,10 @@ pub struct ProcBuffers<'a, 'b> {
     pub inputs: &'a [&'b [f32]],
 
     /// The audio output buffers.
+    ///
+    /// WARNING: The node *MUST* either completely fill all output buffers
+    /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+    /// Failing to do this will result in audio glitches.
     ///
     /// The number of channels will always equal the [`ChannelConfig::num_outputs`]
     /// value that was returned in [`AudioNode::info`].
@@ -720,6 +733,10 @@ pub enum ProcessStatus {
     Bypass,
     /// All output buffers were filled with data.
     ///
+    /// WARNING: The node must fill all audio audio output buffers
+    /// completely with data when returning this process status.
+    /// Failing to do so will result in audio glitches.
+    ///
     /// WARNING: Incorrectly marking a channel as containing silence
     /// when it doesn't will result in audio glitches. Please take
     /// great care when using this, or preferrably just use
@@ -729,6 +746,10 @@ pub enum ProcessStatus {
 
 impl ProcessStatus {
     /// All output buffers were filled with non-silence.
+    ///
+    /// WARNING: The node must fill all audio audio output buffers
+    /// completely with data when returning this process status.
+    /// Failing to do so will result in audio glitches.
     pub const fn outputs_not_silent() -> Self {
         Self::OutputsModified {
             out_silence_mask: SilenceMask::NONE_SILENT,
@@ -736,6 +757,10 @@ impl ProcessStatus {
     }
 
     /// All output buffers were filled with data.
+    ///
+    /// WARNING: The node must fill all audio audio output buffers
+    /// completely with data when returning this process status.
+    /// Failing to do so will result in audio glitches.
     ///
     /// WARNING: Incorrectly marking a channel as containing silence
     /// when it doesn't will result in audio glitches. Please take
