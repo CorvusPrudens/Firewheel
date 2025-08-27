@@ -155,6 +155,10 @@ impl AudioNodeProcessor for Processor {
         }
 
         // Notify the engine that we have modified the output buffers.
+        //
+        // WARNING: The node must fill all audio audio output buffers
+        // completely with data when returning this process status.
+        // Failing to do so will result in audio glitches.
         ProcessStatus::outputs_not_silent()
     }
 }
