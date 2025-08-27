@@ -9,6 +9,9 @@ use super::butterworth::{
 };
 
 /// The coefficients for an SVF (state variable filter) model.
+///
+/// This is based on the filter model developed by Andrew Simper:
+/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct SvfCoeff {
     pub a1: f32,
@@ -123,17 +126,19 @@ impl SvfCoeff {
         Self::from_g_and_k(g, k, 1.0, -k, 0.0)
     }
 
-    pub fn bell(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
-        let a = gain_db_to_a(gain_db);
+    pub fn bell(cutoff_hz: f32, q: f32, raw_gain: f32, sample_rate_recip: f32) -> Self {
+        //let a = gain_db_to_a(gain_db);
+        let a = raw_gain.sqrt();
 
         let g = g(cutoff_hz, sample_rate_recip);
         let k = 1.0 / (q * a);
 
-        Self::from_g_and_k(g, k, 1.0, k * (a * a - 1.0), 0.0)
+        Self::from_g_and_k(g, k, 1.0, k * (raw_gain - 1.0), 0.0)
     }
 
-    pub fn low_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
-        let a = gain_db_to_a(gain_db);
+    pub fn low_shelf(cutoff_hz: f32, q: f32, raw_gain: f32, sample_rate_recip: f32) -> Self {
+        //let a = gain_db_to_a(gain_db);
+        let a = raw_gain.sqrt();
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
@@ -141,13 +146,14 @@ impl SvfCoeff {
         Self::from_g_and_k(g, k, 1.0, k * (a - 1.0), a * a - 1.0)
     }
 
-    pub fn high_shelf(cutoff_hz: f32, q: f32, gain_db: f32, sample_rate_recip: f32) -> Self {
-        let a = gain_db_to_a(gain_db);
+    pub fn high_shelf(cutoff_hz: f32, q: f32, raw_gain: f32, sample_rate_recip: f32) -> Self {
+        //let a = gain_db_to_a(gain_db);
+        let a = raw_gain.sqrt();
 
         let g = (PI * cutoff_hz * sample_rate_recip).tan() / a.sqrt();
         let k = 1.0 / q;
 
-        Self::from_g_and_k(g, k, a * a, k * (1.0 - a) * a, 1.0 - a * a)
+        Self::from_g_and_k(g, k, raw_gain, k * (1.0 - a) * a, 1.0 - raw_gain)
     }
 
     pub fn allpass(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> Self {
@@ -174,6 +180,9 @@ impl SvfCoeff {
 }
 
 /// The state of an SVF (state variable filter) model.
+///
+/// This is based on the filter model developed by Andrew Simper:
+/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct SvfState {
     pub ic1eq: f32,
@@ -201,6 +210,9 @@ impl SvfState {
 
 /// The coefficients for an SVF (state variable filter) model, optimized for
 /// auto-vectorization.
+///
+/// This is based on the filter model developed by Andrew Simper:
+/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvfCoeffSimd<const LANES: usize> {
     pub a1: [f32; LANES],
@@ -274,6 +286,9 @@ impl<const LANES: usize> Default for SvfCoeffSimd<LANES> {
 
 /// The state of an SVF (state variable filter) model, optimized
 /// for auto-vectorization.
+///
+/// This is based on the filter model developed by Andrew Simper:
+/// https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvfStateSimd<const LANES: usize> {
     pub ic1eq: [f32; LANES],
@@ -361,10 +376,12 @@ fn q_norm(q: f32) -> f32 {
     q * (1.0 / Q_BUTTERWORTH_ORD2 as f32)
 }
 
+/*
 #[inline]
 fn gain_db_to_a(gain_db: f32) -> f32 {
     10.0f32.powf(gain_db * (1.0 / 40.0))
 }
+*/
 
 #[inline]
 fn scale_q_norm_for_order(q_norm: f32, scale: f32) -> f32 {

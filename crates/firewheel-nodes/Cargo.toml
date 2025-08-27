@@ -33,6 +33,7 @@ all_nodes = [
     "spatial_basic",
     "stream",
     "fast_filters",
+    "svf",
     "noise_generators",
 ]
 # Enables event scheduling support in some nodes.
@@ -47,6 +48,8 @@ sampler = ["dep:smallvec"]
 spatial_basic = []
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
 fast_filters = []
+# Enables the SVF (state variable filter) node
+svf = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode
 noise_generators = []
 # Enables the stream writer/reader nodes for sending/receiving audio

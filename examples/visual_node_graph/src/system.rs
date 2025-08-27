@@ -9,6 +9,7 @@ use firewheel::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
+        svf::SvfNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
@@ -30,6 +31,7 @@ pub enum NodeType {
     FastLowpass,
     FastHighpass,
     FastBandpass,
+    SVF,
 }
 
 pub struct AudioSystem {
@@ -74,6 +76,7 @@ impl AudioSystem {
             NodeType::FastLowpass => self.cx.add_node(FastLowpassNode::<2>::default(), None),
             NodeType::FastHighpass => self.cx.add_node(FastHighpassNode::<2>::default(), None),
             NodeType::FastBandpass => self.cx.add_node(FastBandpassNode::<2>::default(), None),
+            NodeType::SVF => self.cx.add_node(SvfNode::<2>::default(), None),
         };
 
         match node_type {
@@ -111,6 +114,10 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::FastBandpass => GuiAudioNode::FastBandpass {
+                id,
+                params: Default::default(),
+            },
+            NodeType::SVF => GuiAudioNode::SVF {
                 id,
                 params: Default::default(),
             },

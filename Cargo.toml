@@ -74,6 +74,7 @@ all_nodes = [
     "spatial_basic_node",
     "stream_nodes",
     "fast_filter_nodes",
+    "svf_node",
     "noise_gen_nodes",
 ]
 # Enables the "beep test" node
@@ -91,6 +92,8 @@ stream_nodes = ["firewheel-nodes/stream"]
 noise_gen_nodes = ["firewheel-nodes/noise_generators"]
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
 fast_filter_nodes = ["firewheel-nodes/fast_filters"]
+# Enables the SVF (state variable filter) node
+svf_node = ["firewheel-nodes/svf"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros for node parameters

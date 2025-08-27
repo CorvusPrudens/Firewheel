@@ -2,6 +2,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
+        coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
         declick::{Declicker, FadeType},
         filter::{
             single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
@@ -13,21 +14,21 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
-    param::smoother::SmoothedParam,
+    param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask, StreamInfo,
 };
 
 use super::{MAX_HZ, MIN_HZ};
-
-const CALC_FILTER_COEFF_INTERVAL: usize = 16;
 
 pub type FastLowpassMonoNode = FastLowpassNode<1>;
 pub type FastLowpassStereoNode = FastLowpassNode<2>;
 
 /// A simple single-pole IIR lowpass filter that is computationally efficient.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct FastLowpassNode<const CHANNELS: usize> {
-    /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
+    /// The cutoff frequency in hertz in the range `[20.0, 20480.0]`.
     pub cutoff_hz: f32,
     /// Whether or not this node is enabled.
     pub enabled: bool,
@@ -36,6 +37,19 @@ pub struct FastLowpassNode<const CHANNELS: usize> {
     ///
     /// By default this is set to `0.015` (15ms).
     pub smooth_seconds: f32,
+
+    /// An exponent representing the rate at which DSP coefficients are
+    /// updated when parameters are being smoothed.
+    ///
+    /// Smaller values will produce less "stair-stepping" artifacts,
+    /// but will also consume more CPU.
+    ///
+    /// The resulting number of frames (samples in a single channel of audio)
+    /// that will elapse between each update is calculated as
+    /// `2^coeff_update_factor`.
+    ///
+    /// By default this is set to `5`.
+    pub coeff_update_factor: CoeffUpdateFactor,
 }
 
 impl<const CHANNELS: usize> Default for FastLowpassNode<CHANNELS> {
@@ -44,11 +58,11 @@ impl<const CHANNELS: usize> Default for FastLowpassNode<CHANNELS> {
             cutoff_hz: 1_000.0,
             enabled: true,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
 }
 
-// Implement the AudioNode type for your node.
 impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
     type Configuration = EmptyConfig;
 
@@ -61,17 +75,11 @@ impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
             })
     }
 
-    // Construct the realtime processor counterpart using the given information
-    // about the audio stream.
-    //
-    // This method is called before the node processor is sent to the realtime
-    // thread, so it is safe to do non-realtime things here like allocating.
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        // The reciprocal of the sample rate.
         let sample_rate_recip = cx.stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(MIN_HZ, MAX_HZ);
@@ -84,44 +92,37 @@ impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
             )),
             cutoff_hz: SmoothedParam::new(
                 cutoff_hz,
-                Default::default(),
+                SmootherConfig {
+                    smooth_seconds: self.smooth_seconds,
+                    ..Default::default()
+                },
                 cx.stream_info.sample_rate,
             ),
             enable_declicker: Declicker::from_enabled(self.enabled),
-            sample_rate_recip,
+            coeff_update_mask: self.coeff_update_factor.mask(),
         }
     }
 }
 
-// The realtime processor counterpart to your node.
 struct Processor<const CHANNELS: usize> {
     filter: OnePoleIirLPFSimd<CHANNELS>,
     coeff: OnePoleIirLPFCoeffSimd<CHANNELS>,
 
     cutoff_hz: SmoothedParam,
     enable_declicker: Declicker,
-    sample_rate_recip: f32,
+    coeff_update_mask: CoeffUpdateMask,
 }
 
 impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
-    // The realtime process method.
     fn process(
         &mut self,
-        // Information about the process block.
         info: &ProcInfo,
-        // The buffers of data to process.
         buffers: ProcBuffers,
-        // The list of events for our node to process.
         events: &mut ProcEvents,
-        // Extra buffers and utilities.
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut cutoff_changed = false;
 
-        // Process the events.
-        //
-        // We don't need to keep around a `FilterNode` instance,
-        // so we can just match on each event directly.
         for patch in events.drain_patches::<FastLowpassNode<CHANNELS>>() {
             match patch {
                 FastLowpassNodePatch::CutoffHz(cutoff) => {
@@ -135,6 +136,9 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
                 FastLowpassNodePatch::SmoothSeconds(seconds) => {
                     self.cutoff_hz.set_smooth_seconds(seconds, info.sample_rate);
+                }
+                FastLowpassNodePatch::CoeffUpdateFactor(f) => {
+                    self.coeff_update_mask = f.mask();
                 }
             }
         }
@@ -171,13 +175,12 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
-                // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
-                // frames.
+                // this can be used to only recalculate them every few frames.
                 //
                 // TODO: use core::hint::cold_path() once that stabilizes
                 //
                 // TODO: Alternatively, this could be optimized using a lookup table
-                if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
+                if self.coeff_update_mask.do_update(i) {
                     self.coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
                         cutoff_hz,
                         info.sample_rate_recip as f32,
@@ -247,8 +250,6 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {
-        self.sample_rate_recip = stream_info.sample_rate_recip as f32;
-
         self.cutoff_hz.update_sample_rate(stream_info.sample_rate);
         self.coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
             self.cutoff_hz.target_value(),

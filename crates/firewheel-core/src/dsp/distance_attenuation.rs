@@ -6,14 +6,16 @@ use core::num::NonZeroU32;
 use firewheel_macros::{Diff, Patch};
 
 use crate::{
-    dsp::filter::single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
+    dsp::{
+        coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
+        filter::single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
+    },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
 pub const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
 pub const MUFFLE_CUTOFF_HZ_MAX: f32 = 20_480.0;
 const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN);
-const CALC_FILTER_COEFF_INTERVAL: usize = 16;
 
 /// The method in which to calculate the volume of a sound based on the distance from
 /// the listener.
@@ -191,10 +193,15 @@ pub struct DistanceAttenuatorStereoDsp {
     pub damping_disabled: bool,
 
     pub filter: OnePoleIirLPFSimd<2>,
+    coeff_update_mask: CoeffUpdateMask,
 }
 
 impl DistanceAttenuatorStereoDsp {
-    pub fn new(smoother_config: SmootherConfig, sample_rate: NonZeroU32) -> Self {
+    pub fn new(
+        smoother_config: SmootherConfig,
+        sample_rate: NonZeroU32,
+        coeff_update_factor: CoeffUpdateFactor,
+    ) -> Self {
         Self {
             gain: SmoothedParam::new(1.0, smoother_config, sample_rate),
             muffle_cutoff_hz: SmoothedParam::new(
@@ -204,7 +211,12 @@ impl DistanceAttenuatorStereoDsp {
             ),
             damping_disabled: true,
             filter: OnePoleIirLPFSimd::default(),
+            coeff_update_mask: coeff_update_factor.mask(),
         }
+    }
+
+    pub fn set_coeff_update_factor(&mut self, coeff_update_factor: CoeffUpdateFactor) {
+        self.coeff_update_mask = coeff_update_factor.mask();
     }
 
     pub fn is_silent(&self) -> bool {
@@ -346,13 +358,12 @@ impl DistanceAttenuatorStereoDsp {
                     let gain = self.gain.next_smoothed();
 
                     // Because recalculating filter coefficients is expensive, a trick like
-                    // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
-                    // frames.
+                    // this can be used to only recalculate them every few frames.
                     //
                     // TODO: use core::hint::cold_path() once that stabilizes
                     //
                     // TODO: Alternatively, this could be optimized using a lookup table
-                    if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
+                    if self.coeff_update_mask.do_update(i) {
                         coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
                             cutoff_hz,
                             sample_rate_recip as f32,

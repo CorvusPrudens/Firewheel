@@ -1,5 +1,6 @@
 pub mod algo;
 pub mod buffer;
+pub mod coeff_update;
 pub mod declick;
 pub mod distance_attenuation;
 pub mod filter;

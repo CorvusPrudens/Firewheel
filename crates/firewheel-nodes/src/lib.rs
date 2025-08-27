@@ -18,8 +18,11 @@ pub mod stream;
 #[cfg(feature = "noise_generators")]
 pub mod noise_generator;
 
-#[cfg(feature = "noise_generators")]
+#[cfg(feature = "fast_filters")]
 pub mod fast_filters;
+
+#[cfg(feature = "svf")]
+pub mod svf;
 
 mod stereo_to_mono;
 

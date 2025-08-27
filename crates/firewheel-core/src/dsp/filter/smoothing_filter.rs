@@ -4,7 +4,7 @@ use num_traits::Float;
 use core::num::NonZeroU32;
 
 pub const DEFAULT_SMOOTH_SECONDS: f32 = 15.0 / 1_000.0;
-pub const DEFAULT_SETTLE_EPSILON: f32 = 0.00001f32;
+pub const DEFAULT_SETTLE_EPSILON: f32 = 0.001f32;
 
 /// The coefficients for a simple smoothing/declicking filter where:
 ///
@@ -68,7 +68,9 @@ impl SmoothingFilter {
     ///
     /// Returns `true` if this filter is settled, `false` if not.
     pub fn settle(&mut self, target: f32, settle_epsilon: f32) -> bool {
-        if (self.z1 - target).abs() < settle_epsilon {
+        if self.z1 == target {
+            true
+        } else if (self.z1 - target).abs() < (target.abs() * settle_epsilon) + settle_epsilon {
             self.z1 = target;
             true
         } else {

@@ -13,6 +13,7 @@ use firewheel::{
             MAX_HZ, MIN_HZ,
         },
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
+        svf::{SvfNode, SvfType, DEFAULT_MAX_Q, DEFAULT_MIN_Q},
         volume::VolumeNode,
         volume_pan::VolumePanNode,
     },
@@ -66,6 +67,10 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<FastBandpassNode<2>>,
     },
+    SVF {
+        id: firewheel::node::NodeID,
+        params: Memo<SvfNode<2>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -83,6 +88,7 @@ impl GuiAudioNode {
             &Self::FastLowpass { id, .. } => id,
             &Self::FastHighpass { id, .. } => id,
             &Self::FastBandpass { id, .. } => id,
+            &Self::SVF { id, .. } => id,
         }
     }
 
@@ -100,6 +106,7 @@ impl GuiAudioNode {
             &Self::FastLowpass { .. } => "Fast Lowpass",
             &Self::FastHighpass { .. } => "Fast Highpass",
             &Self::FastBandpass { .. } => "Fast Bandpass",
+            &Self::SVF { .. } => "SVF",
         }
         .into()
     }
@@ -118,6 +125,7 @@ impl GuiAudioNode {
             &Self::FastLowpass { .. } => 2,
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
+            &Self::SVF { .. } => 2,
         }
     }
 
@@ -135,6 +143,7 @@ impl GuiAudioNode {
             &Self::FastLowpass { .. } => 2,
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
+            &Self::SVF { .. } => 2,
         }
     }
 }
@@ -287,6 +296,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
+        if ui.button("SVF").clicked() {
+            let node = self.audio_system.add_node(NodeType::SVF);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
     }
 
     fn has_dropped_wire_menu(
@@ -338,7 +352,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             | GuiAudioNode::PinkNoiseGen { .. }
             | GuiAudioNode::FastLowpass { .. }
             | GuiAudioNode::FastHighpass { .. }
-            | GuiAudioNode::FastBandpass { .. } => true,
+            | GuiAudioNode::FastBandpass { .. }
+            | GuiAudioNode::SVF { .. } => true,
             _ => false,
         }
     }
@@ -471,6 +486,91 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                             .logarithmic(true)
                             .text("cutoff hz"),
                     );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::SVF { id, params } => {
+                ui.vertical(|ui| {
+                    egui::ComboBox::from_label("filter type")
+                        .selected_text(match params.filter_type {
+                            SvfType::Lowpass => "Lowpass",
+                            SvfType::LowpassX2 => "Lowpass x2",
+                            SvfType::Highpass => "Highpass",
+                            SvfType::HighpassX2 => "Highpass X2",
+                            SvfType::Bandpass => "Bandpass",
+                            SvfType::LowShelf => "Low Shelf",
+                            SvfType::HighShelf => "High Shelf",
+                            SvfType::Bell => "Bell",
+                            SvfType::Notch => "Notch",
+                            SvfType::Allpass => "Allpass",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::Lowpass,
+                                "Lowpass",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::LowpassX2,
+                                "Lowpass X2",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::Highpass,
+                                "Highpass",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::HighpassX2,
+                                "HighpassX2",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::Bandpass,
+                                "Bandpass",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::LowShelf,
+                                "Low Shelf",
+                            );
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::HighShelf,
+                                "HighShelf",
+                            );
+                            ui.selectable_value(&mut params.filter_type, SvfType::Bell, "Bell");
+                            ui.selectable_value(&mut params.filter_type, SvfType::Notch, "Notch");
+                            ui.selectable_value(
+                                &mut params.filter_type,
+                                SvfType::Allpass,
+                                "Allpass",
+                            );
+                        });
+
+                    ui.add(
+                        egui::Slider::new(&mut params.cutoff_hz, MIN_HZ..=MAX_HZ)
+                            .logarithmic(true)
+                            .text("cutoff hz"),
+                    );
+
+                    ui.add(
+                        egui::Slider::new(&mut params.q_factor, DEFAULT_MIN_Q..=DEFAULT_MAX_Q)
+                            .logarithmic(true)
+                            .text("q factor"),
+                    );
+
+                    let mut db_gain = params.gain.decibels();
+                    if ui
+                        .add(egui::Slider::new(&mut db_gain, -24.0..=24.0).text("gain"))
+                        .changed()
+                    {
+                        params.gain = Volume::Decibels(db_gain);
+                    }
 
                     ui.checkbox(&mut params.enabled, "enabled");
 

@@ -98,7 +98,6 @@ impl AudioNode for FilterNode {
             ),
             gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
             enable_declicker: Declicker::from_enabled(self.enabled),
-            sample_rate_recip,
         }
     }
 }
@@ -114,7 +113,6 @@ struct Processor {
     gain: SmoothedParamBuffer,
     // This struct is used to declick when enabling/disabling this node.
     enable_declicker: Declicker,
-    sample_rate_recip: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -196,9 +194,10 @@ impl AudioNodeProcessor for Processor {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
-                // this can be use to only recalculate them every 64 frames.
+                // this can be used to only recalculate them every 64 frames.
                 if i & (16 - 1) == 0 {
-                    self.filter_l.set_cutoff(cutoff_hz, self.sample_rate_recip);
+                    self.filter_l
+                        .set_cutoff(cutoff_hz, info.sample_rate_recip as f32);
                     self.filter_r.copy_cutoff_from(&self.filter_l);
                 }
 
@@ -216,7 +215,7 @@ impl AudioNodeProcessor for Processor {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
             self.filter_l
-                .set_cutoff(self.cutoff_hz.target_value(), self.sample_rate_recip);
+                .set_cutoff(self.cutoff_hz.target_value(), info.sample_rate_recip as f32);
             self.filter_r.copy_cutoff_from(&self.filter_l);
 
             for i in 0..info.frames {
@@ -250,13 +249,13 @@ impl AudioNodeProcessor for Processor {
     // This gets called outside of the audio thread, so it is safe to allocate and
     // deallocate here.
     fn new_stream(&mut self, stream_info: &StreamInfo) {
-        self.sample_rate_recip = stream_info.sample_rate_recip as f32;
-
         self.cutoff_hz.update_sample_rate(stream_info.sample_rate);
         self.gain.update_stream(stream_info);
 
-        self.filter_l
-            .set_cutoff(self.cutoff_hz.target_value(), self.sample_rate_recip);
+        self.filter_l.set_cutoff(
+            self.cutoff_hz.target_value(),
+            stream_info.sample_rate_recip as f32,
+        );
         self.filter_r.copy_cutoff_from(&self.filter_l);
     }
 }
