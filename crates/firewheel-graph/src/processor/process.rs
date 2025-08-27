@@ -169,6 +169,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         }
         let schedule_data = self.schedule_data.as_mut().unwrap();
 
+        if self.force_clear_buffers {
+            schedule_data.schedule.clear_buffers();
+        }
+
         // -- Prepare process info ------------------------------------------------------------
 
         #[cfg(feature = "musical_transport")]

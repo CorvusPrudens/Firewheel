@@ -240,6 +240,11 @@ impl CompiledSchedule {
         self.max_block_frames
     }
 
+    pub fn clear_buffers(&mut self) {
+        self.buffers.as_mut_slice().fill(0.0);
+        self.buffer_silence_flags.as_mut_slice().fill(true);
+    }
+
     pub fn prepare_graph_inputs(
         &mut self,
         frames: usize,

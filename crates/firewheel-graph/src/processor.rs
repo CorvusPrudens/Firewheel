@@ -114,6 +114,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     /// main thread know that it shouldn't try spawning a new audio stream
     /// with the shared `Arc<AtomicRefCell<FirewheelProcessorInner>>` object.
     pub(crate) poisoned: bool,
+    force_clear_buffers: bool,
 }
 
 impl<B: AudioBackend> FirewheelProcessorInner<B> {
@@ -129,6 +130,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         hard_clip_outputs: bool,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
         logger: RealtimeLogger,
+        force_clear_buffers: bool,
     ) -> Self {
         Self {
             nodes: Arena::new(),
@@ -156,6 +158,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 logger,
             },
             poisoned: false,
+            force_clear_buffers,
         }
     }
 }

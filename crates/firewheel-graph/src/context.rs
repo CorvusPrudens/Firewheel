@@ -108,6 +108,13 @@ pub struct FirewheelConfig {
 
     /// The configuration of the realtime safe logger.
     pub logger_config: RealtimeLoggerConfig,
+
+    /// Force all buffers in the audio graph to be cleared before processing.
+    ///
+    /// This shouldn't be necessary. If enabling this fixes audio glitching
+    /// issues, then please report it as it means there is a bug in either a
+    /// specific audio node or in the audio graph engine as a whole.
+    pub force_clear_buffers: bool,
 }
 
 impl Default for FirewheelConfig {
@@ -127,6 +134,7 @@ impl Default for FirewheelConfig {
             scheduled_event_capacity: 512,
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
+            force_clear_buffers: false,
         }
     }
 }
@@ -324,6 +332,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 self.config.hard_clip_outputs,
                 self.config.buffer_out_of_space_mode,
                 logger,
+                self.config.force_clear_buffers,
             )
         } else {
             let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
