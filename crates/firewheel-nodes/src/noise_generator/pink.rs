@@ -22,6 +22,7 @@ const COEFF_SUM: [i16; 5] = [22347, 27917, 29523, 29942, 30007];
 
 /// A simple node that generates white noise. (Mono output only)
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct PinkNoiseGenNode {
     /// The overall volume.
@@ -49,6 +50,7 @@ impl Default for PinkNoiseGenNode {
 
 /// The configuration for a [`PinkNoiseGenNode`]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct PinkNoiseGenConfig {
     /// The starting seed. This cannot be zero.
