@@ -49,7 +49,7 @@ impl Default for PinkNoiseGenNode {
 }
 
 /// The configuration for a [`PinkNoiseGenNode`]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct PinkNoiseGenConfig {
