@@ -35,6 +35,7 @@ all_nodes = [
     "fast_filters",
     "svf",
     "noise_generators",
+    "delay_compensation",
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -55,6 +56,8 @@ noise_generators = []
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream = ["std", "dep:fixed-resample"]
+# Enables the delay compensation node
+delay_compensation = ["dep:smallvec"]
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros

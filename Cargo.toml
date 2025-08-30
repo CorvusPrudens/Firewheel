@@ -76,6 +76,7 @@ all_nodes = [
     "fast_filter_nodes",
     "svf_node",
     "noise_gen_nodes",
+    "delay_compensation_node",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
@@ -94,6 +95,8 @@ noise_gen_nodes = ["firewheel-nodes/noise_generators"]
 fast_filter_nodes = ["firewheel-nodes/fast_filters"]
 # Enables the SVF (state variable filter) node
 svf_node = ["firewheel-nodes/svf"]
+# Enables the delay compensation node
+delay_compensation_node = ["firewheel-nodes/delay_compensation"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros for node parameters

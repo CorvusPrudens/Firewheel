@@ -24,6 +24,9 @@ pub mod fast_filters;
 #[cfg(feature = "svf")]
 pub mod svf;
 
+#[cfg(feature = "delay_compensation")]
+pub mod delay_compensation;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;
