@@ -9,6 +9,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
+        coeff_update::CoeffUpdateFactor,
         distance_attenuation::{
             DistanceAttenuation, DistanceAttenuatorStereoDsp, MUFFLE_CUTOFF_HZ_MAX,
         },
@@ -92,7 +93,6 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to "0.0001" (-80 dB).
     pub min_gain: f32,
-    /* TODO: Add this back in version 0.8
     /// An exponent representing the rate at which DSP coefficients are
     /// updated when parameters are being smoothed.
     ///
@@ -105,7 +105,6 @@ pub struct SpatialBasicNode {
     ///
     /// By default this is set to `5`.
     pub coeff_update_factor: CoeffUpdateFactor,
-    */
 }
 
 impl Default for SpatialBasicNode {
@@ -119,7 +118,7 @@ impl Default for SpatialBasicNode {
             muffle_cutoff_hz: MUFFLE_CUTOFF_HZ_MAX,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: 0.0001,
-            //coeff_update_factor: CoeffUpdateFactor::default(),
+            coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
 }
@@ -207,7 +206,7 @@ impl AudioNode for SpatialBasicNode {
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
-                //self.coeff_update_factor,
+                self.coeff_update_factor,
             ),
             params: *self,
             prev_block_was_silent: true,
@@ -254,11 +253,9 @@ impl AudioNodeProcessor for Processor {
                 SpatialBasicNodePatch::MinGain(g) => {
                     *g = g.clamp(0.0, 1.0);
                 }
-                /*
                 SpatialBasicNodePatch::CoeffUpdateFactor(f) => {
                     self.distance_attenuator.set_coeff_update_factor(*f);
                 }
-                */
                 _ => {}
             }
 
