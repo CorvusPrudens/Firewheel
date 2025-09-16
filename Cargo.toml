@@ -105,6 +105,8 @@ bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.29.
 glam-29 = ["firewheel-core/glam-29"]
+# Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.30.
+glam-30 = ["firewheel-core/glam-30"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
 
@@ -138,9 +140,9 @@ bitflags = "2"
 thunderdome = { version = "0.6", default-features = false }
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.3.0" }
-bevy_platform = { version = "0.*", default-features = false, features = ["alloc"] }
-bevy_ecs = { version = "0.16", default-features = false }
-bevy_reflect = { version = "0.16", default-features = false }
+bevy_platform = { version = "0.17.0-rc.1", default-features = false, features = ["alloc"] }
+bevy_ecs = { version = "0.17.0-rc.1", default-features = false }
+bevy_reflect = { version = "0.17.0-rc.1", default-features = false }
 num-traits = {version =  "0.2", default-features = false }
 
 [dependencies]

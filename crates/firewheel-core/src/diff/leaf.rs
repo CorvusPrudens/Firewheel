@@ -183,9 +183,14 @@ primitive_diff!(Vec2, Vector2D);
 primitive_diff!(Vec3, Vector3D);
 
 #[cfg(feature = "glam-29")]
-primitive_diff!(glam::Vec2, Vector2D);
+primitive_diff!(glam_29::Vec2, Vector2D);
 #[cfg(feature = "glam-29")]
-primitive_diff!(glam::Vec3, Vector3D);
+primitive_diff!(glam_29::Vec3, Vector3D);
+
+#[cfg(feature = "glam-30")]
+primitive_diff!(glam_30::Vec2, Vector2D);
+#[cfg(feature = "glam-30")]
+primitive_diff!(glam_30::Vec3, Vector3D);
 
 impl Diff for Notify<()> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {

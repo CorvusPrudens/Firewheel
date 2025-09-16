@@ -257,9 +257,14 @@ param_data_from!(InstantMusical, InstantMusical);
 param_data_from!(DurationMusical, DurationMusical);
 
 #[cfg(feature = "glam-29")]
-param_data_from!(glam::Vec2, Vector2D);
+param_data_from!(glam_29::Vec2, Vector2D);
 #[cfg(feature = "glam-29")]
-param_data_from!(glam::Vec3, Vector3D);
+param_data_from!(glam_29::Vec3, Vector3D);
+
+#[cfg(feature = "glam-30")]
+param_data_from!(glam_30::Vec2, Vector2D);
+#[cfg(feature = "glam-30")]
+param_data_from!(glam_30::Vec3, Vector3D);
 
 impl From<()> for ParamData {
     fn from(_value: ()) -> Self {
