@@ -20,18 +20,6 @@ impl Volume {
     /// Silence
     pub const SILENT: Self = Self::Linear(0.0);
 
-    /// Get the volume in decibels.
-    /// amp is the raw amplitude value (not decibels).
-    /// It is used to calculate the decibel value.
-    pub fn from_amp(amp: f32) -> Self {
-        Self::Decibels(amp_to_db(amp))
-    }
-
-    /// Constructs a [`Volume::Linear`] value.
-    pub fn from_linear(linear: f32) -> Self {
-        Self::Linear(linear)
-    }
-
     /// Get the volume in raw amplitude for use in DSP.
     pub fn amp(&self) -> f32 {
         match *self {
