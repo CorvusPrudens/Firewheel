@@ -9,6 +9,9 @@ pub const DEFAULT_DB_EPSILON: f32 = -100.0;
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum Volume {
     /// Volume in a linear scale, where `0.0` is silence and `1.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders (simply convert percent
+    /// volume to linear volume by diving the percent volume by 100).
     Linear(f32),
     /// Volume in decibels, where `0.0` is unity gain and `f32::NEG_INFINITY` is silence.
     Decibels(f32),
