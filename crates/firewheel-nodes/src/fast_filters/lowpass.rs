@@ -63,6 +63,21 @@ impl<const CHANNELS: usize> Default for FastLowpassNode<CHANNELS> {
     }
 }
 
+impl<const CHANNELS: usize> FastLowpassNode<CHANNELS> {
+    /// Construct a new `FastLowpassNode` from the given parameters.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_cutoff_hz(cutoff_hz: f32, enabled: bool) -> Self {
+        Self {
+            cutoff_hz,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor::DEFAULT,
+        }
+    }
+}
+
 impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
     type Configuration = EmptyConfig;
 

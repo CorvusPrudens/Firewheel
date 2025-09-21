@@ -64,7 +64,7 @@ impl VolumeNode {
     ///
     /// These units are suitable for volume sliders (simply convert percent
     /// volume to linear volume by diving the percent volume by 100).
-    pub fn from_linear(linear: f32) -> Self {
+    pub const fn from_linear(linear: f32) -> Self {
         Self {
             volume: Volume::Linear(linear),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
@@ -74,12 +74,27 @@ impl VolumeNode {
 
     /// Construct a volume node from the given volume in decibels, where `0.0`
     /// is unity gain and `f32::NEG_INFINITY` is silence.
-    pub fn from_decibels(decibels: f32) -> Self {
+    pub const fn from_decibels(decibels: f32) -> Self {
         Self {
             volume: Volume::Decibels(decibels),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }
+    }
+
+    /// Set the given volume in a linear scale, where `0.0` is silence and
+    /// `1.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders (simply convert percent
+    /// volume to linear volume by diving the percent volume by 100).
+    pub const fn set_linear(&mut self, linear: f32) {
+        self.volume = Volume::Linear(linear);
+    }
+
+    /// Set the given volume in decibels, where `0.0` is unity gain and
+    /// `f32::NEG_INFINITY` is silence.
+    pub const fn set_decibels(&mut self, decibels: f32) {
+        self.volume = Volume::Decibels(decibels);
     }
 }
 

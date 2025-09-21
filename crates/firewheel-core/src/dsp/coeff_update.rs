@@ -20,6 +20,8 @@ use crate::{
 pub struct CoeffUpdateFactor(pub u32);
 
 impl CoeffUpdateFactor {
+    pub const DEFAULT: Self = Self(5);
+
     pub fn interval_frames(&self) -> usize {
         2u32.pow(self.0) as usize
     }
@@ -31,7 +33,7 @@ impl CoeffUpdateFactor {
 
 impl Default for CoeffUpdateFactor {
     fn default() -> Self {
-        Self(5)
+        Self::DEFAULT
     }
 }
 

@@ -171,6 +171,317 @@ impl<const CHANNELS: usize> Default for SvfNode<CHANNELS> {
     }
 }
 
+impl<const CHANNELS: usize> SvfNode<CHANNELS> {
+    /// Construct a new SVF node with the lowpass filter type of order 2.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_lowpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Lowpass,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the lowpass filter type of order 4.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_lowpass_x2(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::LowpassX2,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the highpass filter type of order 2.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_highpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Highpass,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the highpass filter type of order 4.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_highpass_x2(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::HighpassX2,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the bandpass filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_bandpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Bandpass,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the lowshelf filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_lowshelf(cutoff_hz: f32, gain: Volume, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::LowShelf,
+            cutoff_hz,
+            q_factor,
+            gain,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the highshelf filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_highshelf(
+        cutoff_hz: f32,
+        gain: Volume,
+        q_factor: f32,
+        enabled: bool,
+    ) -> Self {
+        Self {
+            filter_type: SvfType::HighShelf,
+            cutoff_hz,
+            q_factor,
+            gain,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the bell filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_bell(cutoff_hz: f32, gain: Volume, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Bell,
+            cutoff_hz,
+            q_factor,
+            gain,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the notch filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_notch(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Notch,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Construct a new SVF node with the allpass filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    /// * `enabled` - Whether or not this node is enabled
+    pub const fn from_allpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+        Self {
+            filter_type: SvfType::Allpass,
+            cutoff_hz,
+            q_factor,
+            gain: Volume::UNITY_GAIN,
+            enabled,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            coeff_update_factor: CoeffUpdateFactor(5),
+        }
+    }
+
+    /// Set the parameters to use a lowpass filter type of order 2.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_lowpass(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::Lowpass;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a lowpass filter type of order 4.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_lowpass_x2(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::LowpassX2;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a highpass filter type of order 2.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_highpass(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::Highpass;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a highpass filter type of order 4.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_highpass_x2(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::HighpassX2;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a bandpass filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_bandpass(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::Bandpass;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a lowshelf filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_lowshelf(&mut self, cutoff_hz: f32, gain: Volume, q_factor: f32) {
+        self.filter_type = SvfType::LowShelf;
+        self.cutoff_hz = cutoff_hz;
+        self.gain = gain;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a highshelf filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_highshelf(&mut self, cutoff_hz: f32, gain: Volume, q_factor: f32) {
+        self.filter_type = SvfType::HighShelf;
+        self.cutoff_hz = cutoff_hz;
+        self.gain = gain;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a bell filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `gain` - The filter gain
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_bell(&mut self, cutoff_hz: f32, gain: Volume, q_factor: f32) {
+        self.filter_type = SvfType::Bell;
+        self.cutoff_hz = cutoff_hz;
+        self.gain = gain;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use a notch filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_notch(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::Notch;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the parameters to use an allpass filter type.
+    ///
+    /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
+    /// * `q_factor` - The quality (q) factor
+    pub const fn set_allpass(&mut self, cutoff_hz: f32, q_factor: f32) {
+        self.filter_type = SvfType::Allpass;
+        self.cutoff_hz = cutoff_hz;
+        self.q_factor = q_factor;
+    }
+
+    /// Set the given filter gain in a linear scale, where `0.0` is silence and
+    /// `1.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders (simply convert percent
+    /// volume to linear volume by diving the percent volume by 100).
+    ///
+    /// This only has effect if the filter type is one of the following:
+    /// * [`SvfType::LowShelf`]
+    /// * [`SvfType::HighShelf`]
+    /// * [`SvfType::Bell`]
+    pub const fn set_gain_linear(&mut self, linear: f32) {
+        self.gain = Volume::Linear(linear);
+    }
+
+    /// Set the given filter gain in decibels, where `0.0` is unity gain and
+    /// `f32::NEG_INFINITY` is silence.
+    ///
+    /// This only has effect if the filter type is one of the following:
+    /// * [`SvfType::LowShelf`]
+    /// * [`SvfType::HighShelf`]
+    /// * [`SvfType::Bell`]
+    pub const fn set_gain_decibels(&mut self, decibels: f32) {
+        self.gain = Volume::Decibels(decibels);
+    }
+}
+
 impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
     type Configuration = SvfNodeConfig;
 

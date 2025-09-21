@@ -45,6 +45,65 @@ pub struct VolumePanNode {
 }
 
 impl VolumePanNode {
+    /// Construct a new `VolumePanNode` from the given volume and pan values.
+    ///
+    /// * `volume` - The overall volume.
+    /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left,
+    /// and `1.0` is fully right.
+    pub const fn from_volume_pan(volume: Volume, pan: f32) -> Self {
+        Self {
+            volume,
+            pan,
+            pan_law: PanLaw::EqualPower3dB,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+
+    /// Construct a new `VolumePanNode` from the given pan value.
+    ///
+    /// The volume will be set to unity gain.
+    ///
+    /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left,
+    /// and `1.0` is fully right.
+    pub const fn from_pan(pan: f32) -> Self {
+        Self {
+            volume: Volume::UNITY_GAIN,
+            pan,
+            pan_law: PanLaw::EqualPower3dB,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+
+    /// Construct a new `VolumePanNode` from the given volume.
+    ///
+    /// The pan amount will be set to `0.0` (center).
+    pub const fn from_volume(volume: Volume) -> Self {
+        Self {
+            volume,
+            pan: 0.0,
+            pan_law: PanLaw::EqualPower3dB,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+
+    /// Set the given volume in a linear scale, where `0.0` is silence and
+    /// `1.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders (simply convert percent
+    /// volume to linear volume by diving the percent volume by 100).
+    pub const fn set_volume_linear(&mut self, linear: f32) {
+        self.volume = Volume::Linear(linear);
+    }
+
+    /// Set the given volume in decibels, where `0.0` is unity gain and
+    /// `f32::NEG_INFINITY` is silence.
+    pub const fn set_volume_decibels(&mut self, decibels: f32) {
+        self.volume = Volume::Decibels(decibels);
+    }
+
     pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
         let global_gain = self.volume.amp_clamped(amp_epsilon);
 
