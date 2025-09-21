@@ -58,6 +58,34 @@ impl Default for VolumeNode {
     }
 }
 
+impl VolumeNode {
+    pub fn from_linear(linear: f32) -> Self {
+        Self {
+            volume: Volume::Linear(linear),
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+
+    pub fn from_decibels(decibels: f32) -> Self {
+        Self {
+            volume: Volume::Decibels(decibels),
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+
+    /// Construct the volume in decibels.
+    /// amp is the raw amplitude value (not decibels) but it is used to calculate the decibel value
+    pub fn from_amp(amp: f32) -> Self {
+        Self {
+            volume: Volume::Decibels(amp_to_db(amp)),
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
+}
+
 impl AudioNode for VolumeNode {
     type Configuration = VolumeNodeConfig;
 
