@@ -17,8 +17,6 @@ use firewheel_core::{
 
 pub use super::volume::VolumeNodeConfig;
 
-// TODO: Option for true stereo panning?
-
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
