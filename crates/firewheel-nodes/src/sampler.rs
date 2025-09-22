@@ -100,18 +100,18 @@ pub struct SamplerNode {
     /// [`VolumePanNode`]: crate::volume_pan::VolumePanNode
     pub volume: Volume,
 
-    /// Whether or not the current sample should be playing (true) or paused/stopped
-    /// (false).
+    /// Whether or not the current sample should start/restart playing from the current
+    /// [`SamplerNode::playhead`] (true), or be paused/stopped (false).
     pub play: Notify<bool>,
 
-    /// The position in the sample that playback will start from the next time it is
-    /// set to be played.
+    /// The position in the sample that playback will start from the next time
+    /// [`SamplerNode::play`] is set to `true`.
     ///
-    /// Set this to `None` to have the sample pick up where it last left off
-    /// (pause/resume).
+    /// Set this to `None` to have the sample pick up where it last left off the next
+    /// time it is played.
     ///
     /// If this is `Some` and the sample is already playing, then it will seek to the
-    /// new playhead.
+    /// new playhead immediately.
     pub playhead: Option<Playhead>,
 
     /// How many times a sample should be repeated.
