@@ -13,7 +13,7 @@ use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
 };
-use firewheel_core::diff::RealtimeClone;
+use firewheel_core::diff::{EventQueue, PatchError, PathBuilder, RealtimeClone};
 use smallvec::SmallVec;
 
 use firewheel_core::{
@@ -100,19 +100,13 @@ pub struct SamplerNode {
     /// [`VolumePanNode`]: crate::volume_pan::VolumePanNode
     pub volume: Volume,
 
-    /// Whether or not the current sample should start/restart playing from the current
-    /// [`SamplerNode::playhead`] (true), or be paused/stopped (false).
+    /// Whether or not the current sample should start/restart playing (true), or be
+    /// paused/stopped (false).
     pub play: Notify<bool>,
 
-    /// The position in the sample that playback will start from the next time
+    /// Defines where the sampler should start playing from when
     /// [`SamplerNode::play`] is set to `true`.
-    ///
-    /// Set this to `None` to have the sample pick up where it last left off the next
-    /// time it is played.
-    ///
-    /// If this is `Some` and the sample is already playing, then it will seek to the
-    /// new playhead immediately.
-    pub playhead: Option<Playhead>,
+    pub play_from: PlayFrom,
 
     /// How many times a sample should be repeated.
     pub repeat_mode: RepeatMode,
@@ -146,7 +140,7 @@ impl Default for SamplerNode {
             sample: None,
             volume: Volume::default(),
             play: Default::default(),
-            playhead: Some(Playhead::BEGINNING),
+            play_from: PlayFrom::default(),
             repeat_mode: RepeatMode::default(),
             speed: 1.0,
             mono_to_stereo: true,
@@ -186,10 +180,10 @@ impl SamplerNode {
         }
     }
 
-    /// Returns an event type to sync the `playhead` parameter.
-    pub fn sync_playhead_event(&self) -> NodeEventType {
+    /// Returns an event type to sync the `play_from` parameter.
+    pub fn sync_play_from_event(&self) -> NodeEventType {
         NodeEventType::Param {
-            data: ParamData::opt_any(self.playhead),
+            data: self.play_from.as_param_data(),
             path: ParamPath::Single(3),
         }
     }
@@ -214,21 +208,19 @@ impl SamplerNode {
     ///
     /// If a sample is already playing, then it will restart from the beginning.
     pub fn start_or_restart(&mut self) {
-        self.playhead = Some(Playhead::BEGINNING);
+        self.play_from = PlayFrom::BEGINNING;
         *self.play = true;
     }
 
     /// Play the sample in this node from the given playhead.
-    ///
-    /// If a sample is already playing, then it will restart from the given playhead.
-    pub fn play_from(&mut self, playhead: Playhead) {
-        self.playhead = Some(playhead);
+    pub fn start_from(&mut self, from: PlayFrom) {
+        self.play_from = from;
         *self.play = true;
     }
 
     /// Pause sample playback.
     pub fn pause(&mut self) {
-        self.playhead = None;
+        self.play_from = PlayFrom::Resume;
         *self.play = false;
     }
 
@@ -242,28 +234,28 @@ impl SamplerNode {
     /// Calling [`SamplerNode::resume`] after this will restart the sample from
     /// the beginning.
     pub fn stop(&mut self) {
-        self.playhead = Some(Playhead::BEGINNING);
+        self.play_from = PlayFrom::BEGINNING;
         *self.play = false;
     }
 
     /// Returns `true` if the current state is set to restart the sample.
     pub fn start_or_restart_requested(&self) -> bool {
-        *self.play && self.playhead == Some(Playhead::BEGINNING)
+        *self.play && self.play_from == PlayFrom::BEGINNING
     }
 
     /// Returns `true` if the current state is set to resume the sample.
     pub fn resume_requested(&self) -> bool {
-        *self.play && self.playhead.is_none()
+        *self.play && self.play_from == PlayFrom::Resume
     }
 
     /// Returns `true` if the current state is set to pause the sample.
     pub fn pause_requested(&self) -> bool {
-        !*self.play && self.playhead.is_none()
+        !*self.play && self.play_from == PlayFrom::Resume
     }
 
     /// Returns `true` if the current state is set to stop the sample.
     pub fn stop_requested(&self) -> bool {
-        !*self.play && self.playhead.is_some()
+        !*self.play && self.play_from != PlayFrom::Resume
     }
 }
 
@@ -434,37 +426,76 @@ impl SamplerState {
     }
 }
 
-/// The playhead of a sample.
+/// Defines where the sampler should start playing from when
+/// [`SamplerNode::play`] is set to `true`.
 #[derive(Debug, Clone, Copy, PartialEq, RealtimeClone)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub enum Playhead {
-    /// The playhead in units of seconds.
+pub enum PlayFrom {
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will resume
+    /// playing from where it last left off.
+    Resume,
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will begin
+    /// playing  from this position in the sample in units of seconds.
     Seconds(f64),
-    /// The playhead in units of frames (samples in a single channel of audio).
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will begin
+    /// playing from this position in the sample in units of frames (samples
+    /// in a single channel of audio).
     Frames(u64),
 }
 
-impl Playhead {
-    pub const BEGINNING: Self = Playhead::Frames(0);
+impl PlayFrom {
+    pub const BEGINNING: Self = Self::Frames(0);
 
-    pub fn as_frames(&self, sample_rate: NonZeroU32) -> u64 {
+    pub fn as_frames(&self, sample_rate: NonZeroU32) -> Option<u64> {
         match *self {
-            Self::Seconds(seconds) => {
-                if seconds <= 0.0 {
-                    0
-                } else {
-                    (seconds.floor() as u64 * sample_rate.get() as u64)
-                        + (seconds.fract() * sample_rate.get() as f64).round() as u64
-                }
-            }
-            Self::Frames(frames) => frames,
+            Self::Resume => None,
+            Self::Seconds(seconds) => Some(if seconds <= 0.0 {
+                0
+            } else {
+                (seconds.floor() as u64 * sample_rate.get() as u64)
+                    + (seconds.fract() * sample_rate.get() as f64).round() as u64
+            }),
+            Self::Frames(frames) => Some(frames),
+        }
+    }
+
+    pub fn as_param_data(&self) -> ParamData {
+        match self {
+            Self::Resume => ParamData::None,
+            Self::Seconds(s) => ParamData::F64(*s),
+            Self::Frames(f) => ParamData::U64(*f),
         }
     }
 }
 
-impl Default for Playhead {
+impl Default for PlayFrom {
     fn default() -> Self {
         Self::BEGINNING
+    }
+}
+
+impl Diff for PlayFrom {
+    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+        if self != baseline {
+            event_queue.push_param(self.as_param_data(), path);
+        }
+    }
+}
+
+impl Patch for PlayFrom {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
+        match data {
+            ParamData::None => Ok(PlayFrom::Resume),
+            ParamData::F64(s) => Ok(PlayFrom::Seconds(*s)),
+            ParamData::U64(f) => Ok(PlayFrom::Frames(*f)),
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn apply(&mut self, value: Self::Patch) {
+        *self = value;
     }
 }
 
@@ -533,7 +564,7 @@ impl AudioNode for SamplerNode {
             resampler: Some(Resampler::new(config.speed_quality)),
             speed: self.speed.max(MIN_PLAYBACK_SPEED),
             playing: *self.play,
-            paused: !*self.play && self.playhead.is_none(),
+            paused: !*self.play && self.play_from == PlayFrom::Resume,
             #[cfg(feature = "scheduled_events")]
             queued_playback_instant: None,
             min_gain: self.min_gain.max(0.0),
@@ -816,7 +847,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     playback_changed = true;
                     new_playback = Some(*play);
                 }
-                SamplerNodePatch::Playhead(_) => {
+                SamplerNodePatch::PlayFrom(_) => {
                     playback_changed = true;
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
@@ -840,7 +871,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     playback_instant = timestamp;
                     new_playback = Some(*play);
                 }
-                SamplerNodePatch::Playhead(_) => {
+                SamplerNodePatch::PlayFrom(_) => {
                     playback_changed = true;
                     playback_instant = timestamp;
                 }
@@ -918,19 +949,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             if new_playing {
                 let mut playhead_frames_at_play_instant = None;
 
-                if let Some(playhead) = self.params.playhead {
-                    // Play from the given playhead
-                    if let Some(loaded_sample_state) = &mut self.loaded_sample_state {
-                        loaded_sample_state.num_times_looped_back = 0;
-                        playhead_frames_at_play_instant =
-                            Some(playhead.as_frames(info.sample_rate));
-                    } else {
-                        #[cfg(feature = "scheduled_events")]
-                        {
-                            self.queued_playback_instant = playback_instant;
-                        }
-                    }
-                } else {
+                if self.params.play_from == PlayFrom::Resume {
                     // Resume
                     if self.playing {
                         // Sample is already playing, no need to do anything.
@@ -940,6 +959,18 @@ impl AudioNodeProcessor for SamplerProcessor {
                         }
                     } else if let Some(loaded_sample_state) = &self.loaded_sample_state {
                         playhead_frames_at_play_instant = Some(loaded_sample_state.playhead_frames);
+                    }
+                } else {
+                    // Play from the given playhead
+                    if let Some(loaded_sample_state) = &mut self.loaded_sample_state {
+                        loaded_sample_state.num_times_looped_back = 0;
+                        playhead_frames_at_play_instant =
+                            Some(self.params.play_from.as_frames(info.sample_rate).unwrap());
+                    } else {
+                        #[cfg(feature = "scheduled_events")]
+                        {
+                            self.queued_playback_instant = playback_instant;
+                        }
                     }
                 }
 
@@ -1029,16 +1060,16 @@ impl AudioNodeProcessor for SamplerProcessor {
                     }
                 }
             } else {
-                if self.params.playhead.is_some() {
+                if self.params.play_from == PlayFrom::Resume {
+                    // Pause
+                    self.declicker.fade_to_0(&extra.declick_values);
+                    self.paused = true;
+                } else {
                     // Stop
                     self.stop(buffers.outputs.len(), extra);
                     self.shared_state
                         .finished
                         .store(self.params.play.id(), Ordering::Relaxed);
-                } else {
-                    // Pause
-                    self.declicker.fade_to_0(&extra.declick_values);
-                    self.paused = true;
                 }
             }
 
