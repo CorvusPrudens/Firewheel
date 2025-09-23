@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/firewheel.svg)](https://crates.io/crates/firewheel)
 [![License](https://img.shields.io/crates/l/firewheel.svg)](https://github.com/BillyDM/firewheel/blob/main/LICENSE-APACHE)
 
-A low-level open source audio graph engine for games and other applications, written in Rust.
+A mid-level open source audio graph engine for games and other applications, written in Rust.
 
 This crate can be used as-is or as a base for other higher-level audio engines. (Think of it like [wgpu](https://wgpu.rs/) but for audio).
 
