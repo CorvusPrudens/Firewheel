@@ -829,11 +829,10 @@ impl AudioNodeProcessor for SamplerProcessor {
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut sample_changed = self.is_first_process;
-        let mut playback_changed = false;
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
         let mut volume_changed = false;
-        let mut new_playback: Option<bool> = None;
+        let mut new_playing: Option<bool> = None;
 
         #[cfg(feature = "scheduled_events")]
         let mut playback_instant: Option<EventInstant> = None;
@@ -844,11 +843,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 SamplerNodePatch::Sample(_) => sample_changed = true,
                 SamplerNodePatch::Volume(_) => volume_changed = true,
                 SamplerNodePatch::Play(play) => {
-                    playback_changed = true;
-                    new_playback = Some(*play);
-                }
-                SamplerNodePatch::PlayFrom(_) => {
-                    playback_changed = true;
+                    new_playing = Some(*play);
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -867,13 +862,8 @@ impl AudioNodeProcessor for SamplerProcessor {
                 SamplerNodePatch::Sample(_) => sample_changed = true,
                 SamplerNodePatch::Volume(_) => volume_changed = true,
                 SamplerNodePatch::Play(play) => {
-                    playback_changed = true;
                     playback_instant = timestamp;
-                    new_playback = Some(*play);
-                }
-                SamplerNodePatch::PlayFrom(_) => {
-                    playback_changed = true;
-                    playback_instant = timestamp;
+                    new_playing = Some(*play);
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -910,8 +900,10 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if sample_changed {
-            if !playback_changed {
-                playback_changed = true;
+            self.stop(buffers.outputs.len(), extra);
+
+            if new_playing.is_none() {
+                new_playing = Some(false);
 
                 #[cfg(feature = "scheduled_events")]
                 if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
@@ -921,29 +913,21 @@ impl AudioNodeProcessor for SamplerProcessor {
                         // Handle an edge case where the user sent a scheduled play event at
                         // a musical time, but there is no sample and a musical transport
                         // is not playing.
-                        playback_changed = false;
+                        new_playing = None;
+                        self.playing = false;
+                        self.paused = false;
                     }
                 }
             }
-
-            self.stop(buffers.outputs.len(), extra);
 
             self.loaded_sample_state = None;
 
             if let Some(sample) = &self.params.sample {
                 self.load_sample(ArcGc::clone(sample), buffers.outputs.len());
-            } else {
-                new_playback = Some(false);
             }
         }
 
-        if playback_changed {
-            let mut new_playing = if let Some(new_playback) = new_playback {
-                new_playback
-            } else {
-                self.playing
-            };
-
+        if let Some(mut new_playing) = new_playing {
             self.paused = false;
 
             if new_playing {
