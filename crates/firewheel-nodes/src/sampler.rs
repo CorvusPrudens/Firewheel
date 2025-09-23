@@ -902,22 +902,18 @@ impl AudioNodeProcessor for SamplerProcessor {
         if sample_changed {
             self.stop(buffers.outputs.len(), extra);
 
-            if new_playing.is_none() {
-                new_playing = Some(false);
-
-                #[cfg(feature = "scheduled_events")]
+            #[cfg(feature = "scheduled_events")]
+            if new_playing == Some(true) && playback_instant.is_none() {
                 if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
                     if queued_playback_instant.to_samples(info).is_some() {
                         playback_instant = Some(queued_playback_instant);
-                    } else {
-                        // Handle an edge case where the user sent a scheduled play event at
-                        // a musical time, but there is no sample and a musical transport
-                        // is not playing.
-                        new_playing = None;
-                        self.playing = false;
-                        self.paused = false;
                     }
                 }
+            }
+
+            if new_playing.is_none() && self.playing {
+                self.playing = false;
+                self.paused = false;
             }
 
             self.loaded_sample_state = None;
