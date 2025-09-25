@@ -3,7 +3,7 @@ pub mod buffer;
 pub mod coeff_update;
 pub mod declick;
 pub mod distance_attenuation;
+pub mod fade;
 pub mod filter;
 pub mod interleave;
-pub mod pan_law;
 pub mod volume;

@@ -13,8 +13,8 @@ use firewheel_core::{
         distance_attenuation::{
             DistanceAttenuation, DistanceAttenuatorStereoDsp, MUFFLE_CUTOFF_HZ_MAX,
         },
+        fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        pan_law::PanLaw,
         volume::Volume,
     },
     event::ProcEvents,
@@ -157,7 +157,7 @@ impl SpatialBasicNode {
         } else {
             0.0
         };
-        let (pan_gain_l, pan_gain_r) = PanLaw::EqualPower3dB.compute_gains(pan);
+        let (pan_gain_l, pan_gain_r) = FadeCurve::EqualPower3dB.compute_gains(pan);
 
         let mut volume_gain = self.volume.amp();
         if volume_gain > 0.99999 && volume_gain < 1.00001 {

@@ -1,4 +1,4 @@
-use core::u64;
+use core::{ops::Range, u64};
 
 /// An optional optimization hint on which channels contain all
 /// zeros (silence). The first bit (`0x1`) is the first channel,
@@ -57,6 +57,22 @@ impl SilenceMask {
             self.0 == u64::MAX
         } else {
             let mask = (0b1 << num_channels) - 1;
+            self.0 & mask == mask
+        }
+    }
+
+    /// Returns `true` if all channels in the given range are marked
+    /// as silent, `false` otherwise.
+    ///
+    /// This range must be in the range `[0, 64]`
+    pub const fn range_silent(&self, range: Range<usize>) -> bool {
+        if range.start >= 64 {
+            false
+        } else if range.end >= 64 {
+            let mask = u64::MAX & !((0b1 << range.start) - 1);
+            self.0 & mask == mask
+        } else {
+            let mask = ((0b1 << range.end) - 1) & !((0b1 << range.start) - 1);
             self.0 & mask == mask
         }
     }

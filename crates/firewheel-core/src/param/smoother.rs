@@ -81,6 +81,18 @@ impl SmoothedParam {
         !self.filter.has_settled(self.target_value)
     }
 
+    pub fn has_settled(&self) -> bool {
+        self.filter.has_settled(self.target_value)
+    }
+
+    pub fn has_settled_at(&self, value: f32) -> bool {
+        self.target_value == value && self.filter.has_settled(self.target_value)
+    }
+
+    pub fn has_settled_at_or_below(&self, value: f32) -> bool {
+        self.target_value <= value && self.filter.has_settled(self.target_value)
+    }
+
     /// Reset the smoother.
     pub fn reset(&mut self) {
         self.filter = SmoothingFilter::new(self.target_value);

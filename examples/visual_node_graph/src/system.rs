@@ -5,6 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        crossfade::{CrossfadeNode, CrossfadeNodeConfig},
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -32,6 +33,8 @@ pub enum NodeType {
     FastHighpass,
     FastBandpass,
     SVF,
+    CrossfadeMono,
+    CrossfadeStereo,
 }
 
 pub struct AudioSystem {
@@ -77,6 +80,18 @@ impl AudioSystem {
             NodeType::FastHighpass => self.cx.add_node(FastHighpassNode::<2>::default(), None),
             NodeType::FastBandpass => self.cx.add_node(FastBandpassNode::<2>::default(), None),
             NodeType::SVF => self.cx.add_node(SvfNode::<2>::default(), None),
+            NodeType::CrossfadeMono => self.cx.add_node(
+                CrossfadeNode::default(),
+                Some(CrossfadeNodeConfig {
+                    channels: NonZeroChannelCount::MONO,
+                }),
+            ),
+            NodeType::CrossfadeStereo => self.cx.add_node(
+                CrossfadeNode::default(),
+                Some(CrossfadeNodeConfig {
+                    channels: NonZeroChannelCount::STEREO,
+                }),
+            ),
         };
 
         match node_type {
@@ -118,6 +133,14 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::SVF => GuiAudioNode::SVF {
+                id,
+                params: Default::default(),
+            },
+            NodeType::CrossfadeMono => GuiAudioNode::CrossfadeMono {
+                id,
+                params: Default::default(),
+            },
+            NodeType::CrossfadeStereo => GuiAudioNode::CrossfadeStereo {
                 id,
                 params: Default::default(),
             },

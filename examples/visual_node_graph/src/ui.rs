@@ -6,8 +6,10 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
+    dsp::fade::FadeCurve,
     nodes::{
         beep_test::BeepTestNode,
+        crossfade::CrossfadeNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
@@ -71,6 +73,14 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<SvfNode<2>>,
     },
+    CrossfadeMono {
+        id: firewheel::node::NodeID,
+        params: Memo<CrossfadeNode>,
+    },
+    CrossfadeStereo {
+        id: firewheel::node::NodeID,
+        params: Memo<CrossfadeNode>,
+    },
 }
 
 impl GuiAudioNode {
@@ -89,6 +99,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { id, .. } => id,
             &Self::FastBandpass { id, .. } => id,
             &Self::SVF { id, .. } => id,
+            &Self::CrossfadeMono { id, .. } => id,
+            &Self::CrossfadeStereo { id, .. } => id,
         }
     }
 
@@ -107,6 +119,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => "Fast Highpass",
             &Self::FastBandpass { .. } => "Fast Bandpass",
             &Self::SVF { .. } => "SVF",
+            &Self::CrossfadeMono { .. } => "Crossfade (Mono)",
+            &Self::CrossfadeStereo { .. } => "Crossfade (Stereo)",
         }
         .into()
     }
@@ -126,6 +140,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
             &Self::SVF { .. } => 2,
+            &Self::CrossfadeMono { .. } => 2,
+            &Self::CrossfadeStereo { .. } => 4,
         }
     }
 
@@ -144,6 +160,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
             &Self::SVF { .. } => 2,
+            &Self::CrossfadeMono { .. } => 1,
+            &Self::CrossfadeStereo { .. } => 2,
         }
     }
 }
@@ -301,6 +319,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
+        if ui.button("Crossfade (Mono)").clicked() {
+            let node = self.audio_system.add_node(NodeType::CrossfadeMono);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
+        if ui.button("Crossfade (Stereo)").clicked() {
+            let node = self.audio_system.add_node(NodeType::CrossfadeStereo);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
     }
 
     fn has_dropped_wire_menu(
@@ -344,17 +372,10 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
     fn has_body(&mut self, node: &GuiAudioNode) -> bool {
         match node {
-            GuiAudioNode::VolumeMono { .. }
-            | GuiAudioNode::VolumeStereo { .. }
-            | GuiAudioNode::VolumePan { .. }
-            | GuiAudioNode::BeepTest { .. }
-            | GuiAudioNode::WhiteNoiseGen { .. }
-            | GuiAudioNode::PinkNoiseGen { .. }
-            | GuiAudioNode::FastLowpass { .. }
-            | GuiAudioNode::FastHighpass { .. }
-            | GuiAudioNode::FastBandpass { .. }
-            | GuiAudioNode::SVF { .. } => true,
-            _ => false,
+            GuiAudioNode::SystemIn { .. }
+            | GuiAudioNode::SystemOut { .. }
+            | GuiAudioNode::StereoToMono { .. } => false,
+            _ => true,
         }
     }
 
@@ -418,17 +439,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
-            GuiAudioNode::VolumeMono { id, params } => {
-                let mut linear_volume = params.volume.linear();
-                if ui
-                    .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
-                    .changed()
-                {
-                    params.volume = Volume::Linear(linear_volume);
-                    params.update_memo(&mut self.audio_system.event_queue(*id));
-                }
-            }
-            GuiAudioNode::VolumeStereo { id, params } => {
+            GuiAudioNode::VolumeMono { id, params } | GuiAudioNode::VolumeStereo { id, params } => {
                 let mut linear_volume = params.volume.linear();
                 if ui
                     .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
@@ -573,6 +584,53 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     }
 
                     ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::CrossfadeMono { id, params }
+            | GuiAudioNode::CrossfadeStereo { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=2.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    }
+
+                    ui.add(egui::Slider::new(&mut params.crossfade, -1.0..=1.0).text("crossfade"));
+
+                    egui::ComboBox::from_label("fade curve")
+                        .selected_text(match params.fade_curve {
+                            FadeCurve::EqualPower3dB => "Equal Power 3dB",
+                            FadeCurve::EqualPower6dB => "Equal Power 6dB",
+                            FadeCurve::SquareRoot => "Square Root",
+                            FadeCurve::Linear => "Linear",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut params.fade_curve,
+                                FadeCurve::EqualPower3dB,
+                                "Equal Power 3dB",
+                            );
+                            ui.selectable_value(
+                                &mut params.fade_curve,
+                                FadeCurve::EqualPower6dB,
+                                "Equal Power 6dB",
+                            );
+                            ui.selectable_value(
+                                &mut params.fade_curve,
+                                FadeCurve::SquareRoot,
+                                "Square Root",
+                            );
+                            ui.selectable_value(
+                                &mut params.fade_curve,
+                                FadeCurve::Linear,
+                                "Linear",
+                            );
+                        });
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });

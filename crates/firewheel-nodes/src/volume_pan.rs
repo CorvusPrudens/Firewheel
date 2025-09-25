@@ -2,8 +2,8 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
+        fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::ProcEvents,
@@ -23,12 +23,13 @@ pub use super::volume::VolumeNodeConfig;
 pub struct VolumePanNode {
     /// The overall volume.
     pub volume: Volume,
-    /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0` is
-    /// fully right.
+    /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0`
+    /// is fully right.
     pub pan: f32,
-    /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
-    /// to the corresponding gain values for the left and right channels.
-    pub pan_law: PanLaw,
+    /// The algorithm used to map the normalized panning value in the range
+    /// `[-1.0, 1.0]` to the corresponding gain values for the left and right
+    /// channels.
+    pub pan_law: FadeCurve,
 
     /// The time in seconds of the internal smoothing filter.
     ///
@@ -52,7 +53,7 @@ impl VolumePanNode {
         Self {
             volume,
             pan,
-            pan_law: PanLaw::EqualPower3dB,
+            pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }
@@ -68,7 +69,7 @@ impl VolumePanNode {
         Self {
             volume: Volume::UNITY_GAIN,
             pan,
-            pan_law: PanLaw::EqualPower3dB,
+            pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }
@@ -81,7 +82,7 @@ impl VolumePanNode {
         Self {
             volume,
             pan: 0.0,
-            pan_law: PanLaw::EqualPower3dB,
+            pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }
@@ -126,7 +127,7 @@ impl Default for VolumePanNode {
         Self {
             volume: Volume::default(),
             pan: 0.0,
-            pan_law: PanLaw::default(),
+            pan_law: FadeCurve::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }

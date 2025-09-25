@@ -43,7 +43,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
     pub fn first(&self) -> &[T] {
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`.
         unsafe { core::slice::from_raw_parts(self.buffer.as_ptr(), self.frames) }
     }
 
@@ -52,7 +52,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
     pub fn first_mut(&mut self) -> &mut [T] {
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`.
         // * `self` is borrowed mutably in this method, so all mutability rules are
         // being upheld.
         unsafe { core::slice::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.frames) }
@@ -69,7 +69,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
         // and we have constrained `frames` above, so this is always within range.
         unsafe { core::slice::from_raw_parts(self.buffer.as_ptr(), frames) }
     }
@@ -85,18 +85,111 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
         // and we have constrained `frames` above, so this is always within range.
         // * `self` is borrowed mutably in this method, so all mutability rules are
         // being upheld.
         unsafe { core::slice::from_raw_parts_mut(self.buffer.as_mut_ptr(), frames) }
     }
 
+    /// Get an immutable reference to the first given number of channels in this buffer.
+    pub fn channels<const NUM_CHANNELS: usize>(&self) -> [&[T]; NUM_CHANNELS] {
+        assert!(NUM_CHANNELS <= CHANNELS);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
+        // and we have constrained NUM_CHANNELS above, so this is always within range.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts(
+                    self.buffer.as_ptr().add(ch_i * self.frames),
+                    self.frames,
+                )
+            })
+        }
+    }
+
+    /// Get a mutable reference to the first given number of channels in this buffer.
+    pub fn channels_mut<const NUM_CHANNELS: usize>(&mut self) -> [&mut [T]; NUM_CHANNELS] {
+        assert!(NUM_CHANNELS <= CHANNELS);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
+        // and we have constrained NUM_CHANNELS above, so this is always within range.
+        // * None of these slices overlap, and `self` is borrowed mutably in this method,
+        // so all mutability rules are being upheld.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts_mut(
+                    self.buffer.as_mut_ptr().add(ch_i * self.frames),
+                    self.frames,
+                )
+            })
+        }
+    }
+
+    /// Get an immutable reference to the first given number of channels with the
+    /// given number of frames.
+    ///
+    /// The length of the returned slices will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    pub fn channels_with_frames<const NUM_CHANNELS: usize>(
+        &self,
+        frames: usize,
+    ) -> [&[T]; NUM_CHANNELS] {
+        assert!(NUM_CHANNELS <= CHANNELS);
+
+        let frames = frames.min(self.frames);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
+        // and we have constrained NUM_CHANNELS and `frames` above, so this is always
+        // within range.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts(self.buffer.as_ptr().add(ch_i * self.frames), frames)
+            })
+        }
+    }
+
+    /// Get a mutable reference to the first given number of channels with the given
+    /// number of frames.
+    ///
+    /// The length of the returned slices will be either `frames` or the number of
+    /// frames in this buffer, whichever is smaller.
+    pub fn channels_with_frames_mut<const NUM_CHANNELS: usize>(
+        &mut self,
+        frames: usize,
+    ) -> [&mut [T]; NUM_CHANNELS] {
+        assert!(NUM_CHANNELS <= CHANNELS);
+
+        let frames = frames.min(self.frames);
+
+        // SAFETY:
+        //
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
+        // and we have constrained NUM_CHANNELS and `frames` above, so this is always
+        // within range.
+        // * None of these slices overlap, and `self` is borrowed mutably in this method,
+        // so all mutability rules are being upheld.
+        unsafe {
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts_mut(
+                    self.buffer.as_mut_ptr().add(ch_i * self.frames),
+                    frames,
+                )
+            })
+        }
+    }
+
     /// Get an immutable reference to all channels in this buffer.
     pub fn all(&self) -> [&[T]; CHANNELS] {
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`.
         unsafe {
             core::array::from_fn(|ch_i| {
                 core::slice::from_raw_parts(
@@ -111,7 +204,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
     pub fn all_mut(&mut self) -> [&mut [T]; CHANNELS] {
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`.
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`.
         // * None of these slices overlap, and `self` is borrowed mutably in this method,
         // so all mutability rules are being upheld.
         unsafe {
@@ -133,7 +226,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
         // and we have constrained `frames` above, so this is always within range.
         unsafe {
             core::array::from_fn(|ch_i| {
@@ -151,7 +244,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
+        // * The constructor has set the size of the buffer to `self.frames * CHANNELS`,
         // and we have constrained `frames` above, so this is always within range.
         // * None of these slices overlap, and `self` is borrowed mutably in this method,
         // so all mutability rules are being upheld.
@@ -207,7 +300,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * self.channels`,
+        // * The constructor has set the size of the buffer to `self.frames * self.channels`,
         // and we have constrained `channels` and `frames` above, so this is always
         // within range.
         // * The constructor has ensured that `self.channels <= MAX_CHANNELS`.
@@ -235,7 +328,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
 
         // SAFETY:
         //
-        // * The constructor has set the size of the buffer to`self.frames * self.channels`,
+        // * The constructor has set the size of the buffer to `self.frames * self.channels`,
         // and we have constrained `channels` and `frames` above, so this is always
         // within range.
         // * The constructor has ensured that `self.channels <= MAX_CHANNELS`.
