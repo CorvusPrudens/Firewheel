@@ -587,13 +587,13 @@ fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 #[cfg(test)]
 mod tests {
     use bevy_platform::collections::HashSet;
-    use firewheel_core::{
-        channel_config::{ChannelConfig, ChannelCount},
-        node::dummy::{DummyNode, DummyNodeConfig},
-    };
+    use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 
     use crate::{
-        graph::{AudioGraph, EdgeID},
+        graph::{
+            dummy_node::{DummyNode, DummyNodeConfig},
+            AudioGraph, EdgeID,
+        },
         FirewheelConfig,
     };
 

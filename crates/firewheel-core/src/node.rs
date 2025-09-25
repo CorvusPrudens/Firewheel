@@ -15,8 +15,6 @@ use crate::{
     ConnectedMask, SilenceMask, StreamInfo,
 };
 
-pub mod dummy;
-
 #[cfg(feature = "scheduled_events")]
 use crate::clock::EventInstant;
 

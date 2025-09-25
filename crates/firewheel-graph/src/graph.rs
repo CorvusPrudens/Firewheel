@@ -1,5 +1,3 @@
-mod compiler;
-
 use core::any::Any;
 use core::fmt::Debug;
 use core::hash::Hash;
@@ -16,15 +14,18 @@ use smallvec::SmallVec;
 use thunderdome::Arena;
 
 use crate::error::{AddEdgeError, CompileGraphError, RemoveNodeError};
+use crate::graph::dummy_node::{DummyNode, DummyNodeConfig};
 use crate::FirewheelConfig;
 use firewheel_core::node::{
-    dummy::{DummyNode, DummyNodeConfig},
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
 
 pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
 pub use self::compiler::{Edge, EdgeID, NodeEntry, PortIdx};
+
+mod compiler;
+mod dummy_node;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 struct EdgeHash {

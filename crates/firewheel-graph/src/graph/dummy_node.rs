@@ -1,21 +1,19 @@
-use crate::{
+use firewheel_core::{
     channel_config::ChannelConfig,
     event::ProcEvents,
-    node::{ProcBuffers, ProcExtra},
-};
-
-use super::{
-    AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcInfo,
-    ProcessStatus,
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcExtra, ProcInfo, ProcessStatus,
+    },
 };
 
 /// A "dummy" [`AudioNode`], a node which does nothing.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DummyNode;
+pub(crate) struct DummyNode;
 
 /// The configuration for a [`DummyNode`], a node which does nothing.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DummyNodeConfig {
+pub(crate) struct DummyNodeConfig {
     pub channel_config: ChannelConfig,
 }
 
