@@ -18,13 +18,13 @@ use firewheel_core::{
         volume::Volume,
     },
     event::ProcEvents,
+    mask::ConnectedMask,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     vector::Vec3,
-    ConnectedMask, SilenceMask,
 };
 
 /// The parameters for a 3D spatial positioning node using a basic (and naive) algorithm.
@@ -404,7 +404,7 @@ impl AudioNodeProcessor for Processor {
 
             return ProcessStatus::ClearAllOutputs;
         } else {
-            ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
+            ProcessStatus::OutputsModified
         }
     }
 

@@ -7,12 +7,12 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::ProcEvents,
+    mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -279,7 +279,7 @@ impl AudioNodeProcessor for Processor {
                     }
                 }
 
-                return ProcessStatus::OutputsModified { out_silence_mask };
+                return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask));
             } else if self.params.crossfade == 1.0 && self.gain_1.target_value() == 1.0 {
                 // Simply copy input 1 to output
                 for (ch_i, (in_ch, out_ch)) in buffers.inputs[channels..]
@@ -298,7 +298,7 @@ impl AudioNodeProcessor for Processor {
                     }
                 }
 
-                return ProcessStatus::OutputsModified { out_silence_mask };
+                return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask));
             }
         }
 
@@ -438,7 +438,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        ProcessStatus::OutputsModified { out_silence_mask }
+        return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask));
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {

@@ -7,12 +7,13 @@ use bevy_platform::prelude::{Box, Vec};
 
 use crate::dsp::buffer::ChannelBuffer;
 use crate::log::RealtimeLogger;
+use crate::mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask};
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType, ProcEvents},
-    ConnectedMask, SilenceMask, StreamInfo,
+    StreamInfo,
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -493,14 +494,24 @@ pub struct ProcInfo {
     pub frames: usize,
 
     /// An optional optimization hint on which input channels contain
-    /// all zeros (silence). The first bit (`0b1`) is the first channel,
+    /// all zeros (silence). The first bit (`0x1`) is the first channel,
     /// the second bit is the second channel, and so on.
     pub in_silence_mask: SilenceMask,
 
     /// An optional optimization hint on which output channels contain
-    /// all zeros (silence). The first bit (`0b1`) is the first channel,
+    /// all zeros (silence). The first bit (`0x1`) is the first channel,
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
+
+    /// An optional optimization hint on which input channels have all
+    /// samples set to the same value. The first bit (`0x1`) is the
+    /// first channel, the second bit is the second channel, and so on.
+    pub in_constant_mask: ConstantMask,
+
+    /// An optional optimization hint on which input channels have all
+    /// samples set to the same value. The first bit (`0x1`) is the
+    /// first channel, the second bit is the second channel, and so on.
+    pub out_constant_mask: ConstantMask,
 
     /// An optional hint on which input channels are connected to other
     /// nodes in the graph.
@@ -734,37 +745,49 @@ pub enum ProcessStatus {
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
     /// Failing to do so will result in audio glitches.
+    OutputsModified,
+    /// All output buffers were filled with data. Additionally,
+    /// a constant/silence mask is provided for optimizations.
     ///
-    /// WARNING: Incorrectly marking a channel as containing silence
-    /// when it doesn't will result in audio glitches. Please take
-    /// great care when using this, or preferrably just use
-    /// [`ProcessStatus::outputs_not_silent()`] instead.
-    OutputsModified { out_silence_mask: SilenceMask },
+    /// WARNING: The node must fill all audio audio output buffers
+    /// completely with data when returning this process status.
+    /// Failing to do so will result in audio glitches.
+    ///
+    /// WARNING: Incorrectly marking a channel as containing
+    /// silence/constant values when it doesn't will result in audio
+    /// glitches. Please take great care when using this, or
+    /// use [`ProcessStatus::OutputsModified`] instead.
+    OutputsModifiedWithMask(MaskType),
 }
 
 impl ProcessStatus {
-    /// All output buffers were filled with non-silence.
+    /// All output buffers were filled with data. Additionally,
+    /// a constant/silence mask is provided for optimizations.
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
     /// Failing to do so will result in audio glitches.
-    pub const fn outputs_not_silent() -> Self {
-        Self::OutputsModified {
-            out_silence_mask: SilenceMask::NONE_SILENT,
-        }
+    ///
+    /// WARNING: Incorrectly marking a channel as containing
+    /// silence when it doesn't will result in audio glitches.
+    /// Please take great care when using this, or use
+    /// [`ProcessStatus::OutputsModified`] instead.
+    pub const fn outputs_modified_with_silence_mask(mask: SilenceMask) -> Self {
+        Self::OutputsModifiedWithMask(MaskType::Silence(mask))
     }
 
-    /// All output buffers were filled with data.
+    /// All output buffers were filled with data. Additionally,
+    /// a constant/silence mask is provided for optimizations.
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
     /// Failing to do so will result in audio glitches.
     ///
-    /// WARNING: Incorrectly marking a channel as containing silence
-    /// when it doesn't will result in audio glitches. Please take
-    /// great care when using this, or preferrably just use
-    /// [`ProcessStatus::outputs_not_silent()`] instead.
-    pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
-        Self::OutputsModified { out_silence_mask }
+    /// WARNING: Incorrectly marking a channel as containing
+    /// constant values when it doesn't will result in audio
+    /// glitches. Please take great care when using this, or use
+    /// [`ProcessStatus::OutputsModified`] instead.
+    pub const fn outputs_modified_with_constant_mask(mask: ConstantMask) -> Self {
+        Self::OutputsModifiedWithMask(MaskType::Constant(mask))
     }
 }

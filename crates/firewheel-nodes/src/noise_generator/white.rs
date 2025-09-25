@@ -138,6 +138,6 @@ impl AudioNodeProcessor for Processor {
             *s = r * self.gain.next_smoothed();
         }
 
-        ProcessStatus::outputs_not_silent()
+        ProcessStatus::OutputsModified
     }
 }

@@ -16,13 +16,9 @@ pub mod param;
 pub mod sample_resource;
 pub mod vector;
 
-mod connected_mask;
-mod silence_mask;
+pub mod mask;
 
 use core::num::NonZeroU32;
-
-pub use connected_mask::ConnectedMask;
-pub use silence_mask::SilenceMask;
 
 extern crate self as firewheel_core;
 

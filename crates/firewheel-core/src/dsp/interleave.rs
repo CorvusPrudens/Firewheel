@@ -1,4 +1,4 @@
-use crate::SilenceMask;
+use crate::mask::SilenceMask;
 
 /// De-interleave audio channels
 pub fn deinterleave<V: AsMut<[f32]>>(

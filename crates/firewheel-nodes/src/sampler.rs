@@ -26,12 +26,13 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventType, ParamData, ProcEvents},
+    mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcInfo,
         ProcessStatus,
     },
     sample_resource::SampleResource,
-    SilenceMask, StreamInfo,
+    StreamInfo,
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -1108,7 +1109,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             mask
         };
 
-        ProcessStatus::OutputsModified { out_silence_mask }
+        ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask))
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {
