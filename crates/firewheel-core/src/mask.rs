@@ -104,6 +104,9 @@ impl SilenceMask {
 /// An optional optimization hint on which channels have all samples
 /// set to the same value. The first bit (`0x1`) is the first
 /// channel, the second bit is the second channel, and so on.
+///
+/// This can be useful for nodes that use audio buffers as CV
+/// (control voltage) ports.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConstantMask(pub u64);
 
