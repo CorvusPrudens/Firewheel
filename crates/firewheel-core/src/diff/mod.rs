@@ -435,7 +435,7 @@ impl core::ops::Deref for ParamPath {
 ///
 ///         // ...
 ///
-///         ProcessStatus::outputs_not_silent()
+///         ProcessStatus::OutputsModified
 ///     }
 /// }
 /// ```
@@ -479,7 +479,7 @@ impl core::ops::Deref for ParamPath {
 ///
 ///         // ...
 ///
-///         ProcessStatus::outputs_not_silent()
+///         ProcessStatus::OutputsModified
 ///     }
 /// }
 /// ```

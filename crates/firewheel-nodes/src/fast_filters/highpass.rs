@@ -262,7 +262,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             FadeType::Linear,
         );
 
-        ProcessStatus::outputs_not_silent()
+        ProcessStatus::OutputsModified
     }
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {

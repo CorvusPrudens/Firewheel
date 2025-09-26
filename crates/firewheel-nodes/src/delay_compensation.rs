@@ -1,11 +1,11 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     event::ProcEvents,
+    mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcessStatus,
     },
-    SilenceMask,
 };
 use smallvec::{smallvec, SmallVec};
 
@@ -86,6 +86,7 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::Bypass;
         }
 
+        // TODO: Use constant mask instead
         let mut out_silence_mask = SilenceMask::NONE_SILENT;
 
         let extra_input_frames = if info.frames > self.delay_frames {
@@ -160,7 +161,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        ProcessStatus::OutputsModified { out_silence_mask }
+        ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask))
     }
 
     fn new_stream(&mut self, _stream_info: &firewheel_core::StreamInfo) {

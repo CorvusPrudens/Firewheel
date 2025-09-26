@@ -13,11 +13,11 @@ use firewheel_core::{
     dsp::declick::{Declicker, FadeType},
     event::{NodeEventType, ProcEvents},
     log::RealtimeLogger,
+    mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcessStatus,
     },
-    SilenceMask,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
@@ -449,7 +449,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        ProcessStatus::outputs_modified(silence_mask)
+        ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(silence_mask))
     }
 
     fn stream_stopped(&mut self, _logger: &mut RealtimeLogger) {

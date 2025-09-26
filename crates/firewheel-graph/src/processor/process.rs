@@ -5,8 +5,8 @@ use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
     event::ProcEvents,
+    mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
     node::{NodeID, ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
-    ConnectedMask, SilenceMask,
 };
 
 use crate::{
@@ -180,6 +180,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             frames: block_frames,
             in_silence_mask: SilenceMask::default(),
             out_silence_mask: SilenceMask::default(),
+            in_constant_mask: ConstantMask::default(),
+            out_constant_mask: ConstantMask::default(),
             in_connected_mask: ConnectedMask::default(),
             out_connected_mask: ConnectedMask::default(),
             sample_rate,
@@ -206,6 +208,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,
+             in_constant_mask: ConstantMask,
+             out_constant_mask: ConstantMask,
              in_connected_mask: ConnectedMask,
              out_connected_mask: ConnectedMask,
              proc_buffers|
@@ -215,12 +219,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 // Add the mask information to proc info.
                 info.in_silence_mask = in_silence_mask;
                 info.out_silence_mask = out_silence_mask;
+                info.in_constant_mask = in_constant_mask;
+                info.out_constant_mask = out_constant_mask;
                 info.in_connected_mask = in_connected_mask;
                 info.out_connected_mask = out_connected_mask;
 
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
-                let mut final_silence_mask = None;
+                let mut final_mask = None;
 
                 // Process in sub-chunks for each new scheduled event (or process a single
                 // chunk if there are no scheduled events).
@@ -294,7 +300,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                         // If there are multiple sub-chunks, and the node returned a different process
                         // status this sub-chunk than the previous sub-chunk, then we must manually
                         // handle the process statuses.
-                        if final_silence_mask.is_none() {
+                        if final_mask.is_none() {
                             if let Some(prev_process_status) = prev_process_status {
                                 if prev_process_status != process_status {
                                     // Handle the process status for the sub-chunk(s) before this
@@ -305,8 +311,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                                 out_ch[0..sub_chunk_range.start].fill(0.0);
                                             }
 
-                                            final_silence_mask = Some(SilenceMask::new_all_silent(
-                                                proc_buffers.outputs.len(),
+                                            final_mask = Some(MaskType::Silence(
+                                                SilenceMask::new_all_silent(
+                                                    proc_buffers.outputs.len(),
+                                                ),
                                             ));
                                         }
                                         ProcessStatus::Bypass => {
@@ -327,10 +335,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                                 out_ch[0..sub_chunk_range.start].fill(0.0);
                                             }
 
-                                            final_silence_mask = Some(in_silence_mask);
+                                            final_mask = Some(MaskType::Silence(in_silence_mask));
                                         }
-                                        ProcessStatus::OutputsModified { out_silence_mask } => {
-                                            final_silence_mask = Some(out_silence_mask);
+                                        ProcessStatus::OutputsModified => {
+                                            final_mask =
+                                                Some(MaskType::Silence(SilenceMask::NONE_SILENT));
+                                        }
+                                        ProcessStatus::OutputsModifiedWithMask(out_mask) => {
+                                            final_mask = Some(out_mask);
                                         }
                                     }
                                 }
@@ -340,7 +352,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
                         // If we are manually handling process statuses, handle the process status
                         // for this sub-chunk.
-                        if let Some(final_silence_mask) = &mut final_silence_mask {
+                        if let Some(final_mask) = &mut final_mask {
                             match process_status {
                                 ProcessStatus::ClearAllOutputs => {
                                     for out_ch in proc_buffers.outputs.iter_mut() {
@@ -364,10 +376,44 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                         out_ch[sub_chunk_range.clone()].fill(0.0);
                                     }
 
-                                    final_silence_mask.union_with(in_silence_mask);
+                                    if let MaskType::Silence(s) = final_mask {
+                                        s.union_with(in_silence_mask);
+                                    } else {
+                                        *final_mask = MaskType::Silence(SilenceMask::NONE_SILENT);
+                                    }
                                 }
-                                ProcessStatus::OutputsModified { out_silence_mask } => {
-                                    final_silence_mask.union_with(out_silence_mask);
+                                ProcessStatus::OutputsModified => {
+                                    *final_mask = MaskType::Silence(SilenceMask::NONE_SILENT);
+                                }
+                                ProcessStatus::OutputsModifiedWithMask(out_mask) => {
+                                    match out_mask {
+                                        MaskType::Silence(mask) => {
+                                            if let MaskType::Silence(final_mask) = final_mask {
+                                                final_mask.union_with(mask);
+                                            } else {
+                                                *final_mask =
+                                                    MaskType::Silence(SilenceMask::NONE_SILENT);
+                                            }
+                                        }
+                                        MaskType::Constant(mask) => {
+                                            if let MaskType::Constant(final_mask) = final_mask {
+                                                final_mask.union_with(mask);
+
+                                                for (i, buf) in
+                                                    proc_buffers.outputs.iter().enumerate()
+                                                {
+                                                    if final_mask.is_channel_constant(i)
+                                                        && buf[0] != buf[sub_chunk_range.start]
+                                                    {
+                                                        final_mask.set_channel(i, false);
+                                                    }
+                                                }
+                                            } else {
+                                                *final_mask =
+                                                    MaskType::Silence(SilenceMask::NONE_SILENT);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -376,12 +422,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
                 // -- Done processing in sub-chunks. Return the final process status. ---------
 
-                if let Some(final_silence_mask) = final_silence_mask {
+                if let Some(final_mask) = final_mask {
                     // If we manually handled process statuses, return the calculated silence
                     // mask.
-                    ProcessStatus::OutputsModified {
-                        out_silence_mask: final_silence_mask,
-                    }
+                    ProcessStatus::OutputsModifiedWithMask(final_mask)
                 } else {
                     // Else return the process status returned by the node's proces method.
                     prev_process_status.unwrap()

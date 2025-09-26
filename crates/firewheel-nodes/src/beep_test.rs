@@ -112,6 +112,6 @@ impl AudioNodeProcessor for Processor {
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }
 
-        ProcessStatus::outputs_not_silent()
+        ProcessStatus::OutputsModified
     }
 }

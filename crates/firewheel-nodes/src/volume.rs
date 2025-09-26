@@ -6,12 +6,12 @@ use firewheel_core::{
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::ProcEvents,
+    mask::MaskType,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -211,9 +211,9 @@ impl AudioNodeProcessor for VolumeProcessor {
                     }
                 }
 
-                return ProcessStatus::OutputsModified {
-                    out_silence_mask: info.in_silence_mask,
-                };
+                return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(
+                    info.in_silence_mask,
+                ));
             }
         }
 
@@ -268,7 +268,7 @@ impl AudioNodeProcessor for VolumeProcessor {
 
         self.gain.settle();
 
-        ProcessStatus::outputs_modified(SilenceMask::NONE_SILENT)
+        ProcessStatus::OutputsModified
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {

@@ -5,8 +5,8 @@ use thunderdome::Arena;
 
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
+    mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus},
-    ConnectedMask, SilenceMask,
 };
 
 use super::{InsertedSum, NodeID};
@@ -185,12 +185,27 @@ impl Debug for ScheduleHeapData {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BufferFlags {
+    silent: bool,
+    constant: bool,
+    frames: u16,
+}
+
+impl BufferFlags {
+    fn set_silent(&mut self, silent: bool, frames: u16) {
+        self.silent = silent;
+        self.constant = silent;
+        self.frames = frames;
+    }
+}
+
 /// A [CompiledSchedule] is the output of the graph compiler.
 pub struct CompiledSchedule {
     schedule: Vec<ScheduledNode>,
 
     buffers: Vec<f32>,
-    buffer_silence_flags: Vec<bool>,
+    buffer_flags: Vec<BufferFlags>,
     num_buffers: usize,
     max_block_frames: usize,
     graph_in_node_id: NodeID,
@@ -222,6 +237,8 @@ impl CompiledSchedule {
         max_block_frames: usize,
         graph_in_node_id: NodeID,
     ) -> Self {
+        assert!(max_block_frames <= u16::MAX as usize);
+
         let mut buffers = Vec::new();
         buffers.reserve_exact(num_buffers * max_block_frames);
         buffers.resize(num_buffers * max_block_frames, 0.0);
@@ -229,7 +246,14 @@ impl CompiledSchedule {
         Self {
             schedule,
             buffers,
-            buffer_silence_flags: vec![false; num_buffers],
+            buffer_flags: vec![
+                BufferFlags {
+                    silent: false,
+                    constant: false,
+                    frames: 0,
+                };
+                num_buffers
+            ],
             num_buffers,
             max_block_frames,
             graph_in_node_id,
@@ -247,6 +271,7 @@ impl CompiledSchedule {
         fill_inputs: impl FnOnce(&mut [&mut [f32]]) -> SilenceMask,
     ) {
         let frames = frames.min(self.max_block_frames);
+        let frames_u16 = frames as u16;
 
         let graph_in_node = self.schedule.first().unwrap();
 
@@ -267,8 +292,8 @@ impl CompiledSchedule {
 
         for i in 0..fill_input_len {
             let buffer_index = graph_in_node.output_buffers[i].buffer_index;
-            *silence_flag_mut(&mut self.buffer_silence_flags, buffer_index) =
-                silence_mask.is_channel_silent(i);
+            flag_mut(&mut self.buffer_flags, buffer_index)
+                .set_silent(silence_mask.is_channel_silent(i), frames_u16);
         }
 
         if fill_input_len < graph_in_node.output_buffers.len() {
@@ -277,7 +302,26 @@ impl CompiledSchedule {
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
                 buf_slice.fill(0.0);
 
-                *silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index) = true;
+                flag_mut(&mut self.buffer_flags, b.buffer_index).set_silent(true, frames_u16);
+            }
+        }
+
+        // Make sure all buffers that are marked as silent/constant remain that
+        // way if the number of frames have changed.
+        for i in 0..self.num_buffers {
+            let flag = flag_mut(&mut self.buffer_flags, i);
+
+            if (flag.silent || flag.constant) && flag.frames < frames_u16 {
+                let buf_slice = buffer_slice_mut(&self.buffers, i, self.max_block_frames, frames);
+
+                if flag.silent {
+                    buf_slice[flag.frames as usize..frames].fill(0.0);
+                } else {
+                    let val = buf_slice[0];
+                    buf_slice[flag.frames as usize..frames].fill(val);
+                }
+
+                flag.frames = frames_u16;
             }
         }
     }
@@ -301,7 +345,7 @@ impl CompiledSchedule {
         for i in 0..read_output_len {
             let buffer_index = graph_out_node.input_buffers[i].buffer_index;
 
-            if *silence_flag_mut(&mut self.buffer_silence_flags, buffer_index) {
+            if flag_mut(&mut self.buffer_flags, buffer_index).silent {
                 silence_mask.set_channel(i, true);
             }
 
@@ -324,12 +368,15 @@ impl CompiledSchedule {
             NodeID,
             SilenceMask,
             SilenceMask,
+            ConstantMask,
+            ConstantMask,
             ConnectedMask,
             ConnectedMask,
             ProcBuffers,
         ) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
+        let frames_u16 = frames as u16;
 
         let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
@@ -343,7 +390,7 @@ impl CompiledSchedule {
                 sum_inputs(
                     inserted_sum,
                     &self.buffers,
-                    &mut self.buffer_silence_flags,
+                    &mut self.buffer_flags,
                     self.max_block_frames,
                     frames,
                 );
@@ -351,6 +398,8 @@ impl CompiledSchedule {
 
             let mut in_silence_mask = SilenceMask::NONE_SILENT;
             let mut out_silence_mask = SilenceMask::NONE_SILENT;
+            let mut in_constant_mask = ConstantMask::NONE_CONSTANT;
+            let mut out_constant_mask = ConstantMask::NONE_CONSTANT;
 
             inputs.clear();
             outputs.clear();
@@ -358,18 +407,15 @@ impl CompiledSchedule {
             for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
                 let buf =
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
-                let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                if b.should_clear {
-                    if !*s || debug_force_clear_buffers {
-                        buf[..frames].fill(0.0);
-                        *s = true;
-                    }
+                if b.should_clear && (!flag.silent || debug_force_clear_buffers) {
+                    buf.fill(0.0);
+                    flag.set_silent(true, frames_u16);
                 }
 
-                if *s {
-                    in_silence_mask.set_channel(i, true);
-                }
+                in_silence_mask.set_channel(i, flag.silent);
+                in_constant_mask.set_channel(i, flag.constant);
 
                 inputs.push(buf);
             }
@@ -377,16 +423,15 @@ impl CompiledSchedule {
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
                 let buf =
                     buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
-                let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
                 if debug_force_clear_buffers {
-                    buf[..frames].fill(0.0);
-                    *s = true;
+                    buf.fill(0.0);
+                    flag.set_silent(true, frames_u16);
                 }
 
-                if *s {
-                    out_silence_mask.set_channel(i, true);
-                }
+                out_silence_mask.set_channel(i, flag.silent);
+                out_constant_mask.set_channel(i, flag.constant);
 
                 outputs.push(buf);
             }
@@ -395,6 +440,8 @@ impl CompiledSchedule {
                 scheduled_node.id,
                 in_silence_mask,
                 out_silence_mask,
+                in_constant_mask,
+                out_constant_mask,
                 scheduled_node.in_connected_mask,
                 scheduled_node.out_connected_mask,
                 ProcBuffers {
@@ -403,11 +450,11 @@ impl CompiledSchedule {
                 },
             );
 
-            let clear_buffer = |buffer_index: usize, silence_flag: &mut bool| {
-                if !*silence_flag || debug_force_clear_buffers {
+            let clear_buffer = |buffer_index: usize, flag: &mut BufferFlags| {
+                if !flag.silent || debug_force_clear_buffers {
                     buffer_slice_mut(&self.buffers, buffer_index, self.max_block_frames, frames)
                         .fill(0.0);
-                    *silence_flag = true;
+                    flag.set_silent(true, frames_u16);
                 }
             };
 
@@ -415,9 +462,9 @@ impl CompiledSchedule {
                 ProcessStatus::ClearAllOutputs => {
                     // Clear output buffers which need cleared.
                     for b in scheduled_node.output_buffers.iter() {
-                        let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                        let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                        clear_buffer(b.buffer_index, s);
+                        clear_buffer(b.buffer_index, flag);
                     }
                 }
                 ProcessStatus::Bypass => {
@@ -426,13 +473,11 @@ impl CompiledSchedule {
                         .iter()
                         .zip(scheduled_node.output_buffers.iter())
                     {
-                        let in_s =
-                            *silence_flag_mut(&mut self.buffer_silence_flags, in_buf.buffer_index);
-                        let out_s =
-                            silence_flag_mut(&mut self.buffer_silence_flags, out_buf.buffer_index);
+                        let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
+                        let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
 
-                        if in_s {
-                            clear_buffer(out_buf.buffer_index, out_s);
+                        if in_flag.silent {
+                            clear_buffer(out_buf.buffer_index, out_flag);
                         } else {
                             let in_buf_slice = buffer_slice_mut(
                                 &self.buffers,
@@ -448,7 +493,7 @@ impl CompiledSchedule {
                             );
 
                             out_buf_slice.copy_from_slice(in_buf_slice);
-                            *out_s = false;
+                            *out_flag = in_flag;
                         }
                     }
 
@@ -457,17 +502,43 @@ impl CompiledSchedule {
                         .iter()
                         .skip(scheduled_node.input_buffers.len())
                     {
-                        let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                        let s = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
                         clear_buffer(b.buffer_index, s);
                     }
                 }
-                ProcessStatus::OutputsModified { out_silence_mask } => {
-                    for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                        *silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index) =
-                            out_silence_mask.is_channel_silent(i);
+                ProcessStatus::OutputsModified => {
+                    for b in scheduled_node.output_buffers.iter() {
+                        flag_mut(&mut self.buffer_flags, b.buffer_index)
+                            .set_silent(false, frames_u16);
                     }
                 }
+                ProcessStatus::OutputsModifiedWithMask(out_mask) => match out_mask {
+                    MaskType::Silence(silence_mask) => {
+                        for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
+                            flag_mut(&mut self.buffer_flags, b.buffer_index)
+                                .set_silent(silence_mask.is_channel_silent(i), frames_u16);
+                        }
+                    }
+                    MaskType::Constant(constant_mask) => {
+                        for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
+                            let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
+
+                            if constant_mask.is_channel_constant(i) {
+                                flag.constant = true;
+                                flag.silent = buffer_slice_mut(
+                                    &self.buffers,
+                                    b.buffer_index,
+                                    self.max_block_frames,
+                                    1,
+                                )[0] == 0.0;
+                                flag.frames = frames_u16;
+                            } else {
+                                flag.set_silent(false, frames_u16);
+                            }
+                        }
+                    }
+                },
             }
         }
     }
@@ -476,7 +547,7 @@ impl CompiledSchedule {
 fn sum_inputs(
     inserted_sum: &InsertedSum,
     buffers: &Vec<f32>,
-    buffer_silence_flags: &mut [bool],
+    buffer_flags: &mut [BufferFlags],
     max_block_frames: usize,
     frames: usize,
 ) {
@@ -489,14 +560,8 @@ fn sum_inputs(
         frames,
     );
 
-    if *silence_flag_mut(
-        buffer_silence_flags,
-        inserted_sum.input_buffers[0].buffer_index,
-    ) {
-        if !*silence_flag_mut(
-            buffer_silence_flags,
-            inserted_sum.output_buffer.buffer_index,
-        ) {
+    if flag_mut(buffer_flags, inserted_sum.input_buffers[0].buffer_index).silent {
+        if !flag_mut(buffer_flags, inserted_sum.output_buffer.buffer_index).silent {
             buffer_slice_mut(
                 buffers,
                 inserted_sum.output_buffer.buffer_index,
@@ -518,7 +583,7 @@ fn sum_inputs(
     }
 
     for buf_id in inserted_sum.input_buffers.iter().skip(1) {
-        if *silence_flag_mut(buffer_silence_flags, buf_id.buffer_index) {
+        if flag_mut(buffer_flags, buf_id.buffer_index).silent {
             // Input channel is silent, no need to add it.
             continue;
         }
@@ -531,10 +596,8 @@ fn sum_inputs(
         }
     }
 
-    *silence_flag_mut(
-        buffer_silence_flags,
-        inserted_sum.output_buffer.buffer_index,
-    ) = all_buffers_silent;
+    flag_mut(buffer_flags, inserted_sum.output_buffer.buffer_index)
+        .set_silent(all_buffers_silent, frames as u16);
 }
 
 #[inline]
@@ -574,14 +637,14 @@ fn buffer_slice_mut<'a>(
 }
 
 #[inline]
-fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usize) -> &'a mut bool {
+fn flag_mut<'a>(buffer_flags: &'a mut [BufferFlags], buffer_index: usize) -> &'a mut BufferFlags {
     // SAFETY
     //
     // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]
     // correctly counts the total number of buffers used, and therefore
     // `b.buffer_index` is gauranteed to be less than the value of
     // `num_buffers` that was passed into [`CompiledSchedule::new`].
-    unsafe { buffer_silence_flags.get_unchecked_mut(buffer_index) }
+    unsafe { buffer_flags.get_unchecked_mut(buffer_index) }
 }
 
 #[cfg(test)]

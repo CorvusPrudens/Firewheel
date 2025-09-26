@@ -57,6 +57,6 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
             *out_s = (in1 + in2) * 0.5;
         }
 
-        ProcessStatus::outputs_not_silent()
+        ProcessStatus::OutputsModified
     }
 }
