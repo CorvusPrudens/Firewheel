@@ -217,7 +217,7 @@ impl AudioNodeProcessor for Processor {
                     self.gain_1.set_smooth_seconds(*seconds, info.sample_rate);
                 }
                 CrossfadeNodePatch::MinGain(min_gain) => {
-                    self.min_gain = min_gain.max(0.0);
+                    self.min_gain = (*min_gain).max(0.0);
                 }
                 _ => {}
             }

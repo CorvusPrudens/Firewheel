@@ -398,6 +398,16 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                                         MaskType::Constant(mask) => {
                                             if let MaskType::Constant(final_mask) = final_mask {
                                                 final_mask.union_with(mask);
+
+                                                for (i, buf) in
+                                                    proc_buffers.outputs.iter().enumerate()
+                                                {
+                                                    if final_mask.is_channel_constant(i)
+                                                        && buf[0] != buf[sub_chunk_range.start]
+                                                    {
+                                                        final_mask.set_channel(i, false);
+                                                    }
+                                                }
                                             } else {
                                                 *final_mask =
                                                     MaskType::Silence(SilenceMask::NONE_SILENT);
