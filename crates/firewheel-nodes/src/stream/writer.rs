@@ -10,7 +10,7 @@ use core::{
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
-    dsp::declick::{Declicker, FadeType},
+    dsp::declick::{DeclickFadeCurve, Declicker},
     event::{NodeEventType, ProcEvents},
     log::RealtimeLogger,
     mask::{MaskType, SilenceMask},
@@ -415,13 +415,13 @@ impl AudioNodeProcessor for Processor {
             _ => {}
         }
 
-        if !self.pause_declicker.is_settled() {
+        if !self.pause_declicker.has_settled() {
             self.pause_declicker.process(
                 buffers.outputs,
                 0..info.frames,
                 &extra.declick_values,
                 1.0,
-                FadeType::EqualPower3dB,
+                DeclickFadeCurve::EqualPower3dB,
             );
         }
 

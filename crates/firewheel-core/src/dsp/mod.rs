@@ -6,4 +6,5 @@ pub mod distance_attenuation;
 pub mod fade;
 pub mod filter;
 pub mod interleave;
+pub mod mix;
 pub mod volume;

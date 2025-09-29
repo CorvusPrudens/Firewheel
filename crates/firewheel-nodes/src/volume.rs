@@ -159,7 +159,7 @@ impl AudioNodeProcessor for VolumeProcessor {
 
                     if self.prev_block_was_silent {
                         // Previous block was silent, so no need to smooth.
-                        self.gain.reset();
+                        self.gain.reset_to_target();
                     }
                 }
                 VolumeNodePatch::SmoothSeconds(seconds) => {
@@ -179,7 +179,7 @@ impl AudioNodeProcessor for VolumeProcessor {
         {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
-            self.gain.reset();
+            self.gain.reset_to_target();
             self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;

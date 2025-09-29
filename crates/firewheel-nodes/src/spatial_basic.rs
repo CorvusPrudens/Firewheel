@@ -157,7 +157,7 @@ impl SpatialBasicNode {
         } else {
             0.0
         };
-        let (pan_gain_l, pan_gain_r) = FadeCurve::EqualPower3dB.compute_gains(pan);
+        let (pan_gain_l, pan_gain_r) = FadeCurve::EqualPower3dB.compute_gains_neg1_to_1(pan);
 
         let mut volume_gain = self.volume.amp();
         if volume_gain > 0.99999 && volume_gain < 1.00001 {
@@ -301,8 +301,8 @@ impl AudioNodeProcessor for Processor {
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_l.reset();
-                self.gain_r.reset();
+                self.gain_l.reset_to_target();
+                self.gain_r.reset_to_target();
                 self.distance_attenuator.reset();
             }
         }
@@ -310,8 +310,8 @@ impl AudioNodeProcessor for Processor {
         self.prev_block_was_silent = false;
 
         if info.in_silence_mask.all_channels_silent(2) {
-            self.gain_l.reset();
-            self.gain_r.reset();
+            self.gain_l.reset_to_target();
+            self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
 
             self.prev_block_was_silent = true;
@@ -365,8 +365,8 @@ impl AudioNodeProcessor for Processor {
                 && self.gain_r.target_value() == 0.0
                 && self.distance_attenuator.is_silent()
             {
-                self.gain_l.reset();
-                self.gain_r.reset();
+                self.gain_l.reset_to_target();
+                self.gain_r.reset_to_target();
                 self.distance_attenuator.reset();
 
                 self.prev_block_was_silent = true;
@@ -396,8 +396,8 @@ impl AudioNodeProcessor for Processor {
                 .process(info.frames, out1, out2, info.sample_rate_recip);
 
         if clear_outputs {
-            self.gain_l.reset();
-            self.gain_r.reset();
+            self.gain_l.reset_to_target();
+            self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
 
             self.prev_block_was_silent = true;

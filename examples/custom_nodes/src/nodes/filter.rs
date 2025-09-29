@@ -10,7 +10,7 @@ use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
-        declick::{Declicker, FadeType},
+        declick::{DeclickFadeCurve, Declicker},
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::ProcEvents,
@@ -158,13 +158,13 @@ impl AudioNodeProcessor for Processor {
         let gain_is_silent = !self.gain.is_smoothing() && self.gain.target_value() < 0.00001;
 
         if (info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
-            && self.enable_declicker.is_settled()
+            && self.enable_declicker.has_settled()
         {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
             // output.
-            self.cutoff_hz.reset();
+            self.cutoff_hz.reset_to_target();
             self.gain.reset();
             self.filter_l.reset();
             self.filter_r.reset();
@@ -233,7 +233,7 @@ impl AudioNodeProcessor for Processor {
             buffers.outputs,
             info.frames,
             &extra.declick_values,
-            FadeType::Linear,
+            DeclickFadeCurve::Linear,
         );
 
         // Notify the engine that we have modified the output buffers.

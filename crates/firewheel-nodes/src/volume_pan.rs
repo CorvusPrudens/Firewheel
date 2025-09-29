@@ -106,7 +106,7 @@ impl VolumePanNode {
     pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
         let global_gain = self.volume.amp_clamped(amp_epsilon);
 
-        let (mut gain_l, mut gain_r) = self.pan_law.compute_gains(self.pan);
+        let (mut gain_l, mut gain_r) = self.pan_law.compute_gains_neg1_to_1(self.pan);
 
         gain_l *= global_gain;
         gain_r *= global_gain;
@@ -224,16 +224,16 @@ impl AudioNodeProcessor for Processor {
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_l.reset();
-                self.gain_r.reset();
+                self.gain_l.reset_to_target();
+                self.gain_r.reset_to_target();
             }
         }
 
         self.prev_block_was_silent = false;
 
         if info.in_silence_mask.all_channels_silent(2) {
-            self.gain_l.reset();
-            self.gain_r.reset();
+            self.gain_l.reset_to_target();
+            self.gain_r.reset_to_target();
             self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
@@ -247,8 +247,8 @@ impl AudioNodeProcessor for Processor {
 
         if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
             if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
-                self.gain_l.reset();
-                self.gain_r.reset();
+                self.gain_l.reset_to_target();
+                self.gain_r.reset_to_target();
                 self.prev_block_was_silent = true;
 
                 ProcessStatus::ClearAllOutputs

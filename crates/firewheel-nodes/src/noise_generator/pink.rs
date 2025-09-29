@@ -136,7 +136,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         if !self.params.enabled || self.gain.has_settled_at(0.0) {
-            self.gain.reset();
+            self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }
 

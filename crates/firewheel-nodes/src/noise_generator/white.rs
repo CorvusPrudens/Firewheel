@@ -123,7 +123,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         if !self.params.enabled || (self.gain.target_value() == 0.0 && !self.gain.is_smoothing()) {
-            self.gain.reset();
+            self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }
 

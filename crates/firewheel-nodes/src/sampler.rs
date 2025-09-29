@@ -23,7 +23,7 @@ use firewheel_core::{
     diff::{Diff, Notify, ParamPath, Patch},
     dsp::{
         buffer::InstanceBuffer,
-        declick::{Declicker, FadeType},
+        declick::{DeclickFadeCurve, Declicker},
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::{NodeEventType, ParamData, ProcEvents},
@@ -633,13 +633,13 @@ impl SamplerProcessor {
             return (true, 0);
         };
 
-        if !self.declicker.is_settled() {
+        if !self.declicker.has_settled() {
             self.declicker.process(
                 buffers,
                 0..frames,
                 &extra.declick_values,
                 state.gain,
-                FadeType::EqualPower3dB,
+                DeclickFadeCurve::EqualPower3dB,
             );
         } else if state.gain != 1.0 {
             for b in buffers[..channels_filled].iter_mut() {
@@ -732,7 +732,7 @@ impl SamplerProcessor {
         if self.params.sample.is_none() {
             false
         } else {
-            self.playing || (self.paused && !self.declicker.is_settled())
+            self.playing || (self.paused && !self.declicker.has_settled())
         }
     }
 

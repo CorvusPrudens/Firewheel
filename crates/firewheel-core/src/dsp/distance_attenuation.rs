@@ -312,8 +312,8 @@ impl DistanceAttenuatorStereoDsp {
 
         if !self.gain.is_smoothing() && !self.muffle_cutoff_hz.is_smoothing() {
             if !self.gain.is_smoothing() && self.gain.target_value() == 0.0 {
-                self.gain.reset();
-                self.muffle_cutoff_hz.reset();
+                self.gain.reset_to_target();
+                self.muffle_cutoff_hz.reset_to_target();
                 self.filter.reset();
 
                 return true;
@@ -387,8 +387,8 @@ impl DistanceAttenuatorStereoDsp {
     }
 
     pub fn reset(&mut self) {
-        self.gain.reset();
-        self.muffle_cutoff_hz.reset();
+        self.gain.reset_to_target();
+        self.muffle_cutoff_hz.reset_to_target();
         self.filter.reset();
     }
 

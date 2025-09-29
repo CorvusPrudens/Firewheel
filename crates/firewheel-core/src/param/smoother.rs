@@ -32,6 +32,7 @@ impl Default for SmootherConfig {
 }
 
 /// A helper struct to smooth an f32 parameter.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SmoothedParam {
     target_value: f32,
     target_times_a: f32,
@@ -93,8 +94,8 @@ impl SmoothedParam {
         self.target_value <= value && self.filter.has_settled(self.target_value)
     }
 
-    /// Reset the smoother.
-    pub fn reset(&mut self) {
+    /// Reset the internal smoothing filter to the current target value.
+    pub fn reset_to_target(&mut self) {
         self.filter = SmoothingFilter::new(self.target_value);
     }
 
@@ -166,7 +167,7 @@ impl SmoothedParamBuffer {
             self.buffer_is_constant = true;
         }
 
-        self.smoother.reset();
+        self.smoother.reset_to_target();
     }
 
     /// Get the buffer of smoothed samples.

@@ -34,9 +34,40 @@ pub enum FadeCurve {
 impl FadeCurve {
     /// Compute the raw gain values for both inputs.
     ///
+    /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
+    /// first input, and `1.0` is fully the second input.
+    pub fn compute_gains_0_to_1(&self, fade: f32) -> (f32, f32) {
+        if fade <= 0.0 {
+            (1.0, 0.0)
+        } else if fade >= 1.0 {
+            (0.0, 1.0)
+        } else {
+            match self {
+                Self::EqualPower3dB => {
+                    let fade = FRAC_PI_2 * fade;
+                    let fade_cos = fade.cos();
+                    let fade_sin = fade.sin();
+
+                    (fade_cos, fade_sin)
+                }
+                Self::EqualPower6dB => {
+                    let fade = FRAC_PI_2 * fade;
+                    let fade_cos = fade.cos();
+                    let fade_sin = fade.sin();
+
+                    (fade_cos * fade_cos, fade_sin * fade_sin)
+                }
+                Self::SquareRoot => ((1.0 - fade).sqrt(), fade.sqrt()),
+                Self::Linear => ((1.0 - fade), fade),
+            }
+        }
+    }
+
+    /// Compute the raw gain values for both inputs.
+    ///
     /// * `fade` - The fade amount, where `0.0` is center, `-1.0` is fully the
     /// first input, and `1.0` is fully the second input.
-    pub fn compute_gains(&self, fade: f32) -> (f32, f32) {
+    pub fn compute_gains_neg1_to_1(&self, fade: f32) -> (f32, f32) {
         if fade <= -1.0 {
             (1.0, 0.0)
         } else if fade >= 1.0 {

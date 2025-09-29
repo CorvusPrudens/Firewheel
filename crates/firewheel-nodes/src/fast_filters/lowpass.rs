@@ -3,7 +3,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
-        declick::{Declicker, FadeType},
+        declick::{DeclickFadeCurve, Declicker},
         filter::{
             single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
             smoothing_filter::DEFAULT_SMOOTH_SECONDS,
@@ -163,13 +163,13 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             return ProcessStatus::Bypass;
         }
 
-        if info.in_silence_mask.all_channels_silent(CHANNELS) && self.enable_declicker.is_settled()
+        if info.in_silence_mask.all_channels_silent(CHANNELS) && self.enable_declicker.has_settled()
         {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
             // output.
-            self.cutoff_hz.reset();
+            self.cutoff_hz.reset_to_target();
             self.filter.reset();
             self.enable_declicker.reset_to_target();
 
@@ -256,7 +256,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             buffers.outputs,
             info.frames,
             &extra.declick_values,
-            FadeType::Linear,
+            DeclickFadeCurve::Linear,
         );
 
         ProcessStatus::OutputsModified

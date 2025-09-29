@@ -36,7 +36,7 @@ impl Declicker {
         }
     }
 
-    pub fn is_settled(&self) -> bool {
+    pub fn has_settled(&self) -> bool {
         *self == Self::SettledAt0 || *self == Self::SettledAt1
     }
 
@@ -117,7 +117,7 @@ impl Declicker {
         buffers_b: &mut [VB],
         frames: usize,
         declick_values: &DeclickValues,
-        fade_type: FadeType,
+        fade_curve: DeclickFadeCurve,
     ) {
         let mut crossfade_buffers =
             |declick_frames_left: &mut usize, values_a: &[f32], values_b: &[f32]| -> usize {
@@ -151,12 +151,12 @@ impl Declicker {
                 }
             }
             Self::FadingTo0 { frames_left } => {
-                let (values_a, values_b) = match fade_type {
-                    FadeType::Linear => (
+                let (values_a, values_b) = match fade_curve {
+                    DeclickFadeCurve::Linear => (
                         &declick_values.linear_0_to_1_values,
                         &declick_values.linear_1_to_0_values,
                     ),
-                    FadeType::EqualPower3dB => (
+                    DeclickFadeCurve::EqualPower3dB => (
                         &declick_values.circular_0_to_1_values,
                         &declick_values.circular_1_to_0_values,
                     ),
@@ -178,12 +178,12 @@ impl Declicker {
                 }
             }
             Self::FadingTo1 { frames_left } => {
-                let (values_a, values_b) = match fade_type {
-                    FadeType::Linear => (
+                let (values_a, values_b) = match fade_curve {
+                    DeclickFadeCurve::Linear => (
                         &declick_values.linear_1_to_0_values,
                         &declick_values.linear_0_to_1_values,
                     ),
-                    FadeType::EqualPower3dB => (
+                    DeclickFadeCurve::EqualPower3dB => (
                         &declick_values.circular_1_to_0_values,
                         &declick_values.circular_0_to_1_values,
                     ),
@@ -205,7 +205,7 @@ impl Declicker {
         range_in_buffer: Range<usize>,
         declick_values: &DeclickValues,
         gain: f32,
-        fade_type: FadeType,
+        fade_curve: DeclickFadeCurve,
     ) {
         let mut fade_buffers = |declick_frames_left: &mut usize, values: &[f32]| -> usize {
             let buffer_frames = range_in_buffer.end - range_in_buffer.start;
@@ -251,9 +251,9 @@ impl Declicker {
                 }
             }
             Self::FadingTo0 { frames_left } => {
-                let values = match fade_type {
-                    FadeType::Linear => &declick_values.linear_1_to_0_values,
-                    FadeType::EqualPower3dB => &declick_values.circular_1_to_0_values,
+                let values = match fade_curve {
+                    DeclickFadeCurve::Linear => &declick_values.linear_1_to_0_values,
+                    DeclickFadeCurve::EqualPower3dB => &declick_values.circular_1_to_0_values,
                 };
 
                 let frames_processed = fade_buffers(frames_left, values);
@@ -271,9 +271,9 @@ impl Declicker {
                 }
             }
             Self::FadingTo1 { frames_left } => {
-                let values = match fade_type {
-                    FadeType::Linear => &declick_values.linear_0_to_1_values,
-                    FadeType::EqualPower3dB => &declick_values.circular_0_to_1_values,
+                let values = match fade_curve {
+                    DeclickFadeCurve::Linear => &declick_values.linear_0_to_1_values,
+                    DeclickFadeCurve::EqualPower3dB => &declick_values.circular_0_to_1_values,
                 };
 
                 let frames_processed = fade_buffers(frames_left, values);
@@ -320,7 +320,7 @@ impl Declicker {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FadeType {
+pub enum DeclickFadeCurve {
     /// Linear fade.
     Linear,
     /// Equal power fade (circular).

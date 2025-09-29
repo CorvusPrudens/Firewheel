@@ -104,7 +104,7 @@ impl CrossfadeNode {
     pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
         let global_gain = self.volume.amp_clamped(amp_epsilon);
 
-        let (mut gain_0, mut gain_1) = self.fade_curve.compute_gains(self.crossfade);
+        let (mut gain_0, mut gain_1) = self.fade_curve.compute_gains_neg1_to_1(self.crossfade);
 
         gain_0 *= global_gain;
         gain_1 *= global_gain;
@@ -233,8 +233,8 @@ impl AudioNodeProcessor for Processor {
 
             if self.prev_block_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_0.reset();
-                self.gain_1.reset();
+                self.gain_0.reset_to_target();
+                self.gain_1.reset_to_target();
             }
         }
 
@@ -251,8 +251,8 @@ impl AudioNodeProcessor for Processor {
                 .in_silence_mask
                 .all_channels_silent(buffers.inputs.len())
         {
-            self.gain_0.reset();
-            self.gain_1.reset();
+            self.gain_0.reset_to_target();
+            self.gain_1.reset_to_target();
             self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
