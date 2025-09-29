@@ -33,7 +33,8 @@ musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 # processing. This can lead to a significant performance increases in some cases.
 #
 # HOWEVER, the Rust compiler technically considers this to be undefined behavior,
-# so USE AT YOUR OWN RISK!
+# so USE AT YOUR OWN RISK! Though if any UB did occur, the only damage will
+# likely just be audio glitches, not memory safety issues.
 #
 # Note, performance issues due to denormal numbers only effect x86 targets (ARM,
 # WASM, and RISC-V targets are all uneffected by denormal numbers).
