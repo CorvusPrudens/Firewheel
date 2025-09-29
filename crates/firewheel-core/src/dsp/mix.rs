@@ -178,12 +178,12 @@ impl MixDSP {
     pub fn mix_dry_into_wet<VF: AsRef<[f32]>, VS: AsMut<[f32]>>(
         &mut self,
         frames: usize,
-        scratch_buffer_0: &mut [f32],
-        scratch_buffer_1: &mut [f32],
         dry: &[VF],
         wet: &mut [VS],
+        scratch_buffer_0: &mut [f32],
+        scratch_buffer_1: &mut [f32],
     ) {
-        self.mix_first_into_second(frames, scratch_buffer_0, scratch_buffer_1, dry, wet);
+        self.mix_first_into_second(frames, dry, wet, scratch_buffer_0, scratch_buffer_1);
     }
 
     pub fn mix_first_into_second_mono(&mut self, first: &[f32], second: &mut [f32], frames: usize) {
@@ -264,10 +264,10 @@ impl MixDSP {
     pub fn mix_first_into_second<VF: AsRef<[f32]>, VS: AsMut<[f32]>>(
         &mut self,
         frames: usize,
-        scratch_buffer_0: &mut [f32],
-        scratch_buffer_1: &mut [f32],
         first: &[VF],
         second: &mut [VS],
+        scratch_buffer_0: &mut [f32],
+        scratch_buffer_1: &mut [f32],
     ) {
         if second.len() == 1 {
             self.mix_first_into_second_mono(first[0].as_ref(), second[0].as_mut(), frames);
