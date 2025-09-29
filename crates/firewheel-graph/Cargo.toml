@@ -29,6 +29,24 @@ std = [
 scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
+# Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
+# processing. This can lead to a significant performance increases in some cases.
+#
+# HOWEVER, the Rust compiler technically considers this to be undefined behavior,
+# so USE AT YOUR OWN RISK!
+#
+# Note, performance issues due to denormal numbers only effect x86 targets (ARM,
+# WASM, and RISC-V targets are all uneffected by denormal numbers).
+#
+# For more information on why this is considered undefined behavior, see:
+# https://doc.rust-lang.org/core/arch/x86_64/fn._mm_setcsr.html
+#
+# There is also currently an open issue to fix the "undefined behavior" status:
+# https://github.com/rust-lang/rust/issues/136469
+#
+# For an explanation on why denormal numbers are a problem, see:
+# https://mu.krj.st/denormal/
+unsafe_flush_denormals_to_zero = []
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.8.0-rc.1", default-features = false }

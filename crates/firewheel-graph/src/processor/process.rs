@@ -67,6 +67,9 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         assert_eq!(input.len(), frames * num_in_channels);
         assert_eq!(output.len(), frames * num_out_channels);
 
+        #[cfg(feature = "unsafe_flush_denormals_to_zero")]
+        let _ftz_gaurd = crate::ftz::ScopedFtz::enable();
+
         let mut frames_processed = 0;
         while frames_processed < frames {
             let block_frames = (frames - frames_processed).min(self.max_block_frames);

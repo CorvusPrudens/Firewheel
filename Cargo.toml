@@ -101,6 +101,24 @@ glam-29 = ["firewheel-core/glam-29"]
 glam-30 = ["firewheel-core/glam-30"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
+# Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
+# processing. This can lead to a significant performance increases in some cases.
+#
+# HOWEVER, the Rust compiler technically considers this to be undefined behavior,
+# so USE AT YOUR OWN RISK!
+#
+# Note, performance issues due to denormal numbers only effect x86 targets (ARM,
+# WASM, and RISC-V targets are all uneffected by denormal numbers).
+#
+# For more information on why this is considered undefined behavior, see:
+# https://doc.rust-lang.org/core/arch/x86_64/fn._mm_setcsr.html
+#
+# There is also currently an open issue to fix the "undefined behavior" status:
+# https://github.com/rust-lang/rust/issues/136469
+#
+# For an explanation on why denormal numbers are a problem, see:
+# https://mu.krj.st/denormal/
+unsafe_flush_denormals_to_zero = ["firewheel-graph/unsafe_flush_denormals_to_zero"]
 
 [workspace]
 members = [
