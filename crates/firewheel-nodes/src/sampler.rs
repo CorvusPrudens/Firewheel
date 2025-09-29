@@ -837,7 +837,11 @@ impl AudioNodeProcessor for SamplerProcessor {
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
         let mut volume_changed = false;
-        let mut new_playing: Option<bool> = None;
+        let mut new_playing: Option<bool> = if self.is_first_process {
+            Some(self.playing)
+        } else {
+            None
+        };
 
         #[cfg(feature = "scheduled_events")]
         let mut playback_instant: Option<EventInstant> = None;
@@ -916,11 +920,6 @@ impl AudioNodeProcessor for SamplerProcessor {
                 }
             }
 
-            if new_playing.is_none() && self.playing {
-                self.playing = false;
-                self.paused = false;
-            }
-
             self.loaded_sample_state = None;
 
             if let Some(sample) = &self.params.sample {
@@ -936,7 +935,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
                 if self.params.play_from == PlayFrom::Resume {
                     // Resume
-                    if self.playing {
+                    if self.playing && !self.is_first_process {
                         // Sample is already playing, no need to do anything.
                         #[cfg(feature = "scheduled_events")]
                         {
