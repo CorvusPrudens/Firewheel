@@ -23,6 +23,12 @@ impl Volume {
     /// Silence
     pub const SILENT: Self = Self::Linear(0.0);
 
+    /// Construct a [`Volume`] value from a percentage, where `0.0` is silence, and
+    /// `100.0` is unity gain.
+    pub const fn from_percent(percent: f32) -> Self {
+        Self::Linear(percent / 100.0)
+    }
+
     /// Get the volume in raw amplitude for use in DSP.
     pub fn amp(&self) -> f32 {
         match *self {
@@ -102,6 +108,12 @@ impl Volume {
             Self::Linear(volume) => volume,
             Self::Decibels(db) => amp_to_linear_volume_clamped(db_to_amp(db), 0.0),
         }
+    }
+
+    /// Get the volume as a percentage, where `0.0` is silence and `100.0` is unity
+    /// gain.
+    pub fn percent(&self) -> f32 {
+        self.linear() * 100.0
     }
 
     /// Get the value as a [`Volume::Linear`] value.

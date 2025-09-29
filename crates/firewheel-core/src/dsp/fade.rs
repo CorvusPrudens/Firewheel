@@ -37,9 +37,9 @@ impl FadeCurve {
     /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
     /// first input, and `1.0` is fully the second input.
     pub fn compute_gains_0_to_1(&self, fade: f32) -> (f32, f32) {
-        if fade <= 0.0 {
+        if fade <= 0.00001 {
             (1.0, 0.0)
-        } else if fade >= 1.0 {
+        } else if fade >= 0.99999 {
             (0.0, 1.0)
         } else {
             match self {
@@ -68,9 +68,9 @@ impl FadeCurve {
     /// * `fade` - The fade amount, where `0.0` is center, `-1.0` is fully the
     /// first input, and `1.0` is fully the second input.
     pub fn compute_gains_neg1_to_1(&self, fade: f32) -> (f32, f32) {
-        if fade <= -1.0 {
+        if fade <= -0.99999 {
             (1.0, 0.0)
-        } else if fade >= 1.0 {
+        } else if fade >= 0.99999 {
             (0.0, 1.0)
         } else {
             let fade = (fade + 1.0) * 0.5;

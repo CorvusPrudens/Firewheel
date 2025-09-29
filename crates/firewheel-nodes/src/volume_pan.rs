@@ -97,6 +97,14 @@ impl VolumePanNode {
         self.volume = Volume::Linear(linear);
     }
 
+    /// Set the given volume in percentage, where `0.0` is silence and
+    /// `100.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders.
+    pub const fn set_volume_percent(&mut self, percent: f32) {
+        self.volume = Volume::from_percent(percent);
+    }
+
     /// Set the given volume in decibels, where `0.0` is unity gain and
     /// `f32::NEG_INFINITY` is silence.
     pub const fn set_volume_decibels(&mut self, decibels: f32) {

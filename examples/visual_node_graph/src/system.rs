@@ -5,10 +5,10 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
-        crossfade::{CrossfadeNode, CrossfadeNodeConfig},
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
+        mix::{MixNode, MixNodeConfig},
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
         svf::SvfNode,
         volume::{VolumeNode, VolumeNodeConfig},
@@ -33,8 +33,8 @@ pub enum NodeType {
     FastHighpass,
     FastBandpass,
     SVF,
-    CrossfadeMono,
-    CrossfadeStereo,
+    MixMono,
+    MixStereo,
 }
 
 pub struct AudioSystem {
@@ -80,15 +80,15 @@ impl AudioSystem {
             NodeType::FastHighpass => self.cx.add_node(FastHighpassNode::<2>::default(), None),
             NodeType::FastBandpass => self.cx.add_node(FastBandpassNode::<2>::default(), None),
             NodeType::SVF => self.cx.add_node(SvfNode::<2>::default(), None),
-            NodeType::CrossfadeMono => self.cx.add_node(
-                CrossfadeNode::default(),
-                Some(CrossfadeNodeConfig {
+            NodeType::MixMono => self.cx.add_node(
+                MixNode::default(),
+                Some(MixNodeConfig {
                     channels: NonZeroChannelCount::MONO,
                 }),
             ),
-            NodeType::CrossfadeStereo => self.cx.add_node(
-                CrossfadeNode::default(),
-                Some(CrossfadeNodeConfig {
+            NodeType::MixStereo => self.cx.add_node(
+                MixNode::default(),
+                Some(MixNodeConfig {
                     channels: NonZeroChannelCount::STEREO,
                 }),
             ),
@@ -136,11 +136,11 @@ impl AudioSystem {
                 id,
                 params: Default::default(),
             },
-            NodeType::CrossfadeMono => GuiAudioNode::CrossfadeMono {
+            NodeType::MixMono => GuiAudioNode::MixMono {
                 id,
                 params: Default::default(),
             },
-            NodeType::CrossfadeStereo => GuiAudioNode::CrossfadeStereo {
+            NodeType::MixStereo => GuiAudioNode::MixStereo {
                 id,
                 params: Default::default(),
             },

@@ -6,14 +6,14 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
-    dsp::fade::FadeCurve,
+    dsp::{fade::FadeCurve, mix::Mix},
     nodes::{
         beep_test::BeepTestNode,
-        crossfade::CrossfadeNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
         },
+        mix::MixNode,
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
         svf::{SvfNode, SvfType, DEFAULT_MAX_Q, DEFAULT_MIN_Q},
         volume::VolumeNode,
@@ -73,13 +73,13 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<SvfNode<2>>,
     },
-    CrossfadeMono {
+    MixMono {
         id: firewheel::node::NodeID,
-        params: Memo<CrossfadeNode>,
+        params: Memo<MixNode>,
     },
-    CrossfadeStereo {
+    MixStereo {
         id: firewheel::node::NodeID,
-        params: Memo<CrossfadeNode>,
+        params: Memo<MixNode>,
     },
 }
 
@@ -99,8 +99,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { id, .. } => id,
             &Self::FastBandpass { id, .. } => id,
             &Self::SVF { id, .. } => id,
-            &Self::CrossfadeMono { id, .. } => id,
-            &Self::CrossfadeStereo { id, .. } => id,
+            &Self::MixMono { id, .. } => id,
+            &Self::MixStereo { id, .. } => id,
         }
     }
 
@@ -119,8 +119,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => "Fast Highpass",
             &Self::FastBandpass { .. } => "Fast Bandpass",
             &Self::SVF { .. } => "SVF",
-            &Self::CrossfadeMono { .. } => "Crossfade (Mono)",
-            &Self::CrossfadeStereo { .. } => "Crossfade (Stereo)",
+            &Self::MixMono { .. } => "Mix (Mono)",
+            &Self::MixStereo { .. } => "Mix (Stereo)",
         }
         .into()
     }
@@ -140,8 +140,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
             &Self::SVF { .. } => 2,
-            &Self::CrossfadeMono { .. } => 2,
-            &Self::CrossfadeStereo { .. } => 4,
+            &Self::MixMono { .. } => 2,
+            &Self::MixStereo { .. } => 4,
         }
     }
 
@@ -160,8 +160,8 @@ impl GuiAudioNode {
             &Self::FastHighpass { .. } => 2,
             &Self::FastBandpass { .. } => 2,
             &Self::SVF { .. } => 2,
-            &Self::CrossfadeMono { .. } => 1,
-            &Self::CrossfadeStereo { .. } => 2,
+            &Self::MixMono { .. } => 1,
+            &Self::MixStereo { .. } => 2,
         }
     }
 }
@@ -319,13 +319,13 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
-        if ui.button("Crossfade (Mono)").clicked() {
-            let node = self.audio_system.add_node(NodeType::CrossfadeMono);
+        if ui.button("Mix (Mono)").clicked() {
+            let node = self.audio_system.add_node(NodeType::MixMono);
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
-        if ui.button("Crossfade (Stereo)").clicked() {
-            let node = self.audio_system.add_node(NodeType::CrossfadeStereo);
+        if ui.button("Mix (Stereo)").clicked() {
+            let node = self.audio_system.add_node(NodeType::MixStereo);
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
@@ -588,8 +588,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
-            GuiAudioNode::CrossfadeMono { id, params }
-            | GuiAudioNode::CrossfadeStereo { id, params } => {
+            GuiAudioNode::MixMono { id, params } | GuiAudioNode::MixStereo { id, params } => {
                 ui.vertical(|ui| {
                     let mut linear_volume = params.volume.linear();
                     if ui
@@ -600,7 +599,9 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         params.update_memo(&mut self.audio_system.event_queue(*id));
                     }
 
-                    ui.add(egui::Slider::new(&mut params.crossfade, -1.0..=1.0).text("crossfade"));
+                    let mut mix = params.mix.get();
+                    ui.add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"));
+                    params.mix = Mix::new(mix);
 
                     egui::ComboBox::from_label("fade curve")
                         .selected_text(match params.fade_curve {

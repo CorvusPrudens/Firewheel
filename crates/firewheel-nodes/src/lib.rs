@@ -27,8 +27,8 @@ pub mod svf;
 #[cfg(feature = "delay_compensation")]
 pub mod delay_compensation;
 
-#[cfg(feature = "crossfade")]
-pub mod crossfade;
+#[cfg(feature = "mix")]
+pub mod mix;
 
 mod stereo_to_mono;
 

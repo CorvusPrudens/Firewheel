@@ -4,6 +4,7 @@ use firewheel_core::{
     dsp::{
         fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+        mix::Mix,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::ProcEvents,
@@ -18,7 +19,7 @@ use firewheel_core::{
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct CrossfadeNodeConfig {
+pub struct MixNodeConfig {
     /// The number of input channels for a single input. This will also be
     /// the total number of output channels.
     ///
@@ -28,7 +29,7 @@ pub struct CrossfadeNodeConfig {
     pub channels: NonZeroChannelCount,
 }
 
-impl Default for CrossfadeNodeConfig {
+impl Default for MixNodeConfig {
     fn default() -> Self {
         Self {
             channels: NonZeroChannelCount::STEREO,
@@ -39,14 +40,16 @@ impl Default for CrossfadeNodeConfig {
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct CrossfadeNode {
+pub struct MixNode {
     /// The overall volume.
     pub volume: Volume,
 
-    /// The crossfade amount in the range `[-1.0, 1.0]`, where `-1.0` is fully
-    /// the first input, `1.0` is fully the second input, and `0.0` is an equal
-    /// mix of both inputs.
-    pub crossfade: f32,
+    /// The value representing the mix between two audio signals (e.g. second/first mix)
+    ///
+    /// This is a normalized value in the range `[0.0, 1.0]`, where `0.0` is fully
+    /// the first signal, `1.0` is fully the second signal, and `0.5` is an equal
+    /// mix of both.
+    pub mix: Mix,
 
     /// The algorithm used to map the normalized panning value in the range
     /// `[-1.0, 1.0]` to the corresponding gain values for the left and right
@@ -65,21 +68,21 @@ pub struct CrossfadeNode {
     pub min_gain: f32,
 }
 
-impl CrossfadeNode {
-    pub const fn from_volume_crossfade(volume: Volume, crossfade: f32) -> Self {
+impl MixNode {
+    pub const fn from_volume_mix(volume: Volume, mix: Mix) -> Self {
         Self {
             volume,
-            crossfade,
+            mix,
             fade_curve: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
         }
     }
 
-    pub const fn from_crossfade(crossfade: f32) -> Self {
+    pub const fn from_mix(mix: Mix) -> Self {
         Self {
             volume: Volume::UNITY_GAIN,
-            crossfade,
+            mix,
             fade_curve: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
@@ -95,6 +98,14 @@ impl CrossfadeNode {
         self.volume = Volume::Linear(linear);
     }
 
+    /// Set the given volume in percentage, where `0.0` is silence and
+    /// `100.0` is unity gain.
+    ///
+    /// These units are suitable for volume sliders.
+    pub const fn set_volume_percent(&mut self, percent: f32) {
+        self.volume = Volume::from_percent(percent);
+    }
+
     /// Set the given volume in decibels, where `0.0` is unity gain and
     /// `f32::NEG_INFINITY` is silence.
     pub const fn set_volume_decibels(&mut self, decibels: f32) {
@@ -104,7 +115,7 @@ impl CrossfadeNode {
     pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
         let global_gain = self.volume.amp_clamped(amp_epsilon);
 
-        let (mut gain_0, mut gain_1) = self.fade_curve.compute_gains_neg1_to_1(self.crossfade);
+        let (mut gain_0, mut gain_1) = self.mix.compute_gains(self.fade_curve);
 
         gain_0 *= global_gain;
         gain_1 *= global_gain;
@@ -120,11 +131,11 @@ impl CrossfadeNode {
     }
 }
 
-impl Default for CrossfadeNode {
+impl Default for MixNode {
     fn default() -> Self {
         Self {
             volume: Volume::default(),
-            crossfade: -1.0,
+            mix: Mix::default(),
             fade_curve: FadeCurve::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,
@@ -132,18 +143,18 @@ impl Default for CrossfadeNode {
     }
 }
 
-impl AudioNode for CrossfadeNode {
-    type Configuration = CrossfadeNodeConfig;
+impl AudioNode for MixNode {
+    type Configuration = MixNodeConfig;
 
     fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
         let num_channels = config.channels.get().get();
 
         AudioNodeInfo::new()
-            .debug_name("crossfade")
+            .debug_name("mix")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(num_channels * 2).unwrap_or_else(|| {
                     panic!(
-                        "CrossfadeNodeConfig::channels cannot be greater than 32, got {}",
+                        "MixNodeConfig::channels cannot be greater than 32, got {}",
                         num_channels
                     )
                 }),
@@ -188,7 +199,7 @@ struct Processor {
     gain_0: SmoothedParam,
     gain_1: SmoothedParam,
 
-    params: CrossfadeNode,
+    params: MixNode,
 
     prev_block_was_silent: bool,
     min_gain: f32,
@@ -203,20 +214,20 @@ impl AudioNodeProcessor for Processor {
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut updated = false;
-        for mut patch in events.drain_patches::<CrossfadeNode>() {
+        for mut patch in events.drain_patches::<MixNode>() {
             match &mut patch {
-                CrossfadeNodePatch::Crossfade(p) => {
-                    if *p <= -0.99999 {
-                        *p = -1.0;
-                    } else if *p >= 0.99999 {
-                        *p = 1.0;
+                MixNodePatch::Mix(m) => {
+                    if m.get() <= 0.00001 {
+                        *m = Mix::new(0.0);
+                    } else if m.get() >= 0.99999 {
+                        *m = Mix::new(1.0);
                     }
                 }
-                CrossfadeNodePatch::SmoothSeconds(seconds) => {
+                MixNodePatch::SmoothSeconds(seconds) => {
                     self.gain_0.set_smooth_seconds(*seconds, info.sample_rate);
                     self.gain_1.set_smooth_seconds(*seconds, info.sample_rate);
                 }
-                CrossfadeNodePatch::MinGain(min_gain) => {
+                MixNodePatch::MinGain(min_gain) => {
                     self.min_gain = (*min_gain).max(0.0);
                 }
                 _ => {}
@@ -261,7 +272,7 @@ impl AudioNodeProcessor for Processor {
         let mut out_silence_mask = SilenceMask::NONE_SILENT;
 
         if has_settled {
-            if self.params.crossfade == -1.0 && self.gain_0.target_value() == 1.0 {
+            if self.params.mix.get() == 0.0 && self.gain_0.target_value() == 1.0 {
                 // Simply copy input 0 to output
                 for (ch_i, (in_ch, out_ch)) in buffers.inputs[..channels]
                     .iter()
@@ -280,7 +291,7 @@ impl AudioNodeProcessor for Processor {
                 }
 
                 return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask));
-            } else if self.params.crossfade == 1.0 && self.gain_1.target_value() == 1.0 {
+            } else if self.params.mix.get() == 1.0 && self.gain_1.target_value() == 1.0 {
                 // Simply copy input 1 to output
                 for (ch_i, (in_ch, out_ch)) in buffers.inputs[channels..]
                     .iter()
