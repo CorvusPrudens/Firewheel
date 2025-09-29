@@ -23,7 +23,7 @@ use super::{MAX_HZ, MIN_HZ};
 pub type FastLowpassMonoNode = FastLowpassNode<1>;
 pub type FastLowpassStereoNode = FastLowpassNode<2>;
 
-/// A simple single-pole IIR lowpass filter that is computationally efficient.
+/// A simple single-pole IIR lowpass filter that is computationally efficient
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]

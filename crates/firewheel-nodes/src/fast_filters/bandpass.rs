@@ -26,7 +26,8 @@ use super::{MAX_HZ, MIN_HZ};
 pub type FastBandpassMonoNode = FastBandpassNode<1>;
 pub type FastBandpassStereoNode = FastBandpassNode<2>;
 
-/// A simple single-pole IIR bandpass filter.
+/// A simple single-pole IIR bandpass filter node that is computationally
+/// efficient
 ///
 /// It is computationally efficient, but it doesn't do that great of
 /// a job at attenuating low frequencies.

@@ -14,6 +14,7 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
+/// The configuration of a [`VolumeNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -30,10 +31,12 @@ impl Default for VolumeNodeConfig {
     }
 }
 
+/// A node that changes the volume of a signal
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumeNode {
+    /// The volume to apply to the signal
     pub volume: Volume,
 
     /// The time in seconds of the internal smoothing filter.

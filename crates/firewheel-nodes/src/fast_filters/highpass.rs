@@ -23,7 +23,8 @@ use super::{MAX_HZ, MIN_HZ};
 pub type FastHighpassMonoNode = FastHighpassNode<1>;
 pub type FastHighpassStereoNode = FastHighpassNode<2>;
 
-/// A simple single-pole IIR highpass filter.
+/// A simple single-pole IIR highpass filter that is computationally
+/// efficient
 ///
 /// It is computationally efficient, but it doesn't do that great of
 /// a job at attenuating low frequencies.

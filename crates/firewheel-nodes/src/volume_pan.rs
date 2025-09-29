@@ -17,11 +17,12 @@ use firewheel_core::{
 
 pub use super::volume::VolumeNodeConfig;
 
+/// A node that applies volume and panning to a stereo signal
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumePanNode {
-    /// The overall volume.
+    /// The overall volume
     pub volume: Volume,
     /// The pan amount, where `0.0` is center, `-1.0` is fully left, and `1.0`
     /// is fully right.

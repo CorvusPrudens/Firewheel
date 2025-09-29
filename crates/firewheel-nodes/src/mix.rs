@@ -16,6 +16,7 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
+/// The configuration for a [`MixNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -37,23 +38,32 @@ impl Default for MixNodeConfig {
     }
 }
 
+/// A node which mixes two signals together
+///
+/// The first half of the inputs are the first signal, and the second half are the
+/// second signal.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct MixNode {
-    /// The overall volume.
+    /// The overall volume
+    ///
+    /// By default this is set to [`Volume::UNITY_GAIN`].
     pub volume: Volume,
 
-    /// The value representing the mix between two audio signals (e.g. second/first mix)
+    /// The value representing the mix between the two audio signals
     ///
     /// This is a normalized value in the range `[0.0, 1.0]`, where `0.0` is fully
     /// the first signal, `1.0` is fully the second signal, and `0.5` is an equal
     /// mix of both.
+    ///
+    /// By default this is set to [`Mix::FULLY_FIRST`].
     pub mix: Mix,
 
-    /// The algorithm used to map the normalized panning value in the range
-    /// `[-1.0, 1.0]` to the corresponding gain values for the left and right
-    /// channels.
+    /// The algorithm used to map the normalized mix value in the range
+    /// `[0.0, 1.0]` to the corresponding gain values for the two signals.
+    ///
+    /// By default this is set to [`FadeCurve::EqualPower3dB`].
     pub fade_curve: FadeCurve,
 
     /// The time in seconds of the internal smoothing filter.
@@ -135,7 +145,7 @@ impl Default for MixNode {
     fn default() -> Self {
         Self {
             volume: Volume::default(),
-            mix: Mix::default(),
+            mix: Mix::FULLY_FIRST,
             fade_curve: FadeCurve::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             min_gain: DEFAULT_AMP_EPSILON,

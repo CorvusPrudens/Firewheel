@@ -4,7 +4,7 @@ use num_traits::Float;
 pub const DEFAULT_AMP_EPSILON: f32 = 0.00001;
 pub const DEFAULT_DB_EPSILON: f32 = -100.0;
 
-/// A value representing a volume (gain) applied to an audio signal.
+/// A value representing a volume (gain) applied to an audio signal
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub enum Volume {

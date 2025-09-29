@@ -9,6 +9,7 @@ use firewheel_core::{
 };
 use smallvec::{smallvec, SmallVec};
 
+/// The configuration for a [`DelayCompensationNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -29,6 +30,10 @@ impl Default for DelayCompNodeConfig {
     }
 }
 
+/// A node which delays a signal by a given number samples.
+///
+/// This can be used to avoid phasing issues (comb filtering) caused by
+/// parallel signal paths having differing latencies.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]

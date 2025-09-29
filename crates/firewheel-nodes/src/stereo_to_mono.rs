@@ -7,6 +7,7 @@ use firewheel_core::{
     },
 };
 
+/// A node that converts a stereo signal into a mono signal
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]

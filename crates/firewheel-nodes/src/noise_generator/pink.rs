@@ -20,7 +20,7 @@ use firewheel_core::{
 const COEFF_A: [i32; 5] = [14055, 12759, 10733, 12273, 15716];
 const COEFF_SUM: [i16; 5] = [22347, 27917, 29523, 29942, 30007];
 
-/// A simple node that generates white noise. (Mono output only)
+/// A simple node that generates pink noise (Mono output only)
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]

@@ -34,6 +34,7 @@ pub const DEFAULT_MAX_GAIN_DB: f32 = 24.0;
 pub type SvfMonoNode = SvfNode<1>;
 pub type SvfStereoNode = SvfNode<2>;
 
+/// The configuration for an [`SvfNode`]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -73,6 +74,7 @@ impl Default for SvfNodeConfig {
     }
 }
 
+/// The filter type to use for an [`SvfNode`]
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -95,16 +97,7 @@ pub enum SvfType {
     Allpass,
 }
 
-pub fn bandwidth_hz_to_q(bandwidth_hz: f32, cutoff_hz: f32) -> f32 {
-    cutoff_hz / bandwidth_hz
-}
-
-pub fn bandwidth_octaves_to_q(bandwidth_octaves: f32) -> f32 {
-    let two_pow_bw = 2.0f32.powf(bandwidth_octaves);
-    two_pow_bw.sqrt() / (two_pow_bw - 1.0)
-}
-
-/// An SVF (state variable filter) node.
+/// An SVF (state variable filter) node
 ///
 /// This is based on the filter model developed by Andrew Simper:
 /// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>

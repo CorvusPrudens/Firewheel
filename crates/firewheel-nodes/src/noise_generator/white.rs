@@ -15,7 +15,7 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
-/// A simple node that generates white noise. (Mono output only)
+/// A simple node that generates white noise (Mono output only)
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]

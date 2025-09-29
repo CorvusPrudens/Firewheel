@@ -43,6 +43,7 @@ pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 
+/// The configuration of a [`SamplerNode`]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -86,6 +87,9 @@ pub enum PlaybackSpeedQuality {
     // TODO: more quality options
 }
 
+/// A node that plays samples
+///
+/// It supports pausing, resuming, looping, and changing the playback speed.
 #[derive(Clone, Diff, Patch)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerNode {

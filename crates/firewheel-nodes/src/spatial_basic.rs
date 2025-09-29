@@ -27,9 +27,8 @@ use firewheel_core::{
     vector::Vec3,
 };
 
-/// The parameters for a 3D spatial positioning node using a basic (and naive) algorithm.
-/// It does not make use of any fancy binaural algorithms, rather it just applies basic
-/// panning and filtering.
+/// A 3D spatial positioning node using a basic but fast algorithm. It does not make use
+/// of any fancy binaural algorithms, rather it just applies basic panning and filtering.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -189,6 +188,7 @@ impl SpatialBasicNode {
         }
     }
 }
+
 struct ComputedValues {
     distance: f32,
     gain_l: f32,

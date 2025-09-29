@@ -21,6 +21,7 @@ use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 
 pub const MAX_CHANNELS: usize = 16;
 
+/// The configuration of a [`StreamReaderNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -37,6 +38,8 @@ impl Default for StreamReaderConfig {
     }
 }
 
+/// A node that sends blocks of raw audio data from the audio graph
+/// to another thread
 #[derive(Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
