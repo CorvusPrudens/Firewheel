@@ -199,7 +199,6 @@ impl AudioNode for MixNode {
                 cx.stream_info.sample_rate,
             ),
             params: *self,
-            prev_block_was_silent: true,
             min_gain,
         }
     }
@@ -211,7 +210,6 @@ struct Processor {
 
     params: MixNode,
 
-    prev_block_was_silent: bool,
     min_gain: f32,
 }
 
@@ -252,14 +250,12 @@ impl AudioNodeProcessor for Processor {
             self.gain_0.set_value(gain_0);
             self.gain_1.set_value(gain_1);
 
-            if self.prev_block_was_silent {
+            if info.prev_output_was_silent {
                 // Previous block was silent, so no need to smooth.
                 self.gain_0.reset_to_target();
                 self.gain_1.reset_to_target();
             }
         }
-
-        self.prev_block_was_silent = false;
 
         let channels = buffers.outputs.len();
 
@@ -274,7 +270,6 @@ impl AudioNodeProcessor for Processor {
         {
             self.gain_0.reset_to_target();
             self.gain_1.reset_to_target();
-            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }

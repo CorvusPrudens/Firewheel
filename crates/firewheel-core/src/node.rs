@@ -552,6 +552,11 @@ pub struct ProcInfo {
     /// nodes in the graph.
     pub out_connected_mask: ConnectedMask,
 
+    /// If the previous processing block had all output buffers silent
+    /// (or if this is the first processing block), then this will be
+    /// `true`. Otherwise, this will be `false`.
+    pub prev_output_was_silent: bool,
+
     /// The sample rate of the audio stream in samples per second.
     pub sample_rate: NonZeroU32,
 

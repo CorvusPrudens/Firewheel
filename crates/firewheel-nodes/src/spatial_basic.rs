@@ -240,7 +240,6 @@ impl AudioNode for SpatialBasicNode {
                 self.coeff_update_factor,
             ),
             params: *self,
-            prev_block_was_silent: true,
         }
     }
 }
@@ -252,8 +251,6 @@ struct Processor {
     distance_attenuator: DistanceAttenuatorStereoDsp,
 
     params: SpatialBasicNode,
-
-    prev_block_was_silent: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -307,7 +304,7 @@ impl AudioNodeProcessor for Processor {
                 self.params.min_gain,
             );
 
-            if self.prev_block_was_silent {
+            if info.prev_output_was_silent {
                 // Previous block was silent, so no need to smooth.
                 self.gain_l.reset_to_target();
                 self.gain_r.reset_to_target();
@@ -315,14 +312,10 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        self.prev_block_was_silent = false;
-
         if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
-
-            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
@@ -377,8 +370,6 @@ impl AudioNodeProcessor for Processor {
                 self.gain_r.reset_to_target();
                 self.distance_attenuator.reset();
 
-                self.prev_block_was_silent = true;
-
                 return ProcessStatus::ClearAllOutputs;
             } else {
                 for i in 0..info.frames {
@@ -407,8 +398,6 @@ impl AudioNodeProcessor for Processor {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
-
-            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         } else {

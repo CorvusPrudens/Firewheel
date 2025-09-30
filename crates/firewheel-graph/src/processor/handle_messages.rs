@@ -114,6 +114,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     n.id.0,
                     NodeEntry {
                         processor: n.processor,
+                        prev_output_was_silent: true,
                         event_data: NodeEventSchedulerData::default(),
                     }
                 )

@@ -182,7 +182,6 @@ impl AudioNode for VolumePanNode {
                 cx.stream_info.sample_rate,
             ),
             params: *self,
-            prev_block_was_silent: true,
             min_gain,
         }
     }
@@ -194,7 +193,6 @@ struct Processor {
 
     params: VolumePanNode,
 
-    prev_block_was_silent: bool,
     min_gain: f32,
 }
 
@@ -231,19 +229,16 @@ impl AudioNodeProcessor for Processor {
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);
 
-            if self.prev_block_was_silent {
+            if info.prev_output_was_silent {
                 // Previous block was silent, so no need to smooth.
                 self.gain_l.reset_to_target();
                 self.gain_r.reset_to_target();
             }
         }
 
-        self.prev_block_was_silent = false;
-
         if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
-            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
@@ -258,7 +253,6 @@ impl AudioNodeProcessor for Processor {
             if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
                 self.gain_l.reset_to_target();
                 self.gain_r.reset_to_target();
-                self.prev_block_was_silent = true;
 
                 ProcessStatus::ClearAllOutputs
             } else {

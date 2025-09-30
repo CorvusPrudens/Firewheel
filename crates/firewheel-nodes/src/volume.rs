@@ -150,7 +150,6 @@ impl AudioNode for VolumeNode {
                 },
                 cx.stream_info.sample_rate,
             ),
-            prev_block_was_silent: true,
             min_gain,
         }
     }
@@ -159,7 +158,6 @@ impl AudioNode for VolumeNode {
 struct VolumeProcessor {
     gain: SmoothedParam,
 
-    prev_block_was_silent: bool,
     min_gain: f32,
 }
 
@@ -180,7 +178,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                     }
                     self.gain.set_value(gain);
 
-                    if self.prev_block_was_silent {
+                    if info.prev_output_was_silent {
                         // Previous block was silent, so no need to smooth.
                         self.gain.reset_to_target();
                     }
@@ -194,8 +192,6 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        self.prev_block_was_silent = false;
-
         if info
             .in_silence_mask
             .all_channels_silent(buffers.inputs.len())
@@ -203,14 +199,12 @@ impl AudioNodeProcessor for VolumeProcessor {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain.reset_to_target();
-            self.prev_block_was_silent = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
 
         if !self.gain.is_smoothing() {
             if self.gain.target_value() == 0.0 {
-                self.prev_block_was_silent = true;
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
             } else if self.gain.target_value() == 1.0 {
