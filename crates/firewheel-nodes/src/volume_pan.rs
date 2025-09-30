@@ -21,6 +21,7 @@ pub use super::volume::VolumeNodeConfig;
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VolumePanNode {
     /// The overall volume
     pub volume: Volume,
@@ -215,7 +216,7 @@ impl AudioNodeProcessor for Processor {
                     self.gain_r.set_smooth_seconds(*seconds, info.sample_rate);
                 }
                 VolumePanNodePatch::MinGain(min_gain) => {
-                    self.min_gain = min_gain.max(0.0);
+                    self.min_gain = (*min_gain).max(0.0);
                 }
                 _ => {}
             }

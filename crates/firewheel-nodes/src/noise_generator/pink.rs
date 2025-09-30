@@ -24,6 +24,7 @@ const COEFF_SUM: [i16; 5] = [22347, 27917, 29523, 29942, 30007];
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PinkNoiseGenNode {
     /// The overall volume.
     ///
@@ -52,6 +53,7 @@ impl Default for PinkNoiseGenNode {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PinkNoiseGenConfig {
     /// The starting seed. This cannot be zero.
     pub seed: i32,

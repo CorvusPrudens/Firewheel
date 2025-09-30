@@ -101,6 +101,12 @@ glam-29 = ["firewheel-core/glam-29"]
 glam-30 = ["firewheel-core/glam-30"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
+# Enables serde derives for types
+serde = [
+    "firewheel-core/serde",
+    "firewheel-graph/serde",
+    "firewheel-nodes/serde",
+]
 # Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
 # processing. This can lead to a significant performance increases in some cases.
 #
@@ -155,6 +161,7 @@ bevy_platform = { version = "0.17.0-rc.1", default-features = false, features = 
 bevy_ecs = { version = "0.17.0-rc.1", default-features = false }
 bevy_reflect = { version = "0.17.0-rc.1", default-features = false }
 num-traits = {version =  "0.2", default-features = false }
+serde = { version = "1", features = ["derive"] }
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.8.0-rc.1", default-features = false }

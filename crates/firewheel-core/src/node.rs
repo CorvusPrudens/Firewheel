@@ -342,6 +342,7 @@ impl<'a> UpdateContext<'a> {
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EmptyConfig;
 
 /// A type-erased dyn-compatible [`AudioNode`].

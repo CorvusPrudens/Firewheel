@@ -7,6 +7,7 @@ use crate::clock::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TransportKeyframe {
     /// The beats per minute of this keyframe.
     pub beats_per_minute: f64,

@@ -18,6 +18,7 @@ use firewheel_core::{
 /// The configuration for a [`PeakMeterSmoother`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PeakMeterSmootherConfig {
     /// The rate of decay in seconds.
     ///
@@ -160,6 +161,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
 /// to [`PeakMeterState`].
 #[derive(Diff, Patch, Debug, Clone, Copy)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PeakMeterNode<const NUM_CHANNELS: usize> {
     pub enabled: bool,
 }

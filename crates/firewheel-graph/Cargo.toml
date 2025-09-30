@@ -29,6 +29,8 @@ std = [
 scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
+# Enables serde derives for types
+serde = ["dep:serde"]
 # Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
 # processing. This can lead to a significant performance increases in some cases.
 #
@@ -59,3 +61,4 @@ arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
 bevy_platform.workspace = true
+serde = { workspace = true, optional = true }

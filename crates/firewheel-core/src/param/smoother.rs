@@ -11,6 +11,7 @@ use crate::{
 /// The configuration for a [`SmoothedParam`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SmootherConfig {
     /// The amount of smoothing in seconds
     ///

@@ -9,6 +9,7 @@ use crate::diff::{Diff, Patch};
 /// range `[-1.0, 1.0]` to the corresponding gain values for two inputs.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u32)]
 pub enum FadeCurve {
     /// This curve makes the combined signal appear to play at a constant volume

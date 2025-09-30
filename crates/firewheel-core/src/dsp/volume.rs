@@ -7,6 +7,7 @@ pub const DEFAULT_DB_EPSILON: f32 = -100.0;
 /// A value representing a volume (gain) applied to an audio signal
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Volume {
     /// Volume in a linear scale, where `0.0` is silence and `1.0` is unity gain.
     ///

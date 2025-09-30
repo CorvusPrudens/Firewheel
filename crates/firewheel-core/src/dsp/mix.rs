@@ -15,6 +15,7 @@ use crate::{
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mix(f32);
 
 impl Mix {

@@ -3,6 +3,7 @@
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -21,6 +22,7 @@ impl Vec2 {
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,

@@ -32,6 +32,7 @@ use firewheel_core::{
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SpatialBasicNode {
     /// The overall volume. This is applied before the spatialization algorithm.
     pub volume: Volume,

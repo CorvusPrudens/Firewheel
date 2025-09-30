@@ -94,6 +94,8 @@ glam-29 = ["dep:glam-29"]
 glam-30 = ["dep:glam-30"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["dep:wmidi"]
+# Enables serde derives for types
+serde = ["dep:serde"]
 
 [dependencies]
 firewheel-macros.workspace = true
@@ -121,3 +123,4 @@ portable-atomic = { version = "1", default-features = false, features = [
     "float",
 ] }
 wmidi = { version = "4", default-features = false, optional = true }
+serde = { workspace = true, optional = true }

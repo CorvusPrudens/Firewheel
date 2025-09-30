@@ -9,6 +9,7 @@ pub const MAX_CHANNELS: usize = 64;
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ChannelCount(u32);
 
 impl ChannelCount {
@@ -31,14 +32,9 @@ impl ChannelCount {
 
     #[inline]
     pub const fn get(&self) -> u32 {
-        if self.0 <= 64 {
-            self.0
-        } else {
-            // SAFETY:
-            // The constructor ensures that the value is less than or
-            // equal to `64`.
-            unsafe { core::hint::unreachable_unchecked() }
-        }
+        assert!(self.0 <= 64);
+
+        self.0
     }
 }
 
@@ -67,6 +63,7 @@ impl From<ChannelCount> for usize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NonZeroChannelCount(NonZeroU32);
 
 impl NonZeroChannelCount {
@@ -88,14 +85,9 @@ impl NonZeroChannelCount {
 
     #[inline]
     pub const fn get(&self) -> ChannelCount {
-        if self.0.get() <= 64 {
-            ChannelCount(self.0.get())
-        } else {
-            // SAFETY:
-            // The constructor ensures that the value is less than or
-            // equal to `64`.
-            unsafe { core::hint::unreachable_unchecked() }
-        }
+        assert!(self.0.get() > 0 && self.0.get() <= 64);
+
+        ChannelCount(self.0.get())
     }
 }
 
@@ -126,6 +118,7 @@ impl From<NonZeroChannelCount> for usize {
 /// A supported number of channels on an audio node.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ChannelConfig {
     pub num_inputs: ChannelCount,
     pub num_outputs: ChannelCount,

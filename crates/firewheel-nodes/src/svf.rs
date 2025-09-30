@@ -38,6 +38,7 @@ pub type SvfStereoNode = SvfNode<2>;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SvfNodeConfig {
     /// The minimum and maximum values for cutoff frequency in hertz.
     ///
@@ -78,6 +79,7 @@ impl Default for SvfNodeConfig {
 #[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SvfType {
     // Lowpass (-12 dB per octave)
     #[default]
@@ -103,6 +105,7 @@ pub enum SvfType {
 /// <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 pub struct SvfNode<const CHANNELS: usize> {
     /// The type of filter

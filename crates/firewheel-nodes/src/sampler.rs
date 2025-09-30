@@ -47,6 +47,7 @@ pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
     pub channels: NonZeroChannelCount,
@@ -77,6 +78,7 @@ impl Default for SamplerConfig {
 #[non_exhaustive]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlaybackSpeedQuality {
     #[default]
     /// Low quality, fast performance. Recommended for most use cases.

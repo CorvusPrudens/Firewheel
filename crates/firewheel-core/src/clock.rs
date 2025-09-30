@@ -21,6 +21,7 @@ pub use transport::*;
 /// audio clock time.
 #[cfg(feature = "scheduled_events")]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EventInstant {
     /// The event should happen when the clock reaches the given time in
     /// seconds.
@@ -173,6 +174,7 @@ impl Patch for Option<EventInstant> {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstantSeconds(pub f64);
 
 impl InstantSeconds {
@@ -221,6 +223,7 @@ impl InstantSeconds {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DurationSeconds(pub f64);
 
 impl DurationSeconds {
@@ -355,6 +358,7 @@ impl From<DurationSeconds> for f64 {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstantSamples(pub i64);
 
 impl InstantSamples {
@@ -421,6 +425,7 @@ impl InstantSamples {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DurationSamples(pub i64);
 
 impl DurationSamples {
@@ -591,6 +596,7 @@ impl From<DurationSamples> for i64 {
 /// An absolute audio clock instant in units of musical beats.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg(feature = "musical_transport")]
 pub struct InstantMusical(pub f64);
 
@@ -632,6 +638,7 @@ impl InstantMusical {
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg(feature = "musical_transport")]
 pub struct DurationMusical(pub f64);
 
