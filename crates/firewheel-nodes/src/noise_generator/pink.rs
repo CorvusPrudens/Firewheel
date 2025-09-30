@@ -135,7 +135,7 @@ impl AudioNodeProcessor for Processor {
             self.params.apply(patch);
         }
 
-        if !self.params.enabled || self.gain.has_settled_at(0.0) {
+        if !self.params.enabled || self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
             self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }

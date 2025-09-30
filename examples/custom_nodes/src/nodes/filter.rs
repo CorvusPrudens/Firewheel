@@ -155,7 +155,7 @@ impl AudioNodeProcessor for Processor {
 
         // If the gain parameter is not currently smoothing and is silent, then
         // there is no need to process.
-        let gain_is_silent = !self.gain.is_smoothing() && self.gain.target_value() < 0.00001;
+        let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON);
 
         if (info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
             && self.enable_declicker.has_settled()

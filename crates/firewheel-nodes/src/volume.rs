@@ -203,8 +203,8 @@ impl AudioNodeProcessor for VolumeProcessor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if !self.gain.is_smoothing() {
-            if self.gain.target_value() == 0.0 {
+        if self.gain.has_settled() {
+            if self.gain.target_value() <= self.min_gain {
                 // Muted, so there is no need to process.
                 return ProcessStatus::ClearAllOutputs;
             } else if self.gain.target_value() == 1.0 {

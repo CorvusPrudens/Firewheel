@@ -78,18 +78,26 @@ impl SmoothedParam {
         self.filter.settle(self.target_value, self.settle_epsilon)
     }
 
+    /// Returns `true` if this parameter is currently smoothing this process cycle,
+    /// `false` if not.
     pub fn is_smoothing(&self) -> bool {
         !self.filter.has_settled(self.target_value)
     }
 
+    /// Returns `false` if this parameter is currently smoothing this process cycle,
+    /// `true` if not.
     pub fn has_settled(&self) -> bool {
         self.filter.has_settled(self.target_value)
     }
 
+    /// Returns `true` if this parameter has settled to the given value, `false`
+    /// if not.
     pub fn has_settled_at(&self, value: f32) -> bool {
         self.target_value == value && self.filter.has_settled(self.target_value)
     }
 
+    /// Returns `true` if this parameter has settled to a value less than or
+    /// equal to the given value, `false` if not.
     pub fn has_settled_at_or_below(&self, value: f32) -> bool {
         self.target_value <= value && self.filter.has_settled(self.target_value)
     }
@@ -189,6 +197,24 @@ impl SmoothedParamBuffer {
     /// `false` if not.
     pub fn is_smoothing(&self) -> bool {
         self.smoother.is_smoothing()
+    }
+
+    /// Returns `false` if this parameter is currently smoothing this process cycle,
+    /// `true` if not.
+    pub fn has_settled(&self) -> bool {
+        self.smoother.has_settled()
+    }
+
+    /// Returns `true` if this parameter has settled to the given value, `false`
+    /// if not.
+    pub fn has_settled_at(&self, value: f32) -> bool {
+        self.smoother.has_settled_at(value)
+    }
+
+    /// Returns `true` if this parameter has settled to a value less than or
+    /// equal to the given value, `false` if not.
+    pub fn has_settled_at_or_below(&self, value: f32) -> bool {
+        self.smoother.has_settled_at_or_below(value)
     }
 
     /// Update the stream information.

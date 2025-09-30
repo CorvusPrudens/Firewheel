@@ -361,9 +361,9 @@ impl AudioNodeProcessor for Processor {
         let out1 = &mut out1[..info.frames];
         let out2 = &mut out2[0][..info.frames];
 
-        if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
-            if self.gain_l.target_value() == 0.0
-                && self.gain_r.target_value() == 0.0
+        if self.gain_l.has_settled() && self.gain_r.has_settled() {
+            if self.gain_l.target_value() <= self.params.min_gain
+                && self.gain_r.target_value() <= self.params.min_gain
                 && self.distance_attenuator.is_silent()
             {
                 self.gain_l.reset_to_target();
