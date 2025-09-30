@@ -6,6 +6,7 @@ use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 use bevy_platform::prelude::{Box, Vec};
 
 use crate::dsp::buffer::ChannelBuffer;
+use crate::dsp::volume::is_buffer_silent;
 use crate::log::RealtimeLogger;
 use crate::mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask};
 use crate::{
@@ -465,6 +466,30 @@ pub struct ProcBuffers<'a, 'b> {
     ///
     /// These buffers may contain junk data.
     pub outputs: &'a mut [&'b mut [f32]],
+}
+
+impl<'a, 'b> ProcBuffers<'a, 'b> {
+    /// Thouroughly checks if all output buffers contain silence (as in all
+    /// samples have an absolute amplitude less than or equal to `amp_epsilon`).
+    ///
+    /// If all buffers are silent, then [`ProcessStatus::ClearAllOutputs`] will
+    /// be returned. Otherwise, [`ProcessStatus::OutputsModified`] will be
+    /// returned.
+    pub fn check_for_silence_on_outputs(&self, amp_epsilon: f32) -> ProcessStatus {
+        let mut silent = true;
+        for buffer in self.outputs.iter() {
+            if !is_buffer_silent(buffer, amp_epsilon) {
+                silent = false;
+                break;
+            }
+        }
+
+        if silent {
+            ProcessStatus::ClearAllOutputs
+        } else {
+            ProcessStatus::OutputsModified
+        }
+    }
 }
 
 /// Extra buffers and utilities for [`AudioNodeProcessor::process`]

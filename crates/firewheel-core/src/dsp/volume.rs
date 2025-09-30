@@ -346,3 +346,16 @@ impl Default for DbMeterNormalizer {
         Self::new(-100.0, 0.0, -22.0)
     }
 }
+
+/// Thoroughly checks if the given buffer contains silence (as in all samples
+/// have an absolute amplitude less than or equal to `amp_epsilon`)
+pub fn is_buffer_silent(buffer: &[f32], amp_epsilon: f32) -> bool {
+    let mut silent = true;
+    for &s in buffer.iter() {
+        if s.abs() > amp_epsilon {
+            silent = false;
+            break;
+        }
+    }
+    silent
+}
