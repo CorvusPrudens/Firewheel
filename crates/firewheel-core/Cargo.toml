@@ -51,7 +51,7 @@ std = [
     "thiserror/std",
     "thunderdome/std",
     "ringbuf/std",
-    "wmidi?/std"
+    "wmidi?/std",
 ]
 # Enable this if "std" is disabled.
 libm = ["num-traits/libm"]
@@ -76,7 +76,11 @@ scheduled_events = []
 # feature disabled in your library.
 musical_transport = ["scheduled_events"]
 symphonium = ["std", "dep:symphonium"]
-symphonium_resample = ["symphonium", "dep:fixed-resample", "symphonium?/resampler"]
+symphonium_resample = [
+    "symphonium",
+    "dep:fixed-resample",
+    "symphonium?/resampler",
+]
 # Enables the "arbitrary sinc" resampler in Symphonium for changing the
 # pitch/length of samples at load time.
 symphonium_stretch = [

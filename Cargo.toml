@@ -24,13 +24,7 @@ exclude = ["assets/"]
 repository = "https://github.com/BillyDM/firewheel"
 
 [features]
-default = [
-    "std",
-    "cpal",
-    "symphonium",
-    "symphonium_resample",
-    "sampler_node",
-]
+default = ["std", "cpal", "symphonium", "symphonium_resample", "sampler_node"]
 std = [
     "firewheel-core/std",
     "firewheel-graph/std",
@@ -50,7 +44,7 @@ scheduled_events = [
 musical_transport = [
     "scheduled_events",
     "firewheel-core/musical_transport",
-    "firewheel-graph/musical_transport"
+    "firewheel-graph/musical_transport",
 ]
 # Enables the cpal backend
 cpal = ["std", "dep:firewheel-cpal"]
@@ -75,7 +69,10 @@ peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node
 sampler_node = ["firewheel-nodes/sampler", "firewheel-pool?/sampler"]
 # Enables the basic 3D spatial positioning node
-spatial_basic_node = ["firewheel-nodes/spatial_basic", "firewheel-pool?/spatial_basic"]
+spatial_basic_node = [
+    "firewheel-nodes/spatial_basic",
+    "firewheel-pool?/spatial_basic",
+]
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread.
 stream_nodes = ["firewheel-nodes/stream"]
@@ -125,7 +122,9 @@ serde = [
 #
 # For an explanation on why denormal numbers are a problem, see:
 # https://mu.krj.st/denormal/
-unsafe_flush_denormals_to_zero = ["firewheel-graph/unsafe_flush_denormals_to_zero"]
+unsafe_flush_denormals_to_zero = [
+    "firewheel-graph/unsafe_flush_denormals_to_zero",
+]
 
 [workspace]
 members = [
@@ -143,12 +142,16 @@ members = [
     "examples/sampler_test",
     "examples/spatial_basic",
     "examples/stream_nodes",
-    "examples/visual_node_graph", "examples/memoized",
+    "examples/visual_node_graph",
+    "examples/memoized",
 ]
 
 [workspace.dependencies]
 log = "0.4"
-ringbuf = { version = "0.4", default-features = false, features = ["portable-atomic", "alloc"] }
+ringbuf = { version = "0.4", default-features = false, features = [
+    "portable-atomic",
+    "alloc",
+] }
 triple_buffer = "8"
 thiserror = { version = "2", default-features = false }
 smallvec = "1"
@@ -157,10 +160,12 @@ bitflags = "2"
 thunderdome = { version = "0.6", default-features = false }
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.8.0-rc.1" }
-bevy_platform = { version = "0.17.0-rc.1", default-features = false, features = ["alloc"] }
+bevy_platform = { version = "0.17.0-rc.1", default-features = false, features = [
+    "alloc",
+] }
 bevy_ecs = { version = "0.17.0-rc.1", default-features = false }
 bevy_reflect = { version = "0.17.0-rc.1", default-features = false }
-num-traits = {version =  "0.2", default-features = false }
+num-traits = { version = "0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 
 [dependencies]

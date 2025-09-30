@@ -36,7 +36,7 @@ all_nodes = [
     "svf",
     "noise_generators",
     "delay_compensation",
-    "mix"
+    "mix",
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
