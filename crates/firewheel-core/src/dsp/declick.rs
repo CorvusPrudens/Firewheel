@@ -403,7 +403,7 @@ impl<const MAX_CHANNELS: usize> LowpassDeclicker<MAX_CHANNELS> {
             filters: [SmoothingFilter::new(0.0); MAX_CHANNELS],
             coeff: SmoothingFilterCoeff::new(sample_rate, smooth_secs),
             smooth_secs,
-            smooth_frames: (smooth_secs * sample_rate.get() as f32).round() as usize,
+            smooth_frames,
             smooth_frames_recip,
             frames_left: 0,
         }
