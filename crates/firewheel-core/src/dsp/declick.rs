@@ -9,8 +9,7 @@ use bevy_platform::prelude::Vec;
 
 use crate::dsp::filter::smoothing_filter::{SmoothingFilter, SmoothingFilterCoeff};
 
-/// A struct that can be used to linearly ramp up/down between `0.0`
-/// and `1.0` to declick audio streams.
+/// A struct used to declick audio signals using crossfading.
 ///
 /// This approach is more SIMD-friendly than using a smoothing filter
 /// or incrementing a gain value per-sample.
