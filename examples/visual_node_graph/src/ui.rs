@@ -232,6 +232,22 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         node.title()
     }
 
+    fn show_header(
+        &mut self,
+        node: egui_snarl::NodeId,
+        inputs: &[InPin],
+        outputs: &[OutPin],
+        ui: &mut Ui,
+        snarl: &mut Snarl<GuiAudioNode>,
+    ) {
+        // Override header style to prevent text from being selected when
+        // dragging windows
+        let _ = (inputs, outputs);
+        ui.ctx()
+            .style_mut(|style| style.interaction.selectable_labels = false);
+        ui.label(self.title(&snarl[node]));
+    }
+
     fn inputs(&mut self, node: &GuiAudioNode) -> usize {
         node.num_inputs()
     }
