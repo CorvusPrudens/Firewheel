@@ -442,6 +442,24 @@ pub trait AudioNodeProcessor: 'static + Send {
     }
 }
 
+impl AudioNodeProcessor for Box<dyn AudioNodeProcessor> {
+    fn new_stream(&mut self, stream_info: &StreamInfo) {
+        self.as_mut().new_stream(stream_info)
+    }
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        events: &mut ProcEvents,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        self.as_mut().process(info, buffers, events, extra)
+    }
+    fn stream_stopped(&mut self, logger: &mut RealtimeLogger) {
+        self.as_mut().stream_stopped(logger)
+    }
+}
+
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
 /// The buffers used in [`AudioNodeProcessor::process`]
