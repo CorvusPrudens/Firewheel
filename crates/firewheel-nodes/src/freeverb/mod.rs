@@ -119,7 +119,6 @@ impl AudioNode for FreeverbNode {
                 Declicker::SettledAt1
             },
             values: DeclickValues::new(cx.stream_info.declick_frames),
-            is_silent: false,
         };
 
         processor.apply_parameters();
@@ -136,14 +135,13 @@ struct FreeverbProcessor {
     paused: bool,
     declicker: Declicker,
     values: DeclickValues,
-    is_silent: bool,
 }
 
 impl AudioNodeProcessor for FreeverbProcessor {
     fn process(
         &mut self,
         proc_info: &ProcInfo,
-        ProcBuffers { inputs, outputs }: ProcBuffers,
+        buffers: ProcBuffers,
         events: &mut ProcEvents,
         _: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -190,7 +188,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
         }
 
         let all_silent = proc_info.in_silence_mask.all_channels_silent(2);
-        if all_silent && self.is_silent {
+        if all_silent && proc_info.prev_output_was_silent {
             self.declicker.reset_to_target();
             self.damping.reset_to_target();
             self.room_size.reset_to_target();
@@ -199,10 +197,9 @@ impl AudioNodeProcessor for FreeverbProcessor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if !all_silent && self.is_silent {
+        if !all_silent && proc_info.prev_output_was_silent {
             // re-apply the parameters
             self.apply_parameters();
-            self.is_silent = false;
         }
 
         // just take the slow path if any are smoothing
@@ -223,12 +220,13 @@ impl AudioNodeProcessor for FreeverbProcessor {
                     self.freeverb.update_combs();
                 }
 
-                let (left, right) = self
-                    .freeverb
-                    .tick((inputs[0][frame] as f64, inputs[1][frame] as f64));
+                let (left, right) = self.freeverb.tick((
+                    buffers.inputs[0][frame] as f64,
+                    buffers.inputs[1][frame] as f64,
+                ));
 
-                outputs[0][frame] = left as f32;
-                outputs[1][frame] = right as f32;
+                buffers.outputs[0][frame] = left as f32;
+                buffers.outputs[1][frame] = right as f32;
             }
 
             self.damping.settle();
@@ -236,41 +234,36 @@ impl AudioNodeProcessor for FreeverbProcessor {
             self.width.settle();
         } else {
             for frame in 0..proc_info.frames {
-                let (left, right) = self
-                    .freeverb
-                    .tick((inputs[0][frame] as f64, inputs[1][frame] as f64));
+                let (left, right) = self.freeverb.tick((
+                    buffers.inputs[0][frame] as f64,
+                    buffers.inputs[1][frame] as f64,
+                ));
 
-                outputs[0][frame] = left as f32;
-                outputs[1][frame] = right as f32;
+                buffers.outputs[0][frame] = left as f32;
+                buffers.outputs[1][frame] = right as f32;
             }
         }
 
         // We do this before the declicking just to make sure we
         // finish declicking if we're paused simultaneously with the
         // input going silent.
-        if all_silent && !self.is_silent {
+        if all_silent && !proc_info.prev_output_was_silent {
             // check the output buffers to see if they pass
             // the threshold for "completely silent"
 
             // threshold chosen by ear
             let threshold = 0.0001;
-            let mut silent = true;
-            for frame in 0..proc_info.frames {
-                if outputs[0][frame] >= threshold || outputs[1][frame] >= threshold {
-                    silent = false;
-                    break;
-                }
-            }
-
-            if silent {
-                self.is_silent = true;
+            if matches!(
+                buffers.check_for_silence_on_outputs(threshold),
+                ProcessStatus::ClearAllOutputs
+            ) {
                 return ProcessStatus::ClearAllOutputs;
             }
         }
 
         if !self.declicker.has_settled() {
             self.declicker.process(
-                &mut outputs[..2],
+                &mut buffers.outputs[..2],
                 0..proc_info.frames,
                 &self.values,
                 1.0,
