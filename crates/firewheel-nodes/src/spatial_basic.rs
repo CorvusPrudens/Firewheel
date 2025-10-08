@@ -21,7 +21,7 @@ use firewheel_core::{
     mask::ConnectedMask,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     vector::Vec3,
@@ -406,7 +406,11 @@ impl AudioNodeProcessor for Processor {
         }
     }
 
-    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+    fn new_stream(
+        &mut self,
+        stream_info: &firewheel_core::StreamInfo,
+        _context: &mut ProcStreamCtx,
+    ) {
         self.gain_l.update_sample_rate(stream_info.sample_rate);
         self.gain_r.update_sample_rate(stream_info.sample_rate);
         self.distance_attenuator

@@ -5,6 +5,7 @@ use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::clock::DurationSeconds;
 use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
+use firewheel_core::node::ProcStore;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::AudioClock,
@@ -120,6 +121,11 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to `false`.
     pub debug_force_clear_buffers: bool,
+
+    /// The initial number of slots to allocate for the [`ProcStore`].
+    ///
+    /// By default this is set to `16`.
+    pub proc_store_capacity: usize,
 }
 
 impl Default for FirewheelConfig {
@@ -140,6 +146,7 @@ impl Default for FirewheelConfig {
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
             debug_force_clear_buffers: false,
+            proc_store_capacity: 16,
         }
     }
 }
@@ -164,6 +171,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
         ringbuf::HeapProd<ProcessorToContextMsg>,
         triple_buffer::Input<SharedClock<B::Instant>>,
         RealtimeLogger,
+        ProcStore,
     )>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner<B>>>,
 
@@ -207,13 +215,21 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let (logger, logger_rx) = firewheel_core::log::realtime_logger(config.logger_config);
 
+        let proc_store = ProcStore::with_capacity(config.proc_store_capacity);
+
         Self {
             graph: AudioGraph::new(&config),
             to_processor_tx,
             from_processor_rx,
             logger_rx,
             active_state: None,
-            processor_channel: Some((from_context_rx, to_context_tx, shared_clock_input, logger)),
+            processor_channel: Some((
+                from_context_rx,
+                to_context_tx,
+                shared_clock_input,
+                logger,
+                proc_store,
+            )),
             processor_drop_rx: None,
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
@@ -228,6 +244,40 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             #[cfg(feature = "scheduled_events")]
             queued_clear_scheduled_events: Vec::new(),
             config,
+        }
+    }
+
+    /// Get an immutable reference to the processor store.
+    ///
+    /// If an audio stream is currently running, this will return `None`.
+    pub fn proc_store(&self) -> Option<&ProcStore> {
+        if let Some((_, _, _, _, proc_store)) = &self.processor_channel {
+            Some(proc_store)
+        } else if let Some(processor) = self.processor_drop_rx.as_ref().unwrap().last() {
+            if processor.poisoned {
+                panic!("The audio thread has panicked!");
+            }
+
+            Some(&processor.extra.store)
+        } else {
+            None
+        }
+    }
+
+    /// Get a mutable reference to the processor store.
+    ///
+    /// If an audio stream is currently running, this will return `None`.
+    pub fn proc_store_mut(&mut self) -> Option<&mut ProcStore> {
+        if let Some((_, _, _, _, proc_store)) = &mut self.processor_channel {
+            Some(proc_store)
+        } else if let Some(processor) = self.processor_drop_rx.as_mut().unwrap().last_mut() {
+            if processor.poisoned {
+                panic!("The audio thread has panicked!");
+            }
+
+            Some(&mut processor.extra.store)
+        } else {
+            None
         }
     }
 
@@ -322,34 +372,36 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner<B>>::new(1).split();
 
-        let processor = if let Some((from_context_rx, to_context_tx, shared_clock_input, logger)) =
-            maybe_processor
-        {
-            FirewheelProcessorInner::new(
-                from_context_rx,
-                to_context_tx,
-                shared_clock_input,
-                self.config.immediate_event_capacity,
-                #[cfg(feature = "scheduled_events")]
-                self.config.scheduled_event_capacity,
-                self.config.event_queue_capacity,
-                &stream_info,
-                self.config.hard_clip_outputs,
-                self.config.buffer_out_of_space_mode,
-                logger,
-                self.config.debug_force_clear_buffers,
-            )
-        } else {
-            let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
+        let processor =
+            if let Some((from_context_rx, to_context_tx, shared_clock_input, logger, proc_store)) =
+                maybe_processor
+            {
+                FirewheelProcessorInner::new(
+                    from_context_rx,
+                    to_context_tx,
+                    shared_clock_input,
+                    self.config.immediate_event_capacity,
+                    #[cfg(feature = "scheduled_events")]
+                    self.config.scheduled_event_capacity,
+                    self.config.event_queue_capacity,
+                    &stream_info,
+                    self.config.hard_clip_outputs,
+                    self.config.buffer_out_of_space_mode,
+                    logger,
+                    self.config.debug_force_clear_buffers,
+                    proc_store,
+                )
+            } else {
+                let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
 
-            if processor.poisoned {
-                panic!("The audio thread has panicked!");
-            }
+                if processor.poisoned {
+                    panic!("The audio thread has panicked!");
+                }
 
-            processor.new_stream(&stream_info);
+                processor.new_stream(&stream_info);
 
-            processor
-        };
+                processor
+            };
 
         backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
 

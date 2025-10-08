@@ -16,7 +16,7 @@ use firewheel::{
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmoothedParamBuffer},
     StreamInfo,
@@ -250,7 +250,7 @@ impl AudioNodeProcessor for Processor {
     //
     // This gets called outside of the audio thread, so it is safe to allocate and
     // deallocate here.
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
+    fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         self.cutoff_hz.update_sample_rate(stream_info.sample_rate);
         self.gain.update_stream(stream_info);
 

@@ -11,10 +11,9 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     event::{NodeEventType, ProcEvents},
-    log::RealtimeLogger,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
 };
 use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
@@ -431,7 +430,7 @@ impl AudioNodeProcessor for Processor {
         ProcessStatus::Bypass
     }
 
-    fn stream_stopped(&mut self, _logger: &mut RealtimeLogger) {
+    fn stream_stopped(&mut self, _context: &mut ProcStreamCtx) {
         self.shared_state
             .stream_active
             .store(false, Ordering::Relaxed);

@@ -1,7 +1,13 @@
+use core::any::TypeId;
 use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+
+#[cfg(not(feature = "std"))]
+use bevy_platform::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
@@ -428,8 +434,8 @@ pub trait AudioNodeProcessor: 'static + Send {
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
-    fn stream_stopped(&mut self, logger: &mut RealtimeLogger) {
-        let _ = logger;
+    fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
+        let _ = context;
     }
 
     /// Called when a new audio stream has been started after a previous
@@ -437,14 +443,15 @@ pub trait AudioNodeProcessor: 'static + Send {
     ///
     /// Note, this method gets called on the main thread, not the audio
     /// thread. So it is safe to allocate/deallocate here.
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
+    fn new_stream(&mut self, stream_info: &StreamInfo, context: &mut ProcStreamCtx) {
         let _ = stream_info;
+        let _ = context;
     }
 }
 
 impl AudioNodeProcessor for Box<dyn AudioNodeProcessor> {
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
-        self.as_mut().new_stream(stream_info)
+    fn new_stream(&mut self, stream_info: &StreamInfo, context: &mut ProcStreamCtx) {
+        self.as_mut().new_stream(stream_info, context)
     }
     fn process(
         &mut self,
@@ -455,9 +462,14 @@ impl AudioNodeProcessor for Box<dyn AudioNodeProcessor> {
     ) -> ProcessStatus {
         self.as_mut().process(info, buffers, events, extra)
     }
-    fn stream_stopped(&mut self, logger: &mut RealtimeLogger) {
-        self.as_mut().stream_stopped(logger)
+    fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
+        self.as_mut().stream_stopped(context)
     }
+}
+
+pub struct ProcStreamCtx<'a> {
+    pub store: &'a mut ProcStore,
+    pub logger: &'a mut RealtimeLogger,
 }
 
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
@@ -527,6 +539,9 @@ pub struct ProcExtra {
 
     /// A realtime-safe logger helper.
     pub logger: RealtimeLogger,
+
+    /// A type-erased store accessible to all [`AudioNodeProcessor`]s.
+    pub store: ProcStore,
 }
 
 /// Information for [`AudioNodeProcessor::process`]
@@ -844,5 +859,86 @@ impl ProcessStatus {
     /// [`ProcessStatus::OutputsModified`] instead.
     pub const fn outputs_modified_with_constant_mask(mask: ConstantMask) -> Self {
         Self::OutputsModifiedWithMask(MaskType::Constant(mask))
+    }
+}
+
+/// A type-erased store accessible to all [`AudioNodeProcessor`]s.
+pub struct ProcStore(HashMap<TypeId, Box<dyn Any + Send>>);
+
+impl ProcStore {
+    pub fn with_capacity(capacity: usize) -> Self {
+        let mut h = HashMap::default();
+        h.reserve(capacity);
+        Self(h)
+    }
+
+    /// Insert a new resource into the store.
+    ///
+    /// If a resource with this `TypeID` already exists, then an error will
+    /// be returned instead.
+    pub fn insert<S: Send + 'static>(&mut self, resource: S) -> Result<(), S> {
+        if self.0.contains_key(&TypeId::of::<S>()) {
+            Err(resource)
+        } else {
+            self.0.insert(TypeId::of::<S>(), Box::new(resource));
+            Ok(())
+        }
+    }
+
+    /// Insert a new already type-erased resource into the store.
+    ///
+    /// If a resource with this `TypeID` already exists, then an error will
+    /// be returned instead.
+    pub fn insert_any<S: Send + 'static>(
+        &mut self,
+        resource: Box<dyn Any + Send>,
+        type_id: TypeId,
+    ) -> Result<(), Box<dyn Any + Send>> {
+        if self.0.contains_key(&type_id) {
+            Err(resource)
+        } else {
+            self.0.insert(type_id, resource);
+            Ok(())
+        }
+    }
+
+    /// Returns `true` if a resource with the given `TypeID` exists in this
+    /// store.
+    pub fn contains<S: Send + 'static>(&self) -> bool {
+        self.0.contains_key(&TypeId::of::<S>())
+    }
+
+    /// Get an immutable reference to a resource in the store.
+    ///
+    /// # Panics
+    /// Panics if the given resource does not exist.
+    pub fn get<S: Send + 'static>(&self) -> &S {
+        self.try_get().unwrap()
+    }
+
+    /// Get a mutable reference to a resource in the store.
+    ///
+    /// # Panics
+    /// Panics if the given resource does not exist.
+    pub fn get_mut<S: Send + 'static>(&mut self) -> &mut S {
+        self.try_get_mut().unwrap()
+    }
+
+    /// Get an immutable reference to a resource in the store.
+    ///
+    /// Returns `None` if the given resource does not exist.
+    pub fn try_get<S: Send + 'static>(&self) -> Option<&S> {
+        self.0
+            .get(&TypeId::of::<S>())
+            .map(|s| s.downcast_ref().unwrap())
+    }
+
+    /// Get a mutable reference to a resource in the store.
+    ///
+    /// Returns `None` if the given resource does not exist.
+    pub fn try_get_mut<S: Send + 'static>(&mut self) -> Option<&mut S> {
+        self.0
+            .get_mut(&TypeId::of::<S>())
+            .map(|s| s.downcast_mut().unwrap())
     }
 }

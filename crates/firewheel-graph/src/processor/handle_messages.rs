@@ -1,5 +1,6 @@
 use firewheel_core::{
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
+    node::ProcStreamCtx,
     StreamInfo,
 };
 use ringbuf::traits::{Consumer, Producer};
@@ -155,7 +156,10 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.sync_shared_clock(None);
 
         for (_, node) in self.nodes.iter_mut() {
-            node.processor.stream_stopped(&mut self.extra.logger);
+            node.processor.stream_stopped(&mut ProcStreamCtx {
+                store: &mut self.extra.store,
+                logger: &mut self.extra.logger,
+            });
         }
     }
 
@@ -164,7 +168,13 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
     /// Note, this method gets called on the main thread, not the audio thread.
     pub fn new_stream(&mut self, stream_info: &StreamInfo) {
         for (_, node) in self.nodes.iter_mut() {
-            node.processor.new_stream(stream_info);
+            node.processor.new_stream(
+                stream_info,
+                &mut ProcStreamCtx {
+                    store: &mut self.extra.store,
+                    logger: &mut self.extra.logger,
+                },
+            );
         }
 
         if self.sample_rate != stream_info.sample_rate {

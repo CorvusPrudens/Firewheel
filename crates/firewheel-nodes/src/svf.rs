@@ -16,7 +16,7 @@ use firewheel_core::{
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     StreamInfo,
@@ -1282,7 +1282,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         ProcessStatus::OutputsModified
     }
 
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
+    fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         self.cutoff_hz.update_sample_rate(stream_info.sample_rate);
         self.q_factor.update_sample_rate(stream_info.sample_rate);
         self.gain.update_sample_rate(stream_info.sample_rate);

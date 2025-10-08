@@ -11,7 +11,7 @@ use firewheel_core::{
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, ProcEventsIndex},
     log::RealtimeLogger,
-    node::{AudioNodeProcessor, ProcExtra},
+    node::{AudioNodeProcessor, ProcExtra, ProcStore},
     StreamInfo,
 };
 
@@ -108,7 +108,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
 
     hard_clip_outputs: bool,
 
-    extra: ProcExtra,
+    pub(crate) extra: ProcExtra,
 
     /// If a panic occurs while processing, this flag is set to let the
     /// main thread know that it shouldn't try spawning a new audio stream
@@ -131,6 +131,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
         logger: RealtimeLogger,
         debug_force_clear_buffers: bool,
+        store: ProcStore,
     ) -> Self {
         Self {
             nodes: Arena::new(),
@@ -156,6 +157,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
                 declick_values: DeclickValues::new(stream_info.declick_frames),
                 logger,
+                store,
             },
             poisoned: false,
             debug_force_clear_buffers,

@@ -4,7 +4,7 @@ use firewheel_core::{
     mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
 };
 use smallvec::{smallvec, SmallVec};
@@ -171,7 +171,11 @@ impl AudioNodeProcessor for Processor {
         ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask))
     }
 
-    fn new_stream(&mut self, _stream_info: &firewheel_core::StreamInfo) {
+    fn new_stream(
+        &mut self,
+        _stream_info: &firewheel_core::StreamInfo,
+        _context: &mut ProcStreamCtx,
+    ) {
         self.buffer.fill(0.0);
         self.num_silent_frames_per_channel.fill(self.delay_frames);
     }

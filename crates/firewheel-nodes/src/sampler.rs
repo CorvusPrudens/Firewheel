@@ -2,7 +2,7 @@
 // on rewriting the sampler engine using a state machine.
 
 use firewheel_core::clock::{DurationSamples, DurationSeconds};
-use firewheel_core::node::{ProcBuffers, ProcExtra};
+use firewheel_core::node::{ProcBuffers, ProcExtra, ProcStreamCtx};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -1171,7 +1171,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask))
     }
 
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
+    fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         if stream_info.sample_rate != stream_info.prev_sample_rate {
             self.stop_declicker_buffers = if self.config.num_declickers == 0 {
                 None

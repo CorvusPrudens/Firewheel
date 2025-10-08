@@ -10,7 +10,7 @@ use firewheel::{
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     StreamInfo,
 };
@@ -206,7 +206,7 @@ impl AudioNodeProcessor for Processor {
     //
     // This gets called outside of the audio thread, so it is safe to allocate and
     // deallocate here.
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
+    fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         self.window_frames =
             (self.config.window_size_secs * stream_info.sample_rate.get() as f32).round() as usize;
 

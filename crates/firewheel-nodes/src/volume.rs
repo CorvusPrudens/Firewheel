@@ -9,7 +9,7 @@ use firewheel_core::{
     mask::MaskType,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
+        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
@@ -290,7 +290,11 @@ impl AudioNodeProcessor for VolumeProcessor {
         ProcessStatus::OutputsModified
     }
 
-    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+    fn new_stream(
+        &mut self,
+        stream_info: &firewheel_core::StreamInfo,
+        _context: &mut ProcStreamCtx,
+    ) {
         self.gain.update_sample_rate(stream_info.sample_rate);
     }
 }
