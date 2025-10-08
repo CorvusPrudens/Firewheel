@@ -124,7 +124,7 @@ pub struct FirewheelConfig {
 
     /// The initial number of slots to allocate for the [`ProcStore`].
     ///
-    /// By default this is set to `16`.
+    /// By default this is set to `8`.
     pub proc_store_capacity: usize,
 }
 
@@ -146,7 +146,7 @@ impl Default for FirewheelConfig {
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
             debug_force_clear_buffers: false,
-            proc_store_capacity: 16,
+            proc_store_capacity: 8,
         }
     }
 }
