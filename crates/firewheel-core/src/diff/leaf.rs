@@ -168,6 +168,8 @@ primitive_diff!(i8, i32, I32);
 primitive_diff!(i16, i32, I32);
 primitive_diff!(i32, I32);
 primitive_diff!(i64, I64);
+primitive_diff!(usize, u64, U64);
+primitive_diff!(isize, i64, I64);
 primitive_diff!(f32, F32);
 primitive_diff!(f64, F64);
 primitive_diff!(Volume, Volume);
