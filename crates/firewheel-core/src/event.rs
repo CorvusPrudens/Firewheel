@@ -112,6 +112,9 @@ impl NodeEventType {
     }
 
     /// Try to downcast the custom event to `T`.
+    ///
+    /// If this does not contain [`NodeEventType::Custom`] or if the
+    /// downcast failed, then this returns `None`.
     pub fn downcast<T: Send + 'static>(&mut self) -> Option<T> {
         match self {
             NodeEventType::Custom(owned) => {
