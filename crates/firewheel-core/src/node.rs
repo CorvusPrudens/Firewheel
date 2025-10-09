@@ -1,13 +1,14 @@
 use core::any::TypeId;
+use core::marker::PhantomData;
 use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use std::collections::hash_map::{Entry, HashMap};
 
 #[cfg(not(feature = "std"))]
-use bevy_platform::collections::HashMap;
+use bevy_platform::collections::hash_map::{Entry, HashMap};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
@@ -902,6 +903,14 @@ impl ProcStore {
         }
     }
 
+    /// Get the entry for the given resource.
+    pub fn entry<'a, S: Send + 'static>(&'a mut self) -> ProcStoreEntry<'a, S> {
+        ProcStoreEntry {
+            boxed_entry: self.0.entry(TypeId::of::<S>()),
+            type_: PhantomData::default(),
+        }
+    }
+
     /// Returns `true` if a resource with the given `TypeID` exists in this
     /// store.
     pub fn contains<S: Send + 'static>(&self) -> bool {
@@ -940,5 +949,29 @@ impl ProcStore {
         self.0
             .get_mut(&TypeId::of::<S>())
             .map(|s| s.downcast_mut().unwrap())
+    }
+}
+
+pub struct ProcStoreEntry<'a, S: Send + 'static> {
+    pub boxed_entry: Entry<'a, TypeId, Box<dyn Any + Send>>,
+    type_: PhantomData<S>,
+}
+
+impl<'a, S: Send + 'static> ProcStoreEntry<'a, S> {
+    pub fn or_insert_with(self, default: impl FnOnce() -> S) -> &'a mut S {
+        self.boxed_entry
+            .or_insert_with(|| Box::new((default)()))
+            .downcast_mut()
+            .unwrap()
+    }
+
+    pub fn and_modify(self, f: impl FnOnce(&mut S)) -> Self {
+        let entry = self
+            .boxed_entry
+            .and_modify(|e| (f)(e.downcast_mut().unwrap()));
+        Self {
+            boxed_entry: entry,
+            type_: PhantomData::default(),
+        }
     }
 }
