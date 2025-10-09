@@ -965,6 +965,13 @@ impl<'a, S: Send + 'static> ProcStoreEntry<'a, S> {
             .unwrap()
     }
 
+    pub fn or_insert_with_any(self, default: impl FnOnce() -> Box<dyn Any + Send>) -> &'a mut S {
+        self.boxed_entry
+            .or_insert_with(default)
+            .downcast_mut()
+            .unwrap()
+    }
+
     pub fn and_modify(self, f: impl FnOnce(&mut S)) -> Self {
         let entry = self
             .boxed_entry
