@@ -11,7 +11,7 @@ use firewheel_core::{
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-        ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
+        ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
@@ -274,7 +274,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
         ProcessStatus::OutputsModified
     }
 
-    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
+    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo, _proc: &mut ProcStreamCtx) {
         // TODO: we could probably attempt to smooth the transition here
         self.freeverb.resize(stream_info.sample_rate.get() as usize);
         self.damping.update_sample_rate(stream_info.sample_rate);
