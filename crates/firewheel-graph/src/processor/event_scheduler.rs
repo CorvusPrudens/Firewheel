@@ -242,7 +242,7 @@ impl EventScheduler {
                 true
             } else {
                 #[cfg(feature = "musical_transport")]
-                if event.time.unwrap().is_musical() {
+                if event.event.time.unwrap().is_musical() {
                     self.num_scheduled_musical_events -= 1;
                 } else {
                     self.num_scheduled_non_musical_events -= 1;
@@ -279,7 +279,7 @@ impl EventScheduler {
             for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-                if let Some(EventInstant::Musical(musical)) = event.time {
+                if let Some(EventInstant::Musical(musical)) = event.event.time {
                     *time_samples = sync_info.transport.musical_to_samples(
                         musical,
                         sync_info.transport_start,
@@ -292,7 +292,7 @@ impl EventScheduler {
             for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-                if let Some(EventInstant::Musical(_)) = event.time {
+                if let Some(EventInstant::Musical(_)) = event.event.time {
                     // Set to `MAX` to effectively de-schedule the event.
                     *time_samples = InstantSamples::MAX;
                 }
@@ -415,7 +415,7 @@ impl EventScheduler {
                     #[cfg(feature = "musical_transport")]
                     {
                         self.num_scheduled_musical_events -= 1;
-                        nodes[event.node_id.0]
+                        nodes[event.event.node_id.0]
                             .event_data
                             .num_scheduled_musical_events -= 1;
                     }
@@ -508,7 +508,7 @@ impl EventScheduler {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 #[cfg(feature = "musical_transport")]
-                if event.time.unwrap().is_musical() {
+                if event.event.time.unwrap().is_musical() {
                     self.num_scheduled_musical_events -= 1;
                 } else {
                     self.num_scheduled_non_musical_events -= 1;
@@ -615,7 +615,7 @@ impl EventScheduler {
                 node_entry.event_data.num_scheduled_events_this_block -= 1;
 
                 #[cfg(feature = "musical_transport")]
-                if event.time.unwrap().is_musical() {
+                if event.event.time.unwrap().is_musical() {
                     node_entry.event_data.num_scheduled_musical_events -= 1;
                 } else {
                     node_entry.event_data.num_scheduled_non_musical_events -= 1;
