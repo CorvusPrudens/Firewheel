@@ -21,7 +21,7 @@ use crate::processor::ClearScheduledEventsEvent;
 #[cfg(feature = "scheduled_events")]
 use core::num::NonZeroU32;
 #[cfg(feature = "scheduled_events")]
-use firewheel_core::clock::EventInstant;
+use firewheel_core::{clock::EventInstant, event::ScheduledEventEntry};
 
 #[cfg(feature = "musical_transport")]
 use crate::processor::{transport::TransportSyncInfo, ProcTransportState};
@@ -34,7 +34,7 @@ pub(super) struct EventScheduler {
 
     // A slab allocator arena for scheduled node events.
     #[cfg(feature = "scheduled_events")]
-    scheduled_event_arena: Vec<Option<NodeEvent>>,
+    scheduled_event_arena: Vec<Option<ScheduledEventEntry>>,
     #[cfg(feature = "scheduled_events")]
     scheduled_event_arena_free_slots: Vec<u32>,
 
@@ -173,7 +173,10 @@ impl EventScheduler {
                 }
             }
 
-            self.scheduled_event_arena[slot as usize] = Some(event);
+            self.scheduled_event_arena[slot as usize] = Some(ScheduledEventEntry {
+                event,
+                is_pre_process: node_data.is_pre_process,
+            });
 
             self.sorted_event_buffer_indices.push((slot, time_samples));
 
@@ -235,7 +238,7 @@ impl EventScheduler {
         self.sorted_event_buffer_indices.retain(|(slot, _)| {
             let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-            if nodes.contains(event.node_id.0) {
+            if nodes.contains(event.event.node_id.0) {
                 true
             } else {
                 #[cfg(feature = "musical_transport")]
@@ -398,13 +401,13 @@ impl EventScheduler {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
                 if let Some(node_id) = msg.node_id {
-                    if event.node_id != node_id {
+                    if event.event.node_id != node_id {
                         return true;
                     }
                 }
                 // Else `None` means to remove scheduled events for all nodes.
 
-                if event.time.unwrap().is_musical() {
+                if event.event.time.unwrap().is_musical() {
                     if let ClearScheduledEventsType::NonMusicalOnly = msg.event_type {
                         return true;
                     }
@@ -422,7 +425,7 @@ impl EventScheduler {
                     }
 
                     self.num_scheduled_non_musical_events -= 1;
-                    nodes[event.node_id.0]
+                    nodes[event.event.node_id.0]
                         .event_data
                         .num_scheduled_non_musical_events -= 1;
                 }
@@ -451,6 +454,41 @@ impl EventScheduler {
                     .to_samples(new_sample_rate);
             }
         }
+    }
+
+    /// Find the number of frames until the next scheduled event for any pre-process
+    /// node (or return `block_frames`, whichever is smaller).
+    #[cfg(feature = "scheduled_events")]
+    pub fn num_pre_process_frames(
+        &mut self,
+        mut block_frames: usize,
+        clock_samples_range: Range<InstantSamples>,
+    ) -> usize {
+        self.sort_events();
+
+        for (slot, time_samples) in self
+            .sorted_event_buffer_indices
+            .iter()
+            .skip(self.num_elapsed_sorted_events)
+        {
+            if *time_samples < clock_samples_range.end {
+                if *time_samples > clock_samples_range.start
+                    && self.scheduled_event_arena[*slot as usize]
+                        .as_ref()
+                        .unwrap()
+                        .is_pre_process
+                {
+                    block_frames =
+                        block_frames.min((*time_samples - clock_samples_range.start).0 as usize);
+                }
+            } else {
+                // The event happens after this processing block, so we are done
+                // searching.
+                break;
+            }
+        }
+
+        block_frames
     }
 
     /// Find scheduled events that have elapsed this processing block
@@ -483,7 +521,7 @@ impl EventScheduler {
 
                 self.scheduled_event_arena_free_slots.push(*slot);
 
-                if let Some(node_entry) = nodes.get_mut(event.node_id.0) {
+                if let Some(node_entry) = nodes.get_mut(event.event.node_id.0) {
                     if node_entry.event_data.num_scheduled_events_this_block == 0 {
                         // Optimize the linear search a bit by starting at the index
                         // of the first known scheduled event for this node.
@@ -570,7 +608,7 @@ impl EventScheduler {
                     continue;
                 };
 
-                if event.node_id != node_id {
+                if event.event.node_id != node_id {
                     continue;
                 }
 
@@ -786,7 +824,6 @@ impl EventScheduler {
     }
 }
 
-#[derive(Default)]
 pub(super) struct NodeEventSchedulerData {
     num_immediate_events: usize,
     /// The index of the first event in a clump of events for this node.
@@ -802,6 +839,26 @@ pub(super) struct NodeEventSchedulerData {
     num_scheduled_events_this_block: usize,
     #[cfg(feature = "scheduled_events")]
     first_sorted_event_index: usize,
+
+    is_pre_process: bool,
+}
+
+impl NodeEventSchedulerData {
+    pub fn new(is_pre_process: bool) -> Self {
+        Self {
+            num_immediate_events: 0,
+            immediate_event_clump_indices: ArrayVec::new(),
+            #[cfg(feature = "musical_transport")]
+            num_scheduled_musical_events: 0,
+            #[cfg(feature = "scheduled_events")]
+            num_scheduled_non_musical_events: 0,
+            #[cfg(feature = "scheduled_events")]
+            num_scheduled_events_this_block: 0,
+            #[cfg(feature = "scheduled_events")]
+            first_sorted_event_index: 0,
+            is_pre_process,
+        }
+    }
 }
 
 pub(super) struct SubChunkInfo {
