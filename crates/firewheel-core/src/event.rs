@@ -75,7 +75,7 @@ pub enum NodeEventType {
         path: ParamPath,
     },
     /// Custom event type stored on the heap.
-    Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
+    Custom(OwnedGc<Option<Box<dyn Any + Send + 'static>>>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
     #[cfg(feature = "midi_events")]
@@ -84,7 +84,7 @@ pub enum NodeEventType {
 
 impl NodeEventType {
     pub fn custom<T: Send + 'static>(value: T) -> Self {
-        Self::Custom(OwnedGc::new(Box::new(value)))
+        Self::Custom(OwnedGc::new(Some(Box::new(value))))
     }
 
     /// Try to downcast the custom event to an immutable reference to `T`.
@@ -93,7 +93,7 @@ impl NodeEventType {
     /// downcast failed, then this returns `None`.
     pub fn downcast_ref<T: Send + 'static>(&self) -> Option<&T> {
         if let Self::Custom(owned) = self {
-            owned.downcast_ref()
+            owned.as_ref().and_then(|o| o.downcast_ref())
         } else {
             None
         }
@@ -105,10 +105,27 @@ impl NodeEventType {
     /// downcast failed, then this returns `None`.
     pub fn downcast_mut<T: Send + 'static>(&mut self) -> Option<&mut T> {
         if let Self::Custom(owned) = self {
-            owned.downcast_mut()
+            owned.as_mut().and_then(|o| o.downcast_mut())
         } else {
             None
         }
+    }
+
+    /// Try to downcast the custom event to `T`.
+    pub fn downcast<T: Send + 'static>(&mut self) -> Option<T> {
+        match self {
+            NodeEventType::Custom(owned) => {
+                if let Some(o) = owned.get_mut().take() {
+                    match o.downcast::<T>() {
+                        Ok(data) => return Some(*data),
+                        Err(o) => *owned.get_mut() = Some(o),
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        None
     }
 }
 
