@@ -1,5 +1,6 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
+    collector::ArcGc,
     error::{AddEdgeError, UpdateError},
     event::NodeEventType,
     node::NodeID,
@@ -8,17 +9,28 @@ use firewheel::{
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
+        freeverb::FreeverbNode,
         mix::{MixNode, MixNodeConfig},
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
+        sampler::SamplerNode,
         svf::SvfNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
     },
+    sample_resource::SampleResource,
     ContextQueue, CpalBackend, FirewheelContext,
 };
+use symphonium::SymphoniumLoader;
 
 use crate::ui::GuiAudioNode;
+
+pub const SAMPLE_PATHS: [&'static str; 4] = [
+    "assets/test_files/swosh-sword-swing.flac",
+    "assets/test_files/bird-sound.wav",
+    "assets/test_files/beep_up.wav",
+    "assets/test_files/birds_detail_chirp_medium_far.ogg",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
@@ -35,10 +47,13 @@ pub enum NodeType {
     SVF,
     MixMono,
     MixStereo,
+    Sampler,
+    Freeverb,
 }
 
 pub struct AudioSystem {
     cx: FirewheelContext,
+    pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
 }
 
 impl AudioSystem {
@@ -46,7 +61,21 @@ impl AudioSystem {
         let mut cx = FirewheelContext::new(Default::default());
         cx.start_stream(Default::default()).unwrap();
 
-        Self { cx }
+        let sample_rate = cx.stream_info().unwrap().sample_rate;
+
+        let mut loader = SymphoniumLoader::new();
+
+        // Load all samples
+        let samples = SAMPLE_PATHS
+            .iter()
+            .map(|path| {
+                firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
+                    .unwrap()
+                    .into_dyn_resource()
+            })
+            .collect();
+
+        Self { cx, samples }
     }
 
     pub fn remove_node(&mut self, node_id: NodeID) {
@@ -92,6 +121,8 @@ impl AudioSystem {
                     channels: NonZeroChannelCount::STEREO,
                 }),
             ),
+            NodeType::Sampler => self.cx.add_node(SamplerNode::default(), None),
+            NodeType::Freeverb => self.cx.add_node(FreeverbNode::default(), None),
         };
 
         match node_type {
@@ -141,6 +172,14 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::MixStereo => GuiAudioNode::MixStereo {
+                id,
+                params: Default::default(),
+            },
+            NodeType::Sampler => GuiAudioNode::Sampler {
+                id,
+                params: Default::default(),
+            },
+            NodeType::Freeverb => GuiAudioNode::Freeverb {
                 id,
                 params: Default::default(),
             },

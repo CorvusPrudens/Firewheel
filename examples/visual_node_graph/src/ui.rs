@@ -13,8 +13,10 @@ use firewheel::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
         },
+        freeverb::FreeverbNode,
         mix::MixNode,
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
+        sampler::{RepeatMode, SamplerNode},
         svf::{SvfNode, SvfType, DEFAULT_MAX_Q, DEFAULT_MIN_Q},
         volume::VolumeNode,
         volume_pan::VolumePanNode,
@@ -22,7 +24,7 @@ use firewheel::{
     Volume,
 };
 
-use crate::system::{AudioSystem, NodeType};
+use crate::system::{AudioSystem, NodeType, SAMPLE_PATHS};
 
 const CABLE_COLOR: Color32 = Color32::from_rgb(0xb0, 0x00, 0xb0);
 
@@ -81,6 +83,14 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<MixNode>,
     },
+    Sampler {
+        id: firewheel::node::NodeID,
+        params: Memo<SamplerNode>,
+    },
+    Freeverb {
+        id: firewheel::node::NodeID,
+        params: Memo<FreeverbNode>,
+    },
 }
 
 impl GuiAudioNode {
@@ -101,6 +111,8 @@ impl GuiAudioNode {
             &Self::SVF { id, .. } => id,
             &Self::MixMono { id, .. } => id,
             &Self::MixStereo { id, .. } => id,
+            &Self::Sampler { id, .. } => id,
+            &Self::Freeverb { id, .. } => id,
         }
     }
 
@@ -121,6 +133,8 @@ impl GuiAudioNode {
             &Self::SVF { .. } => "SVF",
             &Self::MixMono { .. } => "Mix (Mono)",
             &Self::MixStereo { .. } => "Mix (Stereo)",
+            &Self::Sampler { .. } => "Sampler",
+            &Self::Freeverb { .. } => "Freeverb",
         }
         .into()
     }
@@ -142,6 +156,8 @@ impl GuiAudioNode {
             &Self::SVF { .. } => 2,
             &Self::MixMono { .. } => 2,
             &Self::MixStereo { .. } => 4,
+            &Self::Sampler { .. } => 0,
+            &Self::Freeverb { .. } => 2,
         }
     }
 
@@ -162,6 +178,8 @@ impl GuiAudioNode {
             &Self::SVF { .. } => 2,
             &Self::MixMono { .. } => 1,
             &Self::MixStereo { .. } => 2,
+            &Self::Sampler { .. } => 2,
+            &Self::Freeverb { .. } => 2,
         }
     }
 }
@@ -342,6 +360,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         }
         if ui.button("Mix (Stereo)").clicked() {
             let node = self.audio_system.add_node(NodeType::MixStereo);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
+        if ui.button("Sampler").clicked() {
+            let node = self.audio_system.add_node(NodeType::Sampler);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
+        if ui.button("Freeverb").clicked() {
+            let node = self.audio_system.add_node(NodeType::Freeverb);
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
@@ -651,6 +679,96 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
+            }
+            GuiAudioNode::Sampler { id, params } => {
+                let mem_id = id.0.to_bits().to_string().into();
+                let selection = ui
+                    .memory(|mem| mem.data.get_temp::<Option<usize>>(mem_id))
+                    .flatten();
+
+                ui.vertical(|ui| {
+                    egui::ComboBox::from_label("sample")
+                        .selected_text(match selection {
+                            Some(sample_index) => {
+                                SAMPLE_PATHS[sample_index].rsplit("/").next().unwrap()
+                            }
+                            None => "None",
+                        })
+                        .wrap_mode(egui::TextWrapMode::Truncate)
+                        .show_ui(ui, |ui| {
+                            for sample_index in 0..SAMPLE_PATHS.len() {
+                                if ui
+                                    .selectable_value(
+                                        &mut params.sample,
+                                        Some(self.audio_system.samples[sample_index].clone()),
+                                        SAMPLE_PATHS[sample_index].rsplit("/").next().unwrap(),
+                                    )
+                                    .clicked()
+                                {
+                                    ui.memory_mut(|mem| {
+                                        mem.data.insert_temp::<Option<usize>>(
+                                            mem_id,
+                                            Some(sample_index),
+                                        );
+                                    });
+                                    params.set_sample(
+                                        self.audio_system.samples[sample_index].clone(),
+                                    );
+                                }
+                            }
+                        });
+
+                    let mut volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut volume, 0.0..=1.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(volume);
+                    }
+
+                    let mut repeat = matches!(params.repeat_mode, RepeatMode::RepeatEndlessly);
+                    if ui.checkbox(&mut repeat, "repeat").clicked() {
+                        params.repeat_mode = match repeat {
+                            true => RepeatMode::RepeatEndlessly,
+                            false => RepeatMode::PlayOnce,
+                        };
+                    }
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Stop").clicked() {
+                            params.stop();
+                        }
+                        if ui.button("Play").clicked() {
+                            params.start_or_restart();
+                        }
+                    });
+                });
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
+            }
+            GuiAudioNode::Freeverb { id, params } => {
+                ui.vertical(|ui| {
+                    ui.add(egui::Slider::new(&mut params.room_size, 0.0..=1.0).text("room size"));
+                    ui.add(egui::Slider::new(&mut params.damping, 0.0..=1.0).text("damping"));
+                    ui.add(egui::Slider::new(&mut params.width, 0.0..=1.0).text("width"));
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset").clicked() {
+                            params.reset.notify();
+                        }
+                        if !params.pause {
+                            if ui.button("Pause").clicked() {
+                                params.pause = true;
+                            }
+                        } else {
+                            if ui.button("Unpause").clicked() {
+                                params.pause = false;
+                            }
+                        }
+                    });
+                });
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             _ => {}
         }

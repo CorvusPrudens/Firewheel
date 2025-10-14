@@ -15,6 +15,7 @@ eframe = { version = "0.32", default-features = false, features = [
     "x11",
     "wayland",
 ] }
+symphonium = { version = "0.6.4", features = ["mp3", "flac"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 simple-log = "2.1.0"
