@@ -459,7 +459,7 @@ impl<'a> ProcEvents<'a> {
     /// let mut node = FilterNode::default();
     ///
     /// // You can match on individual patch variants.
-    /// for (patch timestamp) in event_list.drain_patches_with_timestamps::<FilterNode>() {
+    /// for (patch, timestamp) in event_list.drain_patches_with_timestamps::<FilterNode>() {
     ///     match patch {
     ///         FilterNodePatch::Frequency(frequency) => {
     ///             node.frequency = frequency;

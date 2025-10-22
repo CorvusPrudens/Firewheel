@@ -423,10 +423,10 @@ impl core::ops::Deref for ParamPath {
 /// impl AudioNodeProcessor for MyProcessor {
 ///     fn process(
 ///         &mut self,
+///         info: &ProcInfo,
 ///         buffers: ProcBuffers,
-///         proc_info: &ProcInfo,
 ///         events: &mut ProcEvents,
-///         _logger: &mut RealtimeLogger,
+///         extra: &mut ProcExtra,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
 ///         for patch in events.drain_patches::<MyParams>() {
@@ -456,10 +456,10 @@ impl core::ops::Deref for ParamPath {
 /// impl AudioNodeProcessor for MyProcessor {
 ///     fn process(
 ///         &mut self,
+///         info: &ProcInfo,
 ///         buffers: ProcBuffers,
-///         proc_info: &ProcInfo,
 ///         events: &mut ProcEvents,
-///         _logger: &mut RealtimeLogger,
+///         extra: &mut ProcExtra,
 ///     ) -> ProcessStatus {
 ///         for mut patch in events.drain_patches::<MyParams>() {
 ///             // When you derive `Patch`, it creates an enum with variants
