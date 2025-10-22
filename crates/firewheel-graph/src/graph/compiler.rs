@@ -244,6 +244,8 @@ impl<'a> GraphIR<'a> {
                         id: node_entry.id,
                         debug_name: node_entry.info.debug_name,
                     });
+
+                    num_visited += 1;
                 } else {
                     queue.push_back(node_entry.id.0.slot());
                 }

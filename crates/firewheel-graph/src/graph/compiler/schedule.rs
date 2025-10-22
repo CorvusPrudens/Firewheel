@@ -1058,6 +1058,9 @@ mod tests {
         let node2 = add_dummy_node(&mut graph, (2, 1));
         let node3 = add_dummy_node(&mut graph, (1, 1));
 
+        // A zero input/output node shouldn't cause a cycle to be detected.
+        let _node4 = add_dummy_node(&mut graph, (0, 0));
+
         graph.connect(node1, node2, &[(0, 0)], false).unwrap();
         graph.connect(node2, node3, &[(0, 0)], false).unwrap();
         let edge3 = graph.connect(node3, node1, &[(0, 0)], false).unwrap()[0];
