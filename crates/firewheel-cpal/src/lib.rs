@@ -19,7 +19,7 @@ use ringbuf::traits::{Consumer, Producer, Split};
 /// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
-const MAX_BLOCK_FRAMES: u32 = 8192;
+const INPUT_ALLOC_BLOCK_FRAMES: usize = 4096;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const MSG_CHANNEL_CAPACITY: usize = 4;
 const MAX_INPUT_CHANNELS: usize = 16;
@@ -423,11 +423,9 @@ impl AudioBackend for CpalBackend {
             buffer_size: desired_buffer_size,
         };
 
-        let (max_block_frames, actual_max_block_frames) = match out_stream_config.buffer_size {
-            cpal::BufferSize::Default => {
-                (DEFAULT_MAX_BLOCK_FRAMES as usize, MAX_BLOCK_FRAMES as usize)
-            }
-            cpal::BufferSize::Fixed(f) => (f as usize, f as usize),
+        let max_block_frames = match out_stream_config.buffer_size {
+            cpal::BufferSize::Default => DEFAULT_MAX_BLOCK_FRAMES as usize,
+            cpal::BufferSize::Fixed(f) => f as usize,
         };
 
         let (err_to_cx_tx, from_err_rx) = mpsc::channel();
@@ -472,7 +470,6 @@ impl AudioBackend for CpalBackend {
 
         let mut data_callback = DataCallback::new(
             num_out_channels,
-            actual_max_block_frames,
             from_cx_rx,
             out_stream_config.sample_rate.0,
             input_stream_cons,
@@ -755,7 +752,6 @@ struct DataCallback {
 impl DataCallback {
     fn new(
         num_out_channels: usize,
-        max_block_frames: usize,
         from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
@@ -764,8 +760,8 @@ impl DataCallback {
 
         let input_buffer = if let Some(cons) = &input_stream_cons {
             let mut v = Vec::new();
-            v.reserve_exact(max_block_frames * cons.num_channels().get());
-            v.resize(max_block_frames * cons.num_channels().get(), 0.0);
+            v.reserve_exact(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels().get());
+            v.resize(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels().get(), 0.0);
             v
         } else {
             Vec::new()
@@ -881,7 +877,15 @@ impl DataCallback {
         {
             let num_in_channels = cons.num_channels().get();
 
-            let status = cons.read_interleaved(&mut self.input_buffer[..frames * num_in_channels]);
+            let num_input_samples = frames * num_in_channels;
+            // Some platforms like wasapi might occasionally send a really large number of frames
+            // to process. Since CPAL doesn't tell us the actual maximum block size of the stream,
+            // there is not much we can do about it except to allocate when that happens.
+            if num_input_samples > self.input_buffer.len() {
+                self.input_buffer.resize(num_input_samples, 0.0);
+            }
+
+            let status = cons.read_interleaved(&mut self.input_buffer[..num_input_samples]);
 
             let status = match status {
                 ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
