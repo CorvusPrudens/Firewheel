@@ -1,13 +1,13 @@
 use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
 
-use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::RmsNode};
+use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::FastRmsNode};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
 
     pub noise_gen_node: Memo<NoiseGenNode>,
     pub filter_node: Memo<FilterNode>,
-    pub rms_node: Memo<RmsNode>,
+    pub rms_node: Memo<FastRmsNode>,
 
     pub noise_gen_node_id: NodeID,
     pub filter_node_id: NodeID,
@@ -21,7 +21,7 @@ impl AudioSystem {
 
         let noise_gen_node = NoiseGenNode::default();
         let filter_node = FilterNode::default();
-        let rms_node = RmsNode::default();
+        let rms_node = FastRmsNode::default();
 
         let noise_gen_node_id = cx.add_node(noise_gen_node, None);
         let filter_node_id = cx.add_node(filter_node, None);

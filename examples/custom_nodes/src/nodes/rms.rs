@@ -1,6 +1,7 @@
-//! A simple node that demonstrates having a handle with shared state.
-//!
-//! This node calculates the RMS (root-mean-square) of a mono signal.
+//! A simple node that demonstrates having a handle with shared state for
+//! sending data back to the user.
+
+use std::sync::atomic::AtomicU32;
 
 use firewheel::{
     atomic_float::AtomicF32,
@@ -9,8 +10,8 @@ use firewheel::{
     diff::{Diff, Patch},
     event::ProcEvents,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
+        ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     StreamInfo,
 };
@@ -21,72 +22,87 @@ use bevy_platform::sync::atomic::Ordering;
 #[derive(Debug)]
 struct SharedState {
     rms_value: AtomicF32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RmsConfig {
-    pub window_size_secs: f32,
-}
-
-impl Default for RmsConfig {
-    fn default() -> Self {
-        Self {
-            window_size_secs: 5.0 / 1_000.0,
-        }
-    }
+    // A simple counter used to keep track of when the processor should update
+    // the RMS value.
+    read_count: AtomicU32,
 }
 
 // The node struct holds all of the parameters of the node.
+//
+// # Notes about ECS
+//
+// In order to be friendlier to ECS's (entity component systems), it is encouraged
+// that any struct deriving this trait be POD (plain ol' data). If you want your
+// audio node to be usable in the Bevy game engine, also derive
+// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
+// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
+//
+// To keep this struct POD, this example makes use of the "custom state" API to
+// send the rms value from the processor to the user.
+//
+// ------------------------------------------------------------------------------
+/// This node roughly estimates the RMS (root-mean-square) of a mono signal.
 ///
-/// # Notes about ECS
-///
-/// In order to be friendlier to ECS's (entity component systems), it is encouraged
-/// that any struct deriving this trait be POD (plain ol' data). If you want your
-/// audio node to be usable in the Bevy game engine, also derive
-/// `bevy_ecs::prelude::Component`. (You can hide this derive behind a feature flag
-/// by using `#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]`).
-///
-/// To keep this struct POD, this example makes use of the "custom state" API to
-/// send the rms value from the processor to the user.
+/// Note this node doesn't calculate the true RMS (That requires a much more
+/// expensive algorithm using a sliding window.)
 #[derive(Debug, Diff, Patch, Clone, Copy)]
-pub struct RmsNode {
+pub struct FastRmsNode {
     /// Whether or not this node is enabled.
     pub enabled: bool,
+    /// The size of the window used to measure the RMS value.
+    ///
+    /// Smaller values are better at detecting short bursts of loundess (transients),
+    /// while larger values are better for measuring loudness on a broader time scale.
+    ///
+    /// By default this is set to `0.05` (50ms).
+    pub window_size_secs: f32,
 }
 
-impl Default for RmsNode {
+impl Default for FastRmsNode {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            window_size_secs: 50.0 / 1_000.0,
+        }
     }
 }
 
 // The state struct is stored in the Firewheel context, and the user can retrieve
 // it using `FirewheelCtx::node_state` and `FirewheelCtx::node_state_mut`.
 #[derive(Clone)]
-pub struct RmsState {
+pub struct FastRmsState {
     // `ArcGc` is a simple wrapper around `Arc` that automatically collects
     // dropped resources from the audio thread and drops them on another
     // thread.
     shared_state: ArcGc<SharedState>,
 }
 
-impl RmsState {
+impl FastRmsState {
     fn new() -> Self {
         Self {
             shared_state: ArcGc::new(SharedState {
                 rms_value: AtomicF32::new(0.0),
+                read_count: AtomicU32::new(1),
             }),
         }
     }
 
+    /// Get the estimated RMS value.
+    ///
+    /// (Note, this is just a rough estimate. This node doesn't calculate the true
+    /// RMS value).
     pub fn rms_value(&self) -> f32 {
-        self.shared_state.rms_value.load(Ordering::Relaxed)
+        let rms = self.shared_state.rms_value.load(Ordering::Relaxed);
+        self.shared_state.read_count.fetch_add(1, Ordering::Relaxed);
+        rms
     }
 }
 
 // Implement the AudioNode type for your node.
-impl AudioNode for RmsNode {
-    type Configuration = RmsConfig;
+impl AudioNode for FastRmsNode {
+    // Since this node doesnt't need any configuration, we'll just
+    // default to `EmptyConfig`.
+    type Configuration = EmptyConfig;
 
     // Return information about your node. This method is only ever called
     // once.
@@ -95,7 +111,7 @@ impl AudioNode for RmsNode {
         // more fields will be added in the future.
         AudioNodeInfo::new()
             // A static name used for debugging purposes.
-            .debug_name("example_rms")
+            .debug_name("example_fast_rms")
             // The configuration of the input/output ports.
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::MONO,
@@ -106,7 +122,7 @@ impl AudioNode for RmsNode {
             //
             // The user accesses this state via `FirewheelCtx::node_state` and
             // `FirewheelCtx::node_state_mut`.
-            .custom_state(RmsState::new())
+            .custom_state(FastRmsState::new())
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -116,14 +132,14 @@ impl AudioNode for RmsNode {
     // thread, so it is safe to do non-realtime things here like allocating.
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
+        _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
         let window_frames =
-            (config.window_size_secs * cx.stream_info.sample_rate.get() as f32).round() as usize;
+            (self.window_size_secs * cx.stream_info.sample_rate.get() as f32).round() as usize;
 
         // Extract the custom state so we can get a reference to the shared state.
-        let custom_state = cx.custom_state::<RmsState>().unwrap();
+        let custom_state = cx.custom_state::<FastRmsState>().unwrap();
 
         Processor {
             params: self.clone(),
@@ -131,19 +147,19 @@ impl AudioNode for RmsNode {
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
-            config: *config,
+            last_read_count: 0,
         }
     }
 }
 
 // The realtime processor counterpart to your node.
 struct Processor {
-    params: RmsNode,
+    params: FastRmsNode,
     shared_state: ArcGc<SharedState>,
     squares: f32,
     num_squared_values: usize,
     window_frames: usize,
-    config: RmsConfig,
+    last_read_count: u32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -159,7 +175,22 @@ impl AudioNodeProcessor for Processor {
         // Extra buffers and utilities.
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        for patch in events.drain_patches::<RmsNode>() {
+        for patch in events.drain_patches::<FastRmsNode>() {
+            match patch {
+                FastRmsNodePatch::WindowSizeSecs(window_size_secs) => {
+                    let window_frames =
+                        (window_size_secs * info.sample_rate.get() as f32).round() as usize;
+
+                    if self.window_frames != window_frames {
+                        self.window_frames = window_frames;
+
+                        self.squares = 0.0;
+                        self.num_squared_values = 0;
+                    }
+                }
+                _ => {}
+            }
+
             self.params.apply(patch);
         }
 
@@ -189,10 +220,16 @@ impl AudioNodeProcessor for Processor {
                 let mean = self.squares / self.window_frames as f32;
                 let rms = mean.sqrt();
 
-                self.shared_state.rms_value.store(rms, Ordering::Relaxed);
+                let latest_read_count = self.shared_state.read_count.load(Ordering::Relaxed);
+                let previous_rms = self.shared_state.rms_value.load(Ordering::Relaxed);
+
+                if latest_read_count != self.last_read_count || rms > previous_rms {
+                    self.shared_state.rms_value.store(rms, Ordering::Relaxed);
+                }
 
                 self.squares = 0.0;
                 self.num_squared_values = 0;
+                self.last_read_count = latest_read_count;
             }
         }
 
@@ -208,7 +245,7 @@ impl AudioNodeProcessor for Processor {
     // deallocate here.
     fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         self.window_frames =
-            (self.config.window_size_secs * stream_info.sample_rate.get() as f32).round() as usize;
+            (self.params.window_size_secs * stream_info.sample_rate.get() as f32).round() as usize;
 
         self.squares = 0.0;
         self.num_squared_values = 0;

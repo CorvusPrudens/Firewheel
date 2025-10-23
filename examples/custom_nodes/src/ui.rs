@@ -2,7 +2,7 @@ use eframe::App;
 use egui::{Color32, ProgressBar};
 use firewheel::dsp::volume::Volume;
 
-use crate::{nodes::rms::RmsState, system::AudioSystem};
+use crate::{nodes::rms::FastRmsState, system::AudioSystem};
 
 pub struct DemoApp {
     audio_system: AudioSystem,
@@ -98,10 +98,19 @@ impl App for DemoApp {
                 );
             }
 
+            ui.add(
+                egui::Slider::new(
+                    &mut self.audio_system.rms_node.window_size_secs,
+                    0.005..=1.0,
+                )
+                .text("window size seconds")
+                .logarithmic(true),
+            );
+
             let rms_value = self
                 .audio_system
                 .cx
-                .node_state::<RmsState>(self.audio_system.rms_node_id)
+                .node_state::<FastRmsState>(self.audio_system.rms_node_id)
                 .unwrap()
                 .rms_value();
 
