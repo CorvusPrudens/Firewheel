@@ -88,6 +88,10 @@ delay_compensation_node = ["firewheel-nodes/delay_compensation"]
 mix_node = ["firewheel-nodes/mix"]
 # Enables the freeverb node
 freeverb_node = ["firewheel-nodes/freeverb"]
+# Enables the convolution node
+convolution_node = ["firewheel-nodes/convolution"]
+# Enables the FastRmsNode for measuring loudness
+fast_rms_node = ["firewheel-nodes/fast_rms"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros for node parameters

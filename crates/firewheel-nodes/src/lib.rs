@@ -36,6 +36,9 @@ pub mod freeverb;
 #[cfg(feature = "convolution")]
 pub mod convolution;
 
+#[cfg(feature = "fast_rms")]
+pub mod fast_rms;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;

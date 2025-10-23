@@ -39,6 +39,7 @@ all_nodes = [
     "mix",
     "freeverb",
     "convolution",
+    "fast_rms"
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -67,6 +68,8 @@ mix = []
 freeverb = []
 # Enables the convolution node
 convolution = ["dep:fft-convolver"]
+# Enables the FastRmsNode for measuring loudness
+fast_rms = []
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros

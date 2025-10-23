@@ -187,7 +187,8 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
     /// Get the latest peak values for each channel in decibels.
     ///
     /// * `db_epsilon` - If a peak value is less than or equal to this value, then it
-    /// will be clamped to `f32::NEG_INFINITY` (silence).
+    /// will be clamped to `f32::NEG_INFINITY` (silence). (You can use
+    /// [firewheel_core::dsp::volume::DEFAULT_DB_EPSILON].)
     ///
     /// If the node is currently disabled, then this will return a value
     /// of `f32::NEG_INFINITY` (silence) for all channels.
