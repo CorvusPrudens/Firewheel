@@ -7,6 +7,7 @@ use bevy_platform::prelude::String;
 use crate::collector::ArcGc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RealtimeLoggerConfig {
     /// The capacity of each message slot. This determines the maximum length a

@@ -21,6 +21,7 @@ pub use transport::*;
 /// audio clock time.
 #[cfg(feature = "scheduled_events")]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EventInstant {
     /// The event should happen when the clock reaches the given time in

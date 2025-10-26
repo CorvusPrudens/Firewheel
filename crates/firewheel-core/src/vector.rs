@@ -1,7 +1,6 @@
 /// A simple two-dimensional vector type.
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec2 {
@@ -20,7 +19,6 @@ impl Vec2 {
 /// A simple three-dimensional vector type.
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec3 {
