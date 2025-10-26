@@ -94,8 +94,12 @@ convolution_node = ["firewheel-nodes/convolution"]
 fast_rms_node = ["firewheel-nodes/fast_rms"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
-# Enables `Reflect` derive macros for node parameters
-bevy_reflect = ["firewheel-nodes/bevy_reflect", "firewheel-core/bevy_reflect"]
+# Enables `Reflect` derive macros for types
+bevy_reflect = [
+    "firewheel-nodes/bevy_reflect",
+    "firewheel-core/bevy_reflect",
+    "firewheel-graph/bevy_reflect",
+]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.29.

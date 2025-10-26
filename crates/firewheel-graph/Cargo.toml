@@ -24,6 +24,7 @@ std = [
     "ringbuf/std",
     "thunderdome/std",
     "thiserror/std",
+    "bevy_reflect?/std",
 ]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -31,6 +32,8 @@ scheduled_events = ["firewheel-core/scheduled_events"]
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 # Enables serde derives for types
 serde = ["dep:serde"]
+# Enables Reflect derives for types
+bevy_reflect = ["dep:bevy_reflect"]
 # Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
 # processing. This can lead to a significant performance increases in some cases.
 #
@@ -62,3 +65,4 @@ thunderdome.workspace = true
 thiserror.workspace = true
 bevy_platform.workspace = true
 serde = { workspace = true, optional = true }
+bevy_reflect = { workspace = true, optional = true }
