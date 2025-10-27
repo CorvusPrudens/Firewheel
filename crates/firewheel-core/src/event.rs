@@ -24,6 +24,7 @@ use crate::clock::EventInstant;
 use crate::clock::{DurationMusical, InstantMusical};
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
+#[derive(Debug)]
 pub struct NodeEvent {
     /// The ID of the node that should receive the event.
     pub node_id: NodeID,
@@ -129,6 +130,22 @@ impl NodeEventType {
         }
 
         None
+    }
+}
+
+impl core::fmt::Debug for NodeEventType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            NodeEventType::Param { data, path } => f
+                .debug_struct("Param")
+                .field("data", &data)
+                .field("path", &path)
+                .finish(),
+            NodeEventType::Custom(_) => f.debug_tuple("Custom").finish_non_exhaustive(),
+            NodeEventType::CustomBytes(f0) => f.debug_tuple("CustomBytes").field(&f0).finish(),
+            #[cfg(feature = "midi_events")]
+            NodeEventType::MIDI(f0) => f.debug_tuple("MIDI").field(&f0).finish(),
+        }
     }
 }
 
