@@ -47,6 +47,27 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 * [ ] Basic [CLAP] plugin hosting (non-WebAssembly only)
 * [ ] C bindings
 
+### * Notes on C bindings
+
+Firewheel is a large library with a lot of rust-isms (enums, traits, generics, and macros). As such, the goal of the C bindings is NOT to provide access to every single part of the API. Instead, this is a rough overview of what the C bindings will consist of:
+
+* Two backend options:
+    * A "CPAL" option which allows you to enumerate available audio devices and to start/stop audio streams.
+    * A "no backend" option where the user plugs in a firewheel processor object into their own custom audio stream.
+* Optional functions for loading sample resources from memory or from a file path.
+* Firewheel Context
+    * Construct a Firewheel context with configurable options
+    * Methods to get and configure clocks
+    * Update method
+    * Methods to add, remove, and connect nodes in the graph 
+        * Some thought will need to be given on what the API to construct nodes should look like. We can simply just have a constructor function for each of the factory nodes. Though preferably there should also be a way to use construct third party nodes as well.
+* Nodes
+    * Sending updates to nodes will be purely event-driven (no data-driven diffing/patching system). This will be done by defining an update function for each parameter for each factory node. Though some thought will need to be given on what the API for third party nodes should look like.
+    * Retrieving state will also be achieved using custom function for each of the factory nodes that have custom state.
+* Node Pools
+    * I haven't figured out what the API for node pools should look like yet.
+* A custom node API. This will be similar to the API in Rust, except that the event types will be simplified to be simple parameter values with integer paramter IDs. There will also be no `ProcStore` API (instead users can just simply pass around raw pointers to resources they need to share across nodes).
+
 ## Maybe Goals
 
 * [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek))
@@ -61,12 +82,13 @@ While Firewheel is meant to cover nearly every use case for games and generic ap
 > \* This conflict arises in how state is expected to be synchronized between the user's state and the state of the processor. In a DAW, the state is tied to the state of the "transport", and the host is allowed to discard any user-generated parameter update events that conflict with this transport state (or vice versa). However, in a game engine and other generic applications, the user's state can dynamically change at any time. So to avoid the processor state from becoming desynchronized with the user's state, parameter update events are only allowed to come from a single source (the user), and are gauranteed to not be discarded by the engine.
 
 * MIDI on the audio-graph level (It will still be possible to create a custom sampler/synthesizer nodes that read MIDI files as input.)
+    * EDIT: There is now a similar way to achieve this using the `ProcStore`.
 * Parameter events on the audio-graph level (as in you can't pass parameter update events from one node to another)
-    * EDIT: This is now a similar way to achieve this using the `ProcStore`.
+    * EDIT: There is now a similar way to achieve this using the `ProcStore`.
 * Connecting to system MIDI devices (Although this feature could be added in the future if there is enough demand for it).
 * Built-in synthesizer instruments (This can still be done with third-party nodes/CLAP plugins.)
 * GUIs for hosted CLAP plugins.
-* Multi-threaded audio graph processing (This would make the engine a lot more complicated, and it is probably overkill for games and genric applications.)
+* Multi-threaded audio graph processing (This would make the engine a lot more complicated, and it is probably overkill for games and generic applications.)
 * VST, VST3, LV2, and AU plugin hosting
 
 ## Codebase Overview
@@ -77,18 +99,6 @@ While Firewheel is meant to cover nearly every use case for games and generic ap
 * `firewheel-macros` - Contains various macros for diffing and patching parameters.
 * `firewheel-nodes` - Contains the built-in factory nodes.
 * `firewheel-pool` - Allows users to create pools of nodes that can be dynamically assigned work.
-
-## Noteworthy Parts of the Tech Stack
-
-* [Symphonium](https://github.com/MeadowlarkDAW/symphonium) - An easy-to-use wrapper around [Symphonia](https://github.com/pdeljanov/Symphonia), which is a Rust-native audio file decoder.
-* [creek](https://github.com/MeadowlarkDAW/creek) - Provides realtime disk streaming for audio files.
-* [rubato](https://crates.io/crates/rubato) - Asynchronous/synchronous resampling library written in native Rust. This will be useful for creating the "doppler shift" effect in the sampler node. Also used by Symphonium and creek (TODO) for resampling audio files to the stream's sample rate.
-* [CPAL] - Native Rust crate providing an audio backend for Windows, MacOS, Linux, Android, and iOS.
-* [RtAudio-rs](https://github.com/BillyDM/rtaudio-rs) - Rust bindings to the RtAudio backend.
-* [Interflow](https://github.com/SolarLiner/interflow) - A new experimental cross-platform audio backend. Might replace CPAL as the default backend in the future.
-* [ringbuf](https://crates.io/crates/ringbuf) - A realtime-safe SPSC ring buffer
-* [thunderdome](https://crates.io/crates/thunderdome) - A fast generational arena.
-* [Clack](https://github.com/prokopyl/clack) - Safe Rust bindings to the [CLAP] plugin API, along with hosting.
 
 ## Audio Node API
 
@@ -147,70 +157,6 @@ Audio nodes which output audio also must notify the graph on which output channe
 ## Sampler
 
 The sampler nodes are used to play back audio files (sound FX, music, etc.). Samplers can play back any resource which implements the `SampleResource` trait in [sample_resource.rs](crates/firewheel-core/src/sample_resource.rs). Using a trait like this gives the game engine control over how to load and store audio assets, i.e. by using a crate like [Symphonium](https://github.com/MeadowlarkDAW/symphonium).
-
-## Spatial Positioning
-
-This node makes an audio stream appear as if it is "emanating" from a point in 3d space.
-
-For the first release this node will have three parameters:
-
-* A 3D vector which describes the distance and direction of the sound source from the listener.
-* A "damping factor", which describes how much to dampen the volume of the sound based on the distance of the source.
-* An "attenuation factor", which describes how much to attenuate the high frequencies of a sound based on the distance of the source.
-
-This node can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
-
-In later releases, game engines can use additional "wall absorption" parameters to more realistically make sounds appear as if they are playing on the other side of a wall. (Note raycasting will not be part of this node, the game engine must do the raycasting itself).
-
-We can also possibly look into more sophisticated stereo surround sound techniques if given the resources and talent.
-
-## Other Key Nodes
-
-### VolumeNode
-
-This node simply changes the volume. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
-
-### PanNode
-
-This node pans a stereo stream left/right. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
-
-### MixNode
-
-This node sums streams together into a single stream.
-
-### StereoToMonoNode
-
-This node turns a stereo stream into a mono stream.
-
-### TripleBufferOutNode
-
-This node stores the latest samples in the audio stream into a triple buffer, allowing the game engine to read the raw samples. This can be useful for creating visual effects like oscilloscopes and spectrometers.
-
-### TripleBufferInNode
-
-This node allows the game engine to insert samples into the audio graph from any thread. This can be useful, for example, playing back voice chat from over the network.
-
-### DelayCompNode
-
-This node simply delays the stream by a certain sample amount. Useful for preventing phasing issues between parallel streams.
-
-### DecibelMeterNode
-
-This nodes measures the peak volume of a stream in decibels. This can be used to create meters in the GUI or triggering game events based on peak volume.
-
-### ConvolutionNode
-
-This node accepts anything that implements the `ImpulseResponse` trait (TODO) to create effects like reverbs. Similar to the `LoopingSamplerNode`, the user can blend seamlessly between multiple impulse responses (useful for creating effects like smoothly changing the reverb when the player enters a different room).
-
-### EchoNode
-
-This node produces an "echo" effect on an audio stream.
-
-### FilterNode
-
-Provides basic filtering effects like lowpass, highpass, and bandpass. It can also accept anything that implements the `AnimationCurve` (TODO) trait to apply an animation curve.
-
-These filters should use the Simper SVF model as described in https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf due to its superior quality when being modulated. (Coefficient equations are given at the bottom of the paper).
 
 ## WebAssembly Considerations
 
