@@ -195,8 +195,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
         events: &mut firewheel_core::event::ProcEvents,
         extra: &mut firewheel_core::node::ProcExtra,
     ) -> ProcessStatus {
-        for mut patch in events.drain() {
-            match patch {
+        for mut event in events.drain() {
+            match event {
                 NodeEventType::Param { data, path } => {
                     if let Ok(patch) = ConvolutionNode::<CHANNELS>::patch(&data, &path) {
                         // You can match on the patch directly
@@ -231,9 +231,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
                     }
                 }
                 NodeEventType::Custom(_) => {
-                    if let Some(impulse_response) = patch.downcast_mut::<Option<ImpulseResponse>>()
-                    {
-                        self.next_impulse_response.swap(impulse_response);
+                    if event.downcast_into_owned(&mut self.next_impulse_response) {
                         // Disable the audio stream while changing IRs
                         self.declick.fade_to_0(&extra.declick_values);
                     }

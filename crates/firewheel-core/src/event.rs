@@ -76,7 +76,7 @@ pub enum NodeEventType {
         path: ParamPath,
     },
     /// Custom event type stored on the heap.
-    Custom(OwnedGc<Option<Box<dyn Any + Send + 'static>>>),
+    Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
     #[cfg(feature = "midi_events")]
@@ -85,7 +85,11 @@ pub enum NodeEventType {
 
 impl NodeEventType {
     pub fn custom<T: Send + 'static>(value: T) -> Self {
-        Self::Custom(OwnedGc::new(Some(Box::new(value))))
+        Self::Custom(OwnedGc::new(Box::new(value)))
+    }
+
+    pub fn custom_boxed<T: Send + 'static>(value: Box<T>) -> Self {
+        Self::Custom(OwnedGc::new(value))
     }
 
     /// Try to downcast the custom event to an immutable reference to `T`.
@@ -94,7 +98,7 @@ impl NodeEventType {
     /// downcast failed, then this returns `None`.
     pub fn downcast_ref<T: Send + 'static>(&self) -> Option<&T> {
         if let Self::Custom(owned) = self {
-            owned.as_ref().and_then(|o| o.downcast_ref())
+            owned.as_ref().downcast_ref()
         } else {
             None
         }
@@ -106,30 +110,46 @@ impl NodeEventType {
     /// downcast failed, then this returns `None`.
     pub fn downcast_mut<T: Send + 'static>(&mut self) -> Option<&mut T> {
         if let Self::Custom(owned) = self {
-            owned.as_mut().and_then(|o| o.downcast_mut())
+            owned.as_mut().downcast_mut()
         } else {
             None
         }
     }
 
-    /// Try to downcast the custom event to `T`.
+    /// Try to swap the contents of the custom event with the contents of
+    /// the given value.
     ///
-    /// If this does not contain [`NodeEventType::Custom`] or if the
-    /// downcast failed, then this returns `None`.
-    pub fn downcast<T: Send + 'static>(&mut self) -> Option<T> {
-        match self {
-            NodeEventType::Custom(owned) => {
-                if let Some(o) = owned.get_mut().take() {
-                    match o.downcast::<T>() {
-                        Ok(data) => return Some(*data),
-                        Err(o) => *owned.get_mut() = Some(o),
-                    }
-                }
-            }
-            _ => {}
+    /// If successful, the old contents that were stored in `value` will
+    /// safely be dropped and deallocated on another non-realtime thread.
+    ///
+    /// Returns `true` if the value has been successfully swapped, `false`
+    /// otherwise (i.e. the event did not contain [`NodeEventType::Custom`]
+    /// or the downcast failed).
+    pub fn downcast_swap<T: Send + 'static>(&mut self, value: &mut T) -> bool {
+        if let Some(v) = self.downcast_mut::<T>() {
+            core::mem::swap(v, value);
+            true
+        } else {
+            false
         }
+    }
 
-        None
+    /// Try to swap the contents of the custom event with the contents of
+    /// the given value wrapped in an [`OwnedGc`].
+    ///
+    /// If successful, the old contents that were stored in `value` will
+    /// safely be dropped and deallocated on another non-realtime thread.
+    ///
+    /// Returns `true` if the value has been successfully swapped, `false`
+    /// otherwise (i.e. the event did not contain [`NodeEventType::Custom`]
+    /// or the downcast failed).
+    pub fn downcast_into_owned<T: Send + 'static>(&mut self, value: &mut OwnedGc<T>) -> bool {
+        if let Some(v) = self.downcast_mut::<T>() {
+            value.swap(v);
+            true
+        } else {
+            false
+        }
     }
 }
 

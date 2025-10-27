@@ -5,7 +5,6 @@ use egui_snarl::{
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
 use firewheel::{
-    collector::OwnedGc,
     diff::Memo,
     dsp::{fade::FadeCurve, mix::Mix},
     event::NodeEventType,
@@ -860,8 +859,7 @@ fn convolution_ui<const CHANNELS: usize>(
                             .clicked()
                             .then_some(|| {
                                 let ir = ImpulseResponse::new(sample.clone());
-                                let boxed = Box::new(Some(ir));
-                                NodeEventType::Custom(OwnedGc::new(Some(boxed)))
+                                NodeEventType::custom(Some(ir))
                             })
                     })
                     .next();
