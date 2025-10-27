@@ -764,7 +764,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
-            GuiAudioNode::Freeverb { id: _id, params } => {
+            GuiAudioNode::Freeverb { id, params } => {
                 ui.vertical(|ui| {
                     ui.add(egui::Slider::new(&mut params.room_size, 0.0..=1.0).text("room size"));
                     ui.add(egui::Slider::new(&mut params.damping, 0.0..=1.0).text("damping"));
@@ -785,6 +785,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         }
                     });
                 });
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             GuiAudioNode::ConvolutionMono { id, params } => {
                 convolution_ui(ui, params, self.audio_system, *id);
