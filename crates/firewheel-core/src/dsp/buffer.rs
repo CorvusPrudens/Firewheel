@@ -7,7 +7,7 @@ use bevy_platform::prelude::Vec;
 
 /// A memory-efficient buffer of samples with `CHANNELS` channels. Each channel
 /// has a length of `frames`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChannelBuffer<T: Clone + Copy + Default, const CHANNELS: usize> {
     buffer: Vec<T>,
     frames: usize,
@@ -262,7 +262,7 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
 
 /// A memory-efficient buffer of samples with up to `MAX_CHANNELS` channels. Each
 /// channel has a length of `frames`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VarChannelBuffer<T: Clone + Copy + Default, const MAX_CHANNELS: usize> {
     buffer: Vec<T>,
     channels: NonZeroUsize,
@@ -351,7 +351,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
 
 /// A memory-efficient buffer of samples with variable number of instances each with up to
 /// `MAX_CHANNELS` channels. Each channel has a length of `frames`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstanceBuffer<T: Clone + Copy + Default, const MAX_CHANNELS: usize> {
     buffer: Vec<T>,
     num_instances: usize,
