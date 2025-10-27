@@ -767,6 +767,7 @@ impl ProcInfo {
 }
 
 #[cfg(feature = "musical_transport")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TransportInfo {
     /// The current transport.
     pub transport: MusicalTransport,
