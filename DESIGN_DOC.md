@@ -34,21 +34,25 @@ Both the Rust ecosystem and the libre game engine ecosystem as a whole are in ne
 
 ## Later Goals
 
-* [ ] Sequencing support for the sampler node
-* [ ] A `BlendingSamplerNode` that can seamlessly blend between multiple music tracks
+* [x] Sequencing support for the sampler node
+* [x] Doppler stretching (pitch shifting) on sampler node
 * Extra built-in nodes:
-    * [ ] delay compensation
-    * [ ] convolution (user can load any impulse response they want to create effects like reverbs)
+    * [x] delay compensation
+    * [x] convolution (user can load any impulse response they want to create effects like reverbs)
+    * [x] filters (lowpass, highpass, bandpass)
     * [ ] echo
-    * [ ] filters (lowpass, highpass, bandpass)
-* [ ] Doppler stretching (pitch shifting) on sampler node
+    * [ ] better spatial positioning with HRTF
+    * [ ] equalizer
+    * [ ] compressor
 * [ ] Basic [CLAP] plugin hosting (non-WebAssembly only)
+* [ ] C bindings
+
+## Maybe Goals
+
 * [ ] A `SampleResource` with disk streaming support (using [creek](https://github.com/MeadowlarkDAW/creek))
 * [ ] A `SampleResource` with network streaming support
-* [ ] Better spatial positioning with sound absorption capabilities
-* [ ] [RtAudio](https://github.com/thestk/rtaudio) backen
+* [ ] [RtAudio](https://github.com/thestk/rtaudio) backend
 * [ ] [Interflow](https://github.com/SolarLiner/interflow) backend
-* [ ] C bindings?
 
 ## Non-Goals
 
@@ -58,20 +62,21 @@ While Firewheel is meant to cover nearly every use case for games and generic ap
 
 * MIDI on the audio-graph level (It will still be possible to create a custom sampler/synthesizer nodes that read MIDI files as input.)
 * Parameter events on the audio-graph level (as in you can't pass parameter update events from one node to another)
+    * EDIT: This is now a similar way to achieve this using the `ProcStore`.
 * Connecting to system MIDI devices (Although this feature could be added in the future if there is enough demand for it).
 * Built-in synthesizer instruments (This can still be done with third-party nodes/CLAP plugins.)
-* Advanced mixing effects like parametric EQs, compressors, and limiters (This again can be done with third-party nodes/CLAP plugins.)
-* GUIs for hosted CLAP plugins (Although this feature could be added in the future if there is enough demand for it).
+* GUIs for hosted CLAP plugins.
 * Multi-threaded audio graph processing (This would make the engine a lot more complicated, and it is probably overkill for games and genric applications.)
 * VST, VST3, LV2, and AU plugin hosting
 
 ## Codebase Overview
 
 * `firewheel-core` - Contains common types and utilities shared by Firewheel crates. It also houses the audio node API.
-* `firewheel-graph` - Contains the core audio graph engine.
-* `firewheel-nodes` - Contains the built-in factory nodes.
 * `firewheel-cpal` - Contains the default [CPAL] backend.
-* (root crate) - Ties everything together and provides an optional general-purpose "graph preset" with an easy-to-use interface.
+* `firewheel-graph` - Contains the core audio graph engine.
+* `firewheel-macros` - Contains various macros for diffing and patching parameters.
+* `firewheel-nodes` - Contains the built-in factory nodes.
+* `firewheel-pool` - Allows users to create pools of nodes that can be dynamically assigned work.
 
 ## Noteworthy Parts of the Tech Stack
 

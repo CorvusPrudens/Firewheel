@@ -45,8 +45,5 @@ at your option.
 
 [Design Document]: DESIGN_DOC.md
 [CPAL]: https://github.com/RustAudio/cpal
-[Symphonium]: https://github.com/MeadowlarkDAW/symphonium
-[creek]: https://github.com/MeadowlarkDAW/creek
+[Symphonium]: https://codeberg.org/Meadowlark/symphonium
 [CLAP]: https://cleveraudio.org/
-[RtAudio]: https://github.com/BillyDM/rtaudio-rs
-[Interflow]: https://github.com/SolarLiner/interflow
