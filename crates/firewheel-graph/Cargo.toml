@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-graph"
-version = "0.8.0-rc.1"
+version = "0.9.0"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
 repository.workspace = true
@@ -55,7 +55,7 @@ bevy_reflect = ["dep:bevy_reflect"]
 unsafe_flush_denormals_to_zero = []
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.8.0-rc.1", default-features = false }
+firewheel-core = { path = "../firewheel-core", version = "0.9.0", default-features = false }
 log.workspace = true
 ringbuf.workspace = true
 triple_buffer.workspace = true
