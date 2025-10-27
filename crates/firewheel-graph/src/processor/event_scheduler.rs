@@ -840,6 +840,7 @@ pub(super) struct NodeEventSchedulerData {
     #[cfg(feature = "scheduled_events")]
     first_sorted_event_index: usize,
 
+    #[allow(unused)]
     is_pre_process: bool,
 }
 

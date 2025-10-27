@@ -395,6 +395,7 @@ impl CompiledSchedule {
         (read_outputs)(outputs.as_slice(), silence_mask);
     }
 
+    #[cfg(feature = "scheduled_events")]
     pub fn has_pre_proc_nodes(&self) -> bool {
         !self.pre_proc_nodes.is_empty()
     }
