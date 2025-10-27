@@ -4,7 +4,7 @@ use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 use crate::graph::{Edge, EdgeID, PortIdx};
 
 /// An error occurred while attempting to add an edge to the graph.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum AddEdgeError {
     /// The given source node was not found in the graph.
     #[error("Could not add edge: could not find source node with ID {0:?}")]
@@ -33,7 +33,7 @@ pub enum AddEdgeError {
 
 /// An error occurred while attempting to compile the audio graph
 /// into a schedule.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CompileGraphError {
     /// A cycle was detected in the graph.
     #[error("Failed to compile audio graph: a cycle was detected")]
@@ -55,7 +55,7 @@ pub enum CompileGraphError {
 
 /// An error occurred while attempting to activate an audio stream in
 /// a [`FirewheelCtx`][crate::context::FirewheelCtx].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StartStreamError<E: Error> {
     /// An audio stream is already running in this context.
     #[error("Audio stream is already running")]
@@ -78,7 +78,7 @@ pub enum StartStreamError<E: Error> {
 }
 
 /// An error occured while updating a [`FirewheelCtx`][crate::context::FirewheelCtx].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum UpdateError<E: Error> {
     /// The context to processor message channel is full.
     #[error("The Firewheel context to processor message channel is full")]

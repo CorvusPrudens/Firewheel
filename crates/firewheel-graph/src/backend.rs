@@ -66,6 +66,7 @@ pub struct DeviceInfo {
     pub is_default: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendProcessInfo<B: AudioBackend> {
     pub num_in_channels: usize,
     pub num_out_channels: usize,

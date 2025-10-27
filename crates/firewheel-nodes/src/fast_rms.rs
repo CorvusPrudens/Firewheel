@@ -19,7 +19,7 @@ use firewheel_core::{
 /// Note this node doesn't calculate the true RMS (That requires a much more expensive
 /// algorithm using a sliding window.) But it should be good enough for games that
 /// simply wish to react to player audio.
-#[derive(Debug, Diff, Patch, Clone, Copy)]
+#[derive(Debug, Diff, Patch, Clone, Copy, PartialEq)]
 pub struct FastRmsNode {
     /// Whether or not this node is enabled.
     pub enabled: bool,

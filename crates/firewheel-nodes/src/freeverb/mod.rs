@@ -25,7 +25,7 @@ mod freeverb;
 ///
 /// Freeverb tends to have a somewhat metallic sound, but
 /// its minimal computational cost makes it highly versatile.
-#[derive(Diff, Patch, Clone, Debug)]
+#[derive(Diff, Patch, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct FreeverbNode {

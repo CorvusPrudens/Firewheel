@@ -59,6 +59,7 @@ struct Worker<N: PoolableNode, FX: FxChain> {
     assigned_worker_id: Option<WorkerID>,
 }
 
+#[derive(Debug)]
 pub struct FxChainState<FX: FxChain> {
     pub fx_chain: FX,
     pub node_ids: Vec<NodeID>,
@@ -614,6 +615,7 @@ pub struct PollResult {
 }
 
 /// The result of calling [`AudioNodePool::new_worker`].
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewWorkerResult {
     /// The new ID of the worker assigned to play this sequence.
     pub worker_id: WorkerID,

@@ -44,7 +44,7 @@ pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 
 /// The configuration of a [`SamplerNode`]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,7 +92,7 @@ pub enum PlaybackSpeedQuality {
 /// A node that plays samples
 ///
 /// It supports pausing, resuming, looping, and changing the playback speed.
-#[derive(Clone, Diff, Patch)]
+#[derive(Clone, Diff, Patch, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SamplerNode {
     /// The sample resource to use.
@@ -154,6 +154,22 @@ impl Default for SamplerNode {
             crossfade_on_seek: true,
             min_gain: DEFAULT_AMP_EPSILON,
         }
+    }
+}
+
+impl std::fmt::Debug for SamplerNode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut f = f.debug_struct("SamplerNode");
+        f.field("has_sample", &self.sample.is_some());
+        f.field("volume", &self.volume);
+        f.field("play", &self.play);
+        f.field("play_from", &self.play_from);
+        f.field("repeat_mode", &self.repeat_mode);
+        f.field("speed", &self.speed);
+        f.field("mono_to_stereo", &self.mono_to_stereo);
+        f.field("crossfade_on_seek", &self.crossfade_on_seek);
+        f.field("min_gain", &self.min_gain);
+        f.finish()
     }
 }
 
@@ -581,7 +597,7 @@ impl AudioNode for SamplerNode {
     }
 }
 
-pub struct SamplerProcessor {
+struct SamplerProcessor {
     config: SamplerConfig,
     params: SamplerNode,
     shared_state: ArcGc<SharedState>,

@@ -62,7 +62,7 @@ pub struct ConvolutionNode<const CHANNELS: usize> {
 }
 
 /// Node configuration for [`ConvolutionNode`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct ConvolutionNodeConfig<const CHANNELS: usize> {

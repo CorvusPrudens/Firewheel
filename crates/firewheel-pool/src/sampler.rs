@@ -10,6 +10,7 @@ use crate::{PoolError, PoolableNode};
 
 /// A struct which uses a [`SamplerNode`] as the first node in an
 /// [`AudioNodePool`](crate::AudioNodePool).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SamplerPool;
 
 impl PoolableNode for SamplerPool {
