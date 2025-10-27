@@ -386,6 +386,7 @@ impl DeclickValues {
 /// performance as the crossfading method used by [`Declicker`]. But
 /// this can be used in situations where crossfading two signals is
 /// infeasible or too expensive.
+#[derive(Debug)]
 pub struct LowpassDeclicker<const MAX_CHANNELS: usize> {
     filters: [SmoothingFilter; MAX_CHANNELS],
     coeff: SmoothingFilterCoeff,

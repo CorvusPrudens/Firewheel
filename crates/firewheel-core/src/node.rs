@@ -487,6 +487,7 @@ pub struct ProcStreamCtx<'a> {
 pub const NUM_SCRATCH_BUFFERS: usize = 8;
 
 /// The buffers used in [`AudioNodeProcessor::process`]
+#[derive(Debug)]
 pub struct ProcBuffers<'a, 'b> {
     /// The audio input buffers.
     ///
@@ -557,6 +558,7 @@ pub struct ProcExtra {
 }
 
 /// Information for [`AudioNodeProcessor::process`]
+#[derive(Debug)]
 pub struct ProcInfo {
     /// The number of frames (samples in a single channel of audio) in
     /// this processing block.

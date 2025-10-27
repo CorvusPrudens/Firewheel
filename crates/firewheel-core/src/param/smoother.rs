@@ -139,6 +139,7 @@ impl SmoothedParam {
 }
 
 /// A helper struct to smooth an f32 parameter, along with a buffer of smoothed values.
+#[derive(Debug, Clone)]
 pub struct SmoothedParamBuffer {
     smoother: SmoothedParam,
     buffer: Vec<f32>,

@@ -176,7 +176,7 @@ impl From<(usize, usize)> for ChannelConfig {
 }
 
 /// An invalid channel configuration
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChannelConfigError {
     InvalidNumInputs {
         min: ChannelCount,

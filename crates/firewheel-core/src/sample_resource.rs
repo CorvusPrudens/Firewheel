@@ -41,6 +41,7 @@ pub trait SampleResourceF32: SampleResourceInfo {
     fn channel(&self, i: usize) -> Option<&[f32]>;
 }
 
+#[derive(Clone)]
 pub struct InterleavedResourceI16 {
     pub data: Vec<i16>,
     pub channels: NonZeroUsize,
@@ -74,6 +75,18 @@ impl SampleResource for InterleavedResourceI16 {
     }
 }
 
+impl std::fmt::Debug for InterleavedResourceI16 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "InterleavedResourceI16 {{ channels: {}, frames: {} }}",
+            self.channels.get(),
+            self.data.len() / self.channels.get(),
+        )
+    }
+}
+
+#[derive(Clone)]
 pub struct InterleavedResourceU16 {
     pub data: Vec<u16>,
     pub channels: NonZeroUsize,
@@ -107,6 +120,18 @@ impl SampleResource for InterleavedResourceU16 {
     }
 }
 
+impl std::fmt::Debug for InterleavedResourceU16 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "InterleavedResourceU16 {{ channels: {}, frames: {} }}",
+            self.channels.get(),
+            self.data.len() / self.channels.get(),
+        )
+    }
+}
+
+#[derive(Clone)]
 pub struct InterleavedResourceF32 {
     pub data: Vec<f32>,
     pub channels: NonZeroUsize,
@@ -121,6 +146,7 @@ impl SampleResourceInfo for InterleavedResourceF32 {
         (self.data.len() / self.channels.get()) as u64
     }
 }
+
 impl SampleResource for InterleavedResourceF32 {
     fn fill_buffers(
         &self,
@@ -136,6 +162,17 @@ impl SampleResource for InterleavedResourceF32 {
             &self.data,
             |s| s,
         );
+    }
+}
+
+impl std::fmt::Debug for InterleavedResourceF32 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "InterleavedResourceF32 {{ channels: {}, frames: {} }}",
+            self.channels.get(),
+            self.data.len() / self.channels.get(),
+        )
     }
 }
 
@@ -341,6 +378,7 @@ pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
 #[cfg(feature = "symphonium")]
 /// A wrapper around [`symphonium::DecodedAudio`] which implements the
 /// [`SampleResource`] trait.
+#[derive(Debug, Clone)]
 pub struct DecodedAudio(pub symphonium::DecodedAudio);
 
 #[cfg(feature = "symphonium")]
@@ -412,6 +450,7 @@ impl From<symphonium::DecodedAudio> for DecodedAudio {
 #[cfg(feature = "symphonium")]
 /// A wrapper around [`symphonium::DecodedAudioF32`] which implements the
 /// [`SampleResource`] trait.
+#[derive(Debug, Clone)]
 pub struct DecodedAudioF32(pub symphonium::DecodedAudioF32);
 
 #[cfg(feature = "symphonium")]
