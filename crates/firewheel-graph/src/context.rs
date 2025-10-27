@@ -9,7 +9,6 @@ use firewheel_core::node::ProcStore;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::AudioClock,
-    collector::Collector,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
@@ -645,7 +644,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
         self.logger_rx.flush();
 
-        firewheel_core::collector::GlobalCollector.collect();
+        firewheel_core::collector::GlobalRtGc::collect();
 
         for msg in self.from_processor_rx.pop_iter() {
             match msg {
@@ -1028,7 +1027,7 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
             }
         }
 
-        firewheel_core::collector::GlobalCollector.collect();
+        firewheel_core::collector::GlobalRtGc::collect();
     }
 }
 

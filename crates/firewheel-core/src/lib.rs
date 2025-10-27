@@ -6,17 +6,17 @@ use bevy_platform::prelude::String;
 pub mod atomic_float;
 pub mod channel_config;
 pub mod clock;
-pub mod collector;
 pub mod diff;
 pub mod dsp;
 pub mod event;
 pub mod log;
+pub mod mask;
 pub mod node;
 pub mod param;
 pub mod sample_resource;
 pub mod vector;
 
-pub mod mask;
+pub use rtgc as collector;
 
 use core::num::NonZeroU32;
 
