@@ -44,6 +44,7 @@ use firewheel_core::clock::TransportState;
 
 /// The configuration of a Firewheel context.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FirewheelConfig {
     /// The number of input channels in the audio graph.

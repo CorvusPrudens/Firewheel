@@ -227,6 +227,7 @@ impl<I: Clone> Default for SharedClock<I> {
 
 /// How to handle event buffers on the audio thread running out of space.
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BufferOutOfSpaceMode {
     #[default]

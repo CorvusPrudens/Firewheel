@@ -24,7 +24,6 @@ const MUFFLE_CUTOFF_HZ_RANGE_RECIP: f32 = 1.0 / (MUFFLE_CUTOFF_HZ_MAX - MUFFLE_C
 ///
 /// Interactive graph of the different models: <https://www.desmos.com/calculator/g1pbsc5m9y>
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DistanceModel {
@@ -84,7 +83,6 @@ impl DistanceModel {
 /// The parameters which describe how to attenuate a sound based on its distance from
 /// the listener.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DistanceAttenuation {
