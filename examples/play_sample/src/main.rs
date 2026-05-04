@@ -37,7 +37,7 @@ fn main() {
     let mut sampler_node = SamplerNode::default();
 
     let sampler_id = cx
-        .add_node(sampler_node.clone(), None)
+        .add_node(sampler_node, None)
         .expect("Sampler node should construct without error");
 
     let graph_out_id = cx.graph_out_node_id();
@@ -82,7 +82,7 @@ fn main() {
         }
 
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
         }

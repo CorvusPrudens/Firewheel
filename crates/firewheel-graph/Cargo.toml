@@ -33,9 +33,9 @@ scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 # Enables serde derives for types
-serde = ["dep:serde"]
+serde = ["dep:serde", "firewheel-core/serde"]
 # Enables Reflect derives for types
-bevy_reflect = ["dep:bevy_reflect"]
+bevy_reflect = ["dep:bevy_reflect", "firewheel-core/bevy_reflect"]
 # Use the `tracing` crate for logging. Currently requires `std`.
 tracing = ["dep:tracing", "std"]
 # Use the `log` crate for logging

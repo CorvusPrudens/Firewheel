@@ -11,7 +11,7 @@ use firewheel::{
 };
 use symphonium::cache::SymphoniumCache;
 
-pub const SAMPLE_PATHS: [&'static str; 4] = [
+pub const SAMPLE_PATHS: [&str; 4] = [
     "assets/test_files/swosh-sword-swing.flac",
     "assets/test_files/bird-sound.wav",
     "assets/test_files/beep_up.wav",
@@ -49,7 +49,7 @@ impl AudioSystem {
         let peak_meter_smoother = PeakMeterSmoother::<2>::new(Default::default());
 
         let peak_meter_id = cx
-            .add_node(peak_meter_node.clone(), None)
+            .add_node(peak_meter_node, None)
             .expect("Peak meter node should construct without error");
 
         cx.connect(peak_meter_id, graph_out, &[(0, 0), (1, 1)], false)
@@ -76,7 +76,7 @@ impl AudioSystem {
                 let params = SamplerNode::default();
 
                 let node_id = cx
-                    .add_node(params.clone(), None)
+                    .add_node(params, None)
                     .expect("Sampler node should construct without error");
 
                 cx.queue_event_for(node_id, SamplerNode::set_dyn_sample_event(sample));
@@ -188,7 +188,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
         }

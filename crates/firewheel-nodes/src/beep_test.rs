@@ -5,7 +5,7 @@ use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_MIN_AMP},
+    dsp::volume::{DEFAULT_MIN_AMP, Volume},
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,

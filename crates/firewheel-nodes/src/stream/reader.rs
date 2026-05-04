@@ -1,6 +1,6 @@
 use bevy_platform::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use core::{
     num::{NonZeroU32, NonZeroUsize},
@@ -70,7 +70,7 @@ impl StreamReaderState {
         self.active_state.is_some() && self.shared_state.stream_active.load(Ordering::Relaxed)
     }
 
-    /// Returns `true` if an underflow occured (due to the output stream
+    /// Returns `true` if an underflow occurred (due to the output stream
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
@@ -84,7 +84,7 @@ impl StreamReaderState {
             .swap(false, Ordering::Relaxed)
     }
 
-    /// Returns `true` if an overflow occured (due to the input stream
+    /// Returns `true` if an overflow occurred (due to the input stream
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
@@ -237,8 +237,8 @@ impl StreamReaderState {
         )
     }
 
-    /// Discard a certian number of output frames from the buffer. This can be used to
-    /// correct for jitter and avoid excessive overflows and reduce the percieved audible
+    /// Discard a certain number of output frames from the buffer. This can be used to
+    /// correct for jitter and avoid excessive overflows and reduce the perceived audible
     /// glitchiness.
     ///
     /// This will discard `frames.min(self.available_frames())` frames.
@@ -255,7 +255,7 @@ impl StreamReaderState {
     /// Correct for any overflows.
     ///
     /// This returns the number of frames (samples in a single channel of audio) that were
-    /// discarded due to an overflow occurring. If no overflow occured, then `None`
+    /// discarded due to an overflow occurring. If no overflow occurred, then `None`
     /// is returned.
     ///
     /// Note, this method is already automatically called in [`StreamReaderState::read`] and

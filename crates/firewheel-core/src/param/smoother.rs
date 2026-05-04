@@ -4,8 +4,8 @@ use core::num::NonZeroU32;
 use bevy_platform::prelude::Vec;
 
 use crate::{
-    dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},
     StreamInfo,
+    dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},
 };
 
 const MIN_SMOOTH_SECONDS: f32 = 0.00001;

@@ -1,5 +1,5 @@
 use audioadapter::{Adapter, AdapterMut};
-use bevy_platform::sync::{atomic::Ordering, Arc};
+use bevy_platform::sync::{Arc, atomic::Ordering};
 use core::{num::NonZeroU32, time::Duration};
 
 use arrayvec::ArrayVec;
@@ -16,7 +16,7 @@ use crate::{
     backend::BackendProcessInfo,
     context::FirewheelBitFlags,
     graph::ProcessNodeInfo,
-    processor::{event_scheduler::ProcessSubChunkInfo, FirewheelProcessorInner, SharedFlags},
+    processor::{FirewheelProcessorInner, SharedFlags, event_scheduler::ProcessSubChunkInfo},
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -26,7 +26,7 @@ use bevy_platform::time::Instant;
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::ProcTransportInfo;
 
-/// A rough estimate of the amount of overhead occured by the OS's audio thread.
+/// A rough estimate of the amount of overhead occurred by the OS's audio thread.
 // TODO: Do research to find the optimal value.
 const SYSTEM_OVERHEAD_DURATION_SECS: f64 = 1.0 / 1_000.0;
 const UNDERFLOW_LOG_COOLDOWN: Duration = Duration::from_secs(3);
@@ -49,7 +49,7 @@ impl FirewheelProcessorInner {
             process_to_playback_delay,
         } = info;
 
-        let process_timestamp = process_timestamp.unwrap_or_else(|| Instant::now());
+        let process_timestamp = process_timestamp.unwrap_or_else(Instant::now);
 
         let total_cpu_seconds_recip = ((frames as f64 * self.sample_rate_recip)
             - SYSTEM_OVERHEAD_DURATION_SECS)
@@ -64,10 +64,10 @@ impl FirewheelProcessorInner {
 
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
             let mut do_send = true;
-            if let Some(instant) = self.last_input_overflow_log_instant {
-                if let Some(duration) = process_timestamp.checked_duration_since(instant) {
-                    do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
-                }
+            if let Some(instant) = self.last_input_overflow_log_instant
+                && let Some(duration) = process_timestamp.checked_duration_since(instant)
+            {
+                do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
             }
 
             if do_send {
@@ -77,10 +77,10 @@ impl FirewheelProcessorInner {
         }
         if input_stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
             let mut do_send = true;
-            if let Some(instant) = self.last_output_underflow_log_instant {
-                if let Some(duration) = process_timestamp.checked_duration_since(instant) {
-                    do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
-                }
+            if let Some(instant) = self.last_output_underflow_log_instant
+                && let Some(duration) = process_timestamp.checked_duration_since(instant)
+            {
+                do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
             }
 
             if do_send {
@@ -281,7 +281,7 @@ impl FirewheelProcessorInner {
         #[cfg(feature = "musical_transport")]
         let transport_info = self
             .proc_transport_state
-            .transport_info(&proc_transport_info);
+            .transport_info(proc_transport_info);
 
         let mut info = ProcInfo {
             frames: block_frames,
@@ -539,51 +539,46 @@ impl FirewheelProcessorInner {
                         // If there are multiple sub-chunks, and the node returned a different process
                         // status this sub-chunk than the previous sub-chunk, then we must manually
                         // handle the process statuses.
-                        if final_mask.is_none() {
-                            if let Some(prev_process_status) = prev_process_status {
-                                if prev_process_status != process_status {
-                                    // Handle the process status for the sub-chunk(s) before this
-                                    // sub-chunk.
-                                    match prev_process_status {
-                                        ProcessStatus::ClearAllOutputs => {
-                                            for out_ch in proc_buffers.outputs.iter_mut() {
-                                                out_ch[0..sub_chunk_range.start].fill(0.0);
-                                            }
-
-                                            final_mask = Some(MaskType::Silence(
-                                                SilenceMask::new_all_silent(
-                                                    proc_buffers.outputs.len(),
-                                                ),
-                                            ));
-                                        }
-                                        ProcessStatus::Bypass => {
-                                            for (out_ch, in_ch) in proc_buffers
-                                                .outputs
-                                                .iter_mut()
-                                                .zip(proc_buffers.inputs.iter())
-                                            {
-                                                out_ch[0..sub_chunk_range.start].copy_from_slice(
-                                                    &in_ch[0..sub_chunk_range.start],
-                                                );
-                                            }
-                                            for out_ch in proc_buffers
-                                                .outputs
-                                                .iter_mut()
-                                                .skip(proc_buffers.inputs.len())
-                                            {
-                                                out_ch[0..sub_chunk_range.start].fill(0.0);
-                                            }
-
-                                            final_mask = Some(MaskType::Silence(in_silence_mask));
-                                        }
-                                        ProcessStatus::OutputsModified => {
-                                            final_mask =
-                                                Some(MaskType::Silence(SilenceMask::NONE_SILENT));
-                                        }
-                                        ProcessStatus::OutputsModifiedWithMask(out_mask) => {
-                                            final_mask = Some(out_mask);
-                                        }
+                        if final_mask.is_none()
+                            && let Some(prev_process_status) = prev_process_status
+                            && prev_process_status != process_status
+                        {
+                            // Handle the process status for the sub-chunk(s) before this
+                            // sub-chunk.
+                            match prev_process_status {
+                                ProcessStatus::ClearAllOutputs => {
+                                    for out_ch in proc_buffers.outputs.iter_mut() {
+                                        out_ch[0..sub_chunk_range.start].fill(0.0);
                                     }
+
+                                    final_mask = Some(MaskType::Silence(
+                                        SilenceMask::new_all_silent(proc_buffers.outputs.len()),
+                                    ));
+                                }
+                                ProcessStatus::Bypass => {
+                                    for (out_ch, in_ch) in proc_buffers
+                                        .outputs
+                                        .iter_mut()
+                                        .zip(proc_buffers.inputs.iter())
+                                    {
+                                        out_ch[0..sub_chunk_range.start]
+                                            .copy_from_slice(&in_ch[0..sub_chunk_range.start]);
+                                    }
+                                    for out_ch in proc_buffers
+                                        .outputs
+                                        .iter_mut()
+                                        .skip(proc_buffers.inputs.len())
+                                    {
+                                        out_ch[0..sub_chunk_range.start].fill(0.0);
+                                    }
+
+                                    final_mask = Some(MaskType::Silence(in_silence_mask));
+                                }
+                                ProcessStatus::OutputsModified => {
+                                    final_mask = Some(MaskType::Silence(SilenceMask::NONE_SILENT));
+                                }
+                                ProcessStatus::OutputsModifiedWithMask(out_mask) => {
+                                    final_mask = Some(out_mask);
                                 }
                             }
                         }
@@ -669,7 +664,7 @@ impl FirewheelProcessorInner {
                     // mask.
                     ProcessStatus::OutputsModifiedWithMask(final_mask)
                 } else {
-                    // Else return the process status returned by the node's proces method.
+                    // Else return the process status returned by the node's process method.
                     prev_process_status.unwrap()
                 }
             },

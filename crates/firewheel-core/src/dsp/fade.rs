@@ -5,7 +5,7 @@ use core::f32::consts::FRAC_PI_2;
 
 use crate::{
     diff::{Diff, Patch},
-    dsp::volume::{amp_to_db, Volume},
+    dsp::volume::{Volume, amp_to_db},
 };
 
 /// The algorithm used to map a normalized crossfade/panning value in the

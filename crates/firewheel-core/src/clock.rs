@@ -61,11 +61,7 @@ pub enum EventInstant {
 impl EventInstant {
     pub fn is_musical(&self) -> bool {
         #[cfg(feature = "musical_transport")]
-        if let EventInstant::AtClockMusical(_) = self {
-            return true;
-        } else {
-            return false;
-        }
+        return matches!(self, EventInstant::AtClockMusical(_));
 
         #[cfg(not(feature = "musical_transport"))]
         return false;
@@ -824,7 +820,7 @@ impl From<DurationMusical> for f64 {
 /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
 /// the system's time (`Instant::now`). (Instead it is based on the amount of data
 /// that has been processed.) For applications where the timing of audio events is
-/// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+/// critical (i.e. a rhythm game), sync the game to this audio clock instead of the
 /// OS's clock (`Instant::now()`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioClock {
@@ -838,8 +834,8 @@ pub struct AudioClock {
     ///
     /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
     /// does *NOT* account for any output underflows (underruns) that may have
-    /// occured. For applications where the timing of audio events is critical (i.e.
-    /// a rythm game), sync the game to this audio clock.
+    /// occurred. For applications where the timing of audio events is critical (i.e.
+    /// a rhythm game), sync the game to this audio clock.
     pub samples: InstantSamples,
 
     /// The timestamp from the audio stream, equal to the number of seconds of
@@ -847,8 +843,8 @@ pub struct AudioClock {
     ///
     /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
     /// does *NOT* account for any output underflows (underruns) that may have
-    /// occured. For applications where the timing of audio events is critical (i.e.
-    /// a rythm game), sync the game to this audio clock.
+    /// occurred. For applications where the timing of audio events is critical (i.e.
+    /// a rhythm game), sync the game to this audio clock.
     pub seconds: InstantSeconds,
 
     /// The current time of the playhead of the musical transport.
@@ -857,8 +853,8 @@ pub struct AudioClock {
     ///
     /// Note, this value is *NOT* synced to the system's time (`Instant::now`), and
     /// does *NOT* account for any output underflows (underruns) that may have
-    /// occured. For applications where the timing of audio events is critical (i.e.
-    /// a rythm game), sync the game to this audio clock.
+    /// occurred. For applications where the timing of audio events is critical (i.e.
+    /// a rhythm game), sync the game to this audio clock.
     #[cfg(feature = "musical_transport")]
     pub musical: Option<InstantMusical>,
 

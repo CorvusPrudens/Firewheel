@@ -424,7 +424,7 @@ impl<'a> ProcEvents<'a> {
     ///
     /// The iterator returns `(event_type, Option<event_instant>)`
     /// where `event_type` is the event, `event_instant` is the instant the
-    /// event was schedueld for. If the event was not scheduled, then
+    /// event was scheduled for. If the event was not scheduled, then
     /// the latter will be `None`.
     #[cfg(feature = "scheduled_events")]
     pub fn drain_with_timestamps<'b>(
@@ -488,7 +488,7 @@ impl<'a> ProcEvents<'a> {
     /// returning the timestamp the event was scheduled for.
     ///
     /// The iterator returns `(patch, Option<event_instant>)`
-    /// where `event_instant` is the instant the event was schedueld for. If the event
+    /// where `event_instant` is the instant the event was scheduled for. If the event
     /// was not scheduled, then the latter will be `None`.
     ///
     /// ```
@@ -525,9 +525,9 @@ impl<'a> ProcEvents<'a> {
         &'b mut self,
     ) -> impl IntoIterator<Item = (<T as crate::diff::Patch>::Patch, Option<EventInstant>)> + use<'b, T>
     {
-        // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>`
+        // Ideally this would parameterize the `FnMut` over some `impl From<PatchEvent<T>>`
         // but it would require a marker trait for the `diff::Patch::Patch` assoc type to
-        // prevent overlapping impls.
+        // prevent overlapping implementations.
         self.drain_with_timestamps()
             .into_iter()
             .filter_map(|(e, timestamp)| T::patch_event(&e).map(|patch| (patch, timestamp)))

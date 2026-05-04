@@ -44,7 +44,7 @@ fn main() {
 
     loop {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
         }

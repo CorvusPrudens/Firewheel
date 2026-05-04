@@ -41,7 +41,7 @@ pub trait FxChain: Default {
     /// * `first_node_id` - The ID of the first node in this fx chain instance.
     /// * `first_node_num_out_channels` - The number of output channels in the first node.
     /// * `dst_node_id` - The ID of the node that the last node in this FX chain should
-    /// connect to.
+    ///   connect to.
     /// * `dst_num_channels` - The number of input channels on `dst_node_id`.
     /// * `cx` - The firewheel context.
     fn construct_and_connect(
@@ -144,13 +144,13 @@ where
     /// Construct a new sampler pool.
     ///
     /// * `num_workers` - The total number of workers that can work in parallel. More workers
-    /// will allow more samples to be played concurrently, but will also increase processing
-    /// overhead. A value of `16` is a good place to start.
+    ///   will allow more samples to be played concurrently, but will also increase processing
+    ///   overhead. A value of `16` is a good place to start.
     /// * `first_node` - The state of the first node in each FX chain instance.
     /// * `first_node_config` - The configuration of the first node in each FX chain instance.
     /// * `first_node_num_out_channels` - The number of output channels in the first node.
     /// * `dst_node_id` - The ID of the node that the last effect in each fx chain instance
-    /// will connect to.
+    ///   will connect to.
     /// * `dst_num_channels` - The number of input channels in `dst_node_id`.
     /// * `cx` - The firewheel context.
     pub fn new(
@@ -208,15 +208,15 @@ where
     ///
     /// * `params` - The parameters of the first node.
     /// * `time` - The instant these new parameters should take effect. If this
-    /// is `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   is `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     /// * `steal` - If this is `true`, then if there are no more workers left in
-    /// in the pool, the oldest one will be stopped and replaced with this new
-    /// one. If this is `false`, then an error will be returned if no more workers
-    /// are left.
+    ///   in the pool, the oldest one will be stopped and replaced with this new
+    ///   one. If this is `false`, then an error will be returned if no more workers
+    ///   are left.
     /// * `cx` - The Firewheel context.
     /// * `first_node` - A closure to send additional events to the first node, such
-    /// as setting the sample resource.
+    ///   as setting the sample resource.
     /// * `fx_chain` - A closure to add additional nodes to this worker instance.
     ///
     /// This will return an error if `params.playback == PlaybackState::Stop`.
@@ -303,11 +303,11 @@ where
     /// * `worker_id` - The ID of the worker
     /// * `params` - The new parameter state to sync
     /// * `time` - The instant these new parameters should take effect. If this
-    /// is `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   is `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     /// * `cx` - The Firewheel context
     ///
-    /// If the parameters signify that the seuquence is stopped, then this worker
+    /// If the parameters signify that the sequence is stopped, then this worker
     /// will be removed and the `worker_id` will be invalidated.
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
@@ -346,8 +346,8 @@ where
     ///
     /// * `worker_id` - The ID of the worker
     /// * `time` - The instant that the pause should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     /// * `cx` - The Firewheel context
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
@@ -380,8 +380,8 @@ where
     ///
     /// * `worker_id` - The ID of the worker
     /// * `time` - The instant that the resume should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     /// * `cx` - The Firewheel context
     ///
     /// Returns `true` if a worker with the given ID exists, `false` otherwise.
@@ -414,8 +414,8 @@ where
     ///
     /// * `worker_id` - The ID of the worker
     /// * `time` - The instant that the stop should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     /// * `cx` - The Firewheel context
     ///
     /// This will remove the worker and invalidate the given `worker_id`.
@@ -453,8 +453,8 @@ where
     /// Pause all workers.
     ///
     /// * `time` - The instant that the stop should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     pub fn pause_all(
         &mut self,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
@@ -478,8 +478,8 @@ where
     /// Resume all workers.
     ///
     /// * `time` - The instant that the stop should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     pub fn resume_all(
         &mut self,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
@@ -503,8 +503,8 @@ where
     /// Stop all workers.
     ///
     /// * `time` - The instant that the stop should take effect. If this is
-    /// `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     pub fn stop_all(
         &mut self,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
@@ -635,7 +635,9 @@ pub struct NewWorkerResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NewWorkerError {
-    #[error("Could not create new audio node pool worker: the given parameters signify a stopped sequence")]
+    #[error(
+        "Could not create new audio node pool worker: the given parameters signify a stopped sequence"
+    )]
     ParameterStateIsStop,
     #[error("Could not create new audio node pool worker: the worker pool is full")]
     NoMoreWorkers,

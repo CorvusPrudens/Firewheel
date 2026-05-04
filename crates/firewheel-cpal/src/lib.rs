@@ -1,7 +1,8 @@
 use core::{fmt::Debug, num::NonZeroU32, time::Duration};
 use std::sync::{
+    Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc,
+    mpsc,
 };
 
 use audioadapter_buffers::direct::InterleavedSlice;
@@ -12,10 +13,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 pub use cpal::{DeviceId, HostId, HostUnavailable, StreamError};
 use firewheel_core::node::StreamStatus;
 use firewheel_graph::{
+    ActivateInfo, FirewheelContext,
     backend::BackendProcessInfo,
     error::{ActivateError, CompileGraphError},
     processor::FirewheelProcessor,
-    ActivateInfo, FirewheelContext,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig, ResamplingProd};
 
@@ -337,7 +338,10 @@ impl CpalStream {
             match cpal::host_from_id(host_id) {
                 Ok(host) => host,
                 Err(e) => {
-                    warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
+                    warn!(
+                        "Requested audio host {:?} is not available: {}. Falling back to default host...",
+                        &host_id, e
+                    );
                     cpal::default_host()
                 }
             }
@@ -347,14 +351,17 @@ impl CpalStream {
 
         let mut out_device = None;
         if let Some(device_id) = &config.output.device_id {
-            if let Some(device) = host.device_by_id(device_id) {
-                if device.supports_output() {
-                    out_device = Some(device);
-                }
+            if let Some(device) = host.device_by_id(device_id)
+                && device.supports_output()
+            {
+                out_device = Some(device);
             }
 
             if out_device.is_none() {
-                warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_id);
+                warn!(
+                    "Could not find requested audio output device: {}. Falling back to default device...",
+                    &device_id
+                );
             }
         }
 
@@ -403,13 +410,12 @@ impl CpalStream {
 
         if config.output.desired_sample_rate.is_some() || try_common_sample_rates {
             for cpal_config in out_device.supported_output_configs()? {
-                if let Some(sr) = config.output.desired_sample_rate {
-                    if !supports_desired_sample_rate
-                        && cpal_config.try_with_sample_rate(sr).is_some()
-                    {
-                        supports_desired_sample_rate = true;
-                        break;
-                    }
+                if let Some(sr) = config.output.desired_sample_rate
+                    && !supports_desired_sample_rate
+                    && cpal_config.try_with_sample_rate(sr).is_some()
+                {
+                    supports_desired_sample_rate = true;
+                    break;
                 }
 
                 if try_common_sample_rates {
@@ -515,7 +521,7 @@ impl CpalStream {
             out_stream_config.sample_rate,
             input_stream_cons,
             err_to_cx_tx.clone(),
-            input_stream_running.as_ref().map(|r| Arc::clone(r)),
+            input_stream_running.as_ref().map(Arc::clone),
             Arc::clone(&output_stream_running),
         );
 
@@ -704,7 +710,10 @@ fn start_input_stream(
         match cpal::host_from_id(host_id) {
             Ok(host) => host,
             Err(e) => {
-                warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
+                warn!(
+                    "Requested audio host {:?} is not available: {}. Falling back to default host...",
+                    &host_id, e
+                );
                 cpal::default_host()
             }
         }
@@ -714,17 +723,23 @@ fn start_input_stream(
 
     let mut in_device = None;
     if let Some(device_id) = &config.device_id {
-        if let Some(device) = host.device_by_id(device_id) {
-            if device.supports_input() {
-                in_device = Some(device);
-            }
+        if let Some(device) = host.device_by_id(device_id)
+            && device.supports_input()
+        {
+            in_device = Some(device);
         }
 
         if in_device.is_none() {
             if config.fallback {
-                warn!("Could not find requested audio input device: {}. Falling back to default device...", &device_id);
+                warn!(
+                    "Could not find requested audio input device: {}. Falling back to default device...",
+                    &device_id
+                );
             } else {
-                warn!("Could not find requested audio input device: {}. No input stream will be started.", &device_id);
+                warn!(
+                    "Could not find requested audio input device: {}. No input stream will be started.",
+                    &device_id
+                );
                 return Ok(StartInputStreamResult::NotStarted);
             }
         }
@@ -783,7 +798,10 @@ fn start_input_stream(
                 output_sample_rate,
             ));
         } else {
-            warn!("Could not use output sample rate {} for the input sample rate. Input stream will not be started", output_sample_rate);
+            warn!(
+                "Could not use output sample rate {} for the input sample rate. Input stream will not be started",
+                output_sample_rate
+            );
             return Ok(StartInputStreamResult::NotStarted);
         }
     }
@@ -1050,7 +1068,7 @@ impl OutputCallback {
         // Calculate the next predicted stream time to detect underflows.
         //
         // Add a little bit of wiggle room to account for tiny clock
-        // innacuracies and rounding errors.
+        // inaccuracies and rounding errors.
         self.predicted_delta_time =
             Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.5);
 
@@ -1098,7 +1116,7 @@ impl OutputCallback {
         //     // Calculate the next predicted stream time to detect underflows.
         //     //
         //     // Add a little bit of wiggle room to account for tiny clock
-        //     // innacuracies and rounding errors.
+        //     // inaccuracies and rounding errors.
         //     self.predicted_stream_secs =
         //         Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
         //
@@ -1199,10 +1217,10 @@ fn err_callback(
     move |err| {
         let do_send = if let StreamError::BufferUnderrun = err {
             let mut do_send = true;
-            if let Some(instant) = last_underrun_msg_instant {
-                if instant.elapsed() < UNDERRUN_LOG_COOLDOWN {
-                    do_send = false;
-                }
+            if let Some(instant) = last_underrun_msg_instant
+                && instant.elapsed() < UNDERRUN_LOG_COOLDOWN
+            {
+                do_send = false;
             }
 
             if do_send {
@@ -1215,21 +1233,21 @@ fn err_callback(
             true
         };
 
-        if do_send {
-            if let Err(e) = err_to_cx_tx.send(if is_input {
+        if do_send
+            && let Err(e) = err_to_cx_tx.send(if is_input {
                 IoStreamError::Input(err)
             } else {
                 IoStreamError::Output(err)
-            }) {
-                // Make sure the error gets logged even if the handle has been dropped.
-                #[cfg(any(feature = "log", feature = "tracing"))]
-                error!("Audio stream error occurred: {}", e.0);
-            }
+            })
+        {
+            // Make sure the error gets logged even if the handle has been dropped.
+            #[cfg(any(feature = "log", feature = "tracing"))]
+            error!("Audio stream error occurred: {}", e.0);
         }
     }
 }
 
-/// An error occured while trying to start a CPAL audio stream.
+/// An error occurred while trying to start a CPAL audio stream.
 #[derive(Debug, thiserror::Error)]
 pub enum StartStreamError {
     /// The Firewheel context is already active. Either it has never been activated
@@ -1264,7 +1282,7 @@ pub enum StartStreamError {
     PlayStreamError(#[from] cpal::PlayStreamError),
 
     #[cfg(not(feature = "resample_inputs"))]
-    #[error("Not able to use a samplerate of {0} for the input audio device")]
+    #[error("Not able to use a sample rate of {0} for the input audio device")]
     CouldNotMatchSampleRate(u32),
 }
 
@@ -1279,10 +1297,10 @@ impl From<ActivateError> for StartStreamError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoStreamError {
-    /// An error on the input stream occured.
+    /// An error on the input stream occurred.
     #[error("Input audio stream error: {0}")]
     Input(cpal::StreamError),
-    /// An error on the output stream occured.
+    /// An error on the output stream occurred.
     #[error("Output audio stream error: {0}")]
     Output(cpal::StreamError),
 }

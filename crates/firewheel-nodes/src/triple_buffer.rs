@@ -2,6 +2,7 @@ use bevy_platform::sync::{Arc, Mutex, MutexGuard};
 use core::num::{NonZeroU32, NonZeroUsize};
 use firewheel_core::node::NodeError;
 use firewheel_core::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
     dsp::buffer::SequentialBuffer,
@@ -10,7 +11,6 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
-    StreamInfo,
 };
 
 #[cfg(not(feature = "std"))]
@@ -95,21 +95,13 @@ impl Patch for WindowSize {
 /// A node that sends raw audio data from the audio graph to another
 /// thread. Useful for cases where you only care about the latest data
 /// in the buffer, such as for creating visualizers.
-#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TripleBufferNode {
     /// The window size (the number of frames in each channel in the output buffer)
     pub window_size: WindowSize,
-}
-
-impl Default for TripleBufferNode {
-    fn default() -> Self {
-        Self {
-            window_size: WindowSize::default(),
-        }
-    }
 }
 
 #[derive(Clone)]

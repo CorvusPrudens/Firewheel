@@ -1,4 +1,5 @@
 use firewheel::{
+    FirewheelContext,
     channel_config::NonZeroChannelCount,
     cpal::CpalStream,
     diff::Memo,
@@ -7,10 +8,9 @@ use firewheel::{
         sampler::SamplerNode,
         triple_buffer::{TripleBufferConfig, TripleBufferNode, TripleBufferState, WindowSize},
     },
-    FirewheelContext,
 };
 
-pub const SAMPLE_PATH: &'static str = "assets/test_files/bird-sound.wav";
+pub const SAMPLE_PATH: &str = "assets/test_files/bird-sound.wav";
 
 pub struct AudioSystem {
     cx: FirewheelContext,
@@ -51,7 +51,7 @@ impl AudioSystem {
 
         let sampler_params = SamplerNode::default();
         let sampler_node_id = cx
-            .add_node(sampler_params.clone(), None)
+            .add_node(sampler_params, None)
             .expect("Sampler node should construct without error");
         cx.queue_event_for(sampler_node_id, SamplerNode::set_dyn_sample_event(sample));
 
@@ -60,7 +60,7 @@ impl AudioSystem {
         };
         let triple_buffer_node_id = cx
             .add_node(
-                triple_buffer_params.clone(),
+                triple_buffer_params,
                 Some(TripleBufferConfig {
                     max_window_size: WindowSize::Samples(2048),
                     channels: NonZeroChannelCount::STEREO,
@@ -115,7 +115,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
         }

@@ -1,10 +1,10 @@
 use firewheel_core::{
+    StreamInfo,
     dsp::{
         buffer::ConstSequentialBuffer,
         declick::{DeclickValues, Declicker},
     },
     node::ProcStreamCtx,
-    StreamInfo,
 };
 use ringbuf::traits::{Consumer, Producer};
 
@@ -41,7 +41,7 @@ impl FirewheelProcessorInner {
 
                     let _ = self
                         .to_graph_tx
-                        .try_push(ProcessorToContextMsg::ReturnEventGroup(event_group));
+                        .try_push(ProcessorToContextMsg::DropEventGroup(event_group));
                 }
                 ContextToProcessorMsg::NewSchedule(new_schedule_data) => {
                     self.new_schedule(new_schedule_data);
@@ -60,7 +60,7 @@ impl FirewheelProcessorInner {
 
                     let _ = self
                         .to_graph_tx
-                        .try_push(ProcessorToContextMsg::ReturnClearScheduledEvents(msgs));
+                        .try_push(ProcessorToContextMsg::DropClearScheduledEvents(msgs));
                 }
             }
         }
@@ -109,27 +109,28 @@ impl FirewheelProcessorInner {
 
             let _ = self
                 .to_graph_tx
-                .try_push(ProcessorToContextMsg::ReturnSchedule(old_schedule_data));
+                .try_push(ProcessorToContextMsg::DropSchedule(old_schedule_data));
         }
 
         for n in new_schedule_data.new_node_processors.drain(..) {
             assert!((n.id.0.slot() as usize) < self.nodes.capacity());
 
-            assert!(self
-                .nodes
-                .insert_at(
-                    n.id.0,
-                    NodeEntry {
-                        processor: n.processor,
-                        prev_output_was_silent: true,
-                        event_data: NodeEventSchedulerData::new(n.is_pre_process),
-                        bypass_declick: Declicker::SettledAt1,
-                        is_bypassed: false,
-                        is_first_process: true,
-                        in_place_buffers: n.in_place_buffers,
-                    }
-                )
-                .is_none());
+            assert!(
+                self.nodes
+                    .insert_at(
+                        n.id.0,
+                        NodeEntry {
+                            processor: n.processor,
+                            prev_output_was_silent: true,
+                            event_data: NodeEventSchedulerData::new(n.is_pre_process),
+                            bypass_declick: Declicker::SettledAt1,
+                            is_bypassed: false,
+                            is_first_process: true,
+                            in_place_buffers: n.in_place_buffers,
+                        }
+                    )
+                    .is_none()
+            );
         }
 
         #[cfg(feature = "scheduled_events")]
@@ -160,7 +161,7 @@ impl FirewheelProcessorInner {
 
         let _ = self
             .to_graph_tx
-            .try_push(ProcessorToContextMsg::ReturnTransportState(
+            .try_push(ProcessorToContextMsg::DropTransportState(
                 old_transport_state,
             ));
     }

@@ -4,7 +4,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 
-use crate::{get_paths, struct_fields, TypeSet};
+use crate::{TypeSet, get_paths, struct_fields};
 
 pub fn derive_patch(input: TokenStream) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;

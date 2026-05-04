@@ -6,7 +6,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_MIN_AMP},
+        volume::{DEFAULT_MIN_AMP, Volume},
     },
     event::ProcEvents,
     node::{

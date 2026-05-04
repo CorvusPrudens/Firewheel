@@ -1,6 +1,6 @@
 use crate::clock::{
-    beats_per_second, seconds_per_beat, DurationMusical, DurationSeconds, InstantMusical,
-    InstantSamples, InstantSeconds, ProcTransportInfo,
+    DurationMusical, DurationSeconds, InstantMusical, InstantSamples, InstantSeconds,
+    ProcTransportInfo, beats_per_second, seconds_per_beat,
 };
 use core::num::NonZeroU32;
 

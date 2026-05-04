@@ -10,7 +10,7 @@ pub const DEFAULT_MIN_AMP: f32 = 0.0001;
 /// A good default value when using [`Volume::decibels_clamped`] or
 /// [`db_to_amp_clamped`].
 ///
-/// This is equal to an amplitdue of `0.0001`.
+/// This is equal to an amplitude of `0.0001`.
 pub const DEFAULT_MIN_DB: f32 = -80.0;
 
 /// A value representing a volume (gain) applied to an audio signal
@@ -58,17 +58,13 @@ impl Volume {
                     0.0
                 } else {
                     let amp = db_to_amp(db);
-                    if amp <= min_amp {
-                        0.0
-                    } else {
-                        amp
-                    }
+                    if amp <= min_amp { 0.0 } else { amp }
                 }
             }
         }
     }
 
-    /// Get the volume in decibles.
+    /// Get the volume in decibels.
     pub fn decibels(&self) -> f32 {
         match *self {
             Self::Linear(volume) => {
@@ -83,7 +79,7 @@ impl Volume {
         }
     }
 
-    /// Get the volume in decibles.
+    /// Get the volume in decibels.
     ///
     /// If the resulting decibel value is `<= min_db`, then `f32::NEG_INFINITY` (silence)
     /// will be returned.
@@ -95,11 +91,7 @@ impl Volume {
                 } else {
                     let amp = linear_volume_to_amp_clamped(volume, 0.0);
                     let db = amp_to_db(amp);
-                    if db <= min_db {
-                        f32::NEG_INFINITY
-                    } else {
-                        db
-                    }
+                    if db <= min_db { f32::NEG_INFINITY } else { db }
                 }
             }
             Self::Decibels(db) => {
@@ -293,11 +285,7 @@ pub fn amp_to_db_clamped(amp: f32, min_amp: f32) -> f32 {
 #[inline]
 pub fn linear_volume_to_amp_clamped(linear_volume: f32, min_amp: f32) -> f32 {
     let v = linear_volume * linear_volume;
-    if v <= min_amp {
-        0.0
-    } else {
-        v
-    }
+    if v <= min_amp { 0.0 } else { v }
 }
 
 /// Map the raw amplitude (where `0.0` means mute and `1.0` means unity
@@ -307,11 +295,7 @@ pub fn linear_volume_to_amp_clamped(linear_volume: f32, min_amp: f32) -> f32 {
 /// returned.
 #[inline]
 pub fn amp_to_linear_volume_clamped(amp: f32, min_amp: f32) -> f32 {
-    if amp <= min_amp {
-        0.0
-    } else {
-        amp.sqrt()
-    }
+    if amp <= min_amp { 0.0 } else { amp.sqrt() }
 }
 
 /// A struct that converts a value in decibels to a normalized range used in

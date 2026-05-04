@@ -20,8 +20,8 @@ mod tests {
     use crate::{backend::BackendProcessInfo, processor::FirewheelProcessor};
     use audioadapter_buffers::direct::InterleavedSlice;
     use bevy_platform::sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     };
     use core::{num::NonZeroU32, time::Duration};
     use firewheel_core::node::{
@@ -122,7 +122,7 @@ mod tests {
             let mut context = FirewheelContext::new(Default::default());
             let node_id = context.add_node(DummyClapPlugin {}, None).unwrap();
 
-            let plugin_main_dropeed = context
+            let plugin_main_dropped = context
                 .node_state::<CustomState>(node_id)
                 .unwrap()
                 .plugin_main_dropped
@@ -142,7 +142,7 @@ mod tests {
 
             context.update().unwrap();
 
-            assert!(plugin_main_dropeed.load(Ordering::SeqCst));
+            assert!(plugin_main_dropped.load(Ordering::SeqCst));
         }
 
         // Test dropping processor before context

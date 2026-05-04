@@ -8,16 +8,16 @@ use alloc::string::ToString;
 use bevy_platform::prelude::{Box, Vec};
 
 use bevy_platform::collections::HashMap;
+use firewheel_core::StreamInfo;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::NodeEvent;
 use firewheel_core::node::{ConstructProcessorContext, NodeError, UpdateContext};
-use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
+use crate::FirewheelConfig;
 use crate::error::{AddEdgeError, CompileGraphError, RemoveNodeError};
 use crate::graph::dummy_node::{DummyNode, DummyNodeConfig};
-use crate::FirewheelConfig;
 use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };

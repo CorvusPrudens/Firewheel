@@ -182,10 +182,10 @@ impl<A: ?Sized + Send + Sync + 'static> Patch for ArcGc<A> {
     type Patch = Self;
 
     fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
-        if let ParamData::Any(any) = data {
-            if let Some(data) = any.downcast_ref::<Self>() {
-                return Ok(data.clone());
-            }
+        if let ParamData::Any(any) = data
+            && let Some(data) = any.downcast_ref::<Self>()
+        {
+            return Ok(data.clone());
         }
 
         Err(PatchError::InvalidData)

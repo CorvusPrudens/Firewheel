@@ -49,7 +49,7 @@ fn main() {
         beep_test_node.update_memo(&mut cx.event_queue(beep_test_id));
 
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
         }

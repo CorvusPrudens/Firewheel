@@ -112,7 +112,9 @@ impl ProfilerTx {
                         self.has_enough_node_capacity = true;
                     }
                     BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity.");
+                        panic!(
+                            "Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity."
+                        );
                     }
                     BufferOutOfSpaceMode::DropEvents => {
                         let _ = logger.try_error("Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity.");
@@ -253,7 +255,7 @@ impl ProfilerTx {
 
                 data.engine_bookkeeping_cpu_usage = self
                     .is_profiling_bookkeeping
-                    .then(|| self.bookkeeping_cpu_usage);
+                    .then_some(self.bookkeeping_cpu_usage);
 
                 #[cfg(feature = "node_profiling")]
                 data.nodes.clear();
@@ -301,9 +303,9 @@ pub struct ProfilingData {
     ///
     /// A value of `0.0` means `0%` CPU usage, a value of `1.0` means `100%`
     /// CPU usage of the total alloted time, and values above `1.0` means an
-    /// underrun has occured.
+    /// underrun has occurred.
     ///
-    /// The value is the maximum value that has occured since the last time
+    /// The value is the maximum value that has occurred since the last time
     /// the profiling information was fetched with
     /// [`FirewheelContext::profiling_data()`](crate::context::FirewheelContext::profiling_data).
     pub overall_cpu_usage: f64,
@@ -316,7 +318,7 @@ pub struct ProfilingData {
     /// of time spent relative to the total time spent in the Firewheel process
     /// method, it can be found with `bookkeeping_cpu_usage / overall_cpu_usage`.)
     ///
-    /// The value is the maximum value that has occured since the last time
+    /// The value is the maximum value that has occurred since the last time
     /// the profiling information was fetched with
     /// [`FirewheelContext::profiling_data()`](crate::context::FirewheelContext::profiling_data).
     ///
@@ -361,7 +363,7 @@ pub struct NodeProfileData {
     /// of time spent relative to the total time spent in the Firewheel process
     /// method, it can be found with `cpu_usage / ProfileData::overall_cpu_usage`.)
     ///
-    /// The value is the maximum value that has occured since the last time
+    /// The value is the maximum value that has occurred since the last time
     /// the profiling information was fetched with
     /// [`FirewheelContext::profile_info()`](crate::context::FirewheelContext::profile_info).
     pub cpu_usage: f64,

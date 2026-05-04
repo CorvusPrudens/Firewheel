@@ -4,7 +4,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_MIN_AMP},
+        volume::{DEFAULT_MIN_AMP, Volume},
     },
     event::ProcEvents,
     mask::MaskType,
@@ -48,7 +48,7 @@ pub struct VolumeNode {
     /// roughly equal to a typical block size of 1024 samples (23 ms) to
     /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
-    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
     /// `0.0` (silence).
     ///

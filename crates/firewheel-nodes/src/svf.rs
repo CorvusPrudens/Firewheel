@@ -2,6 +2,7 @@ use core::ops::Range;
 
 use firewheel_core::node::NodeError;
 use firewheel_core::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
@@ -11,7 +12,7 @@ use firewheel_core::{
             smoothing_filter::DEFAULT_SMOOTH_SECONDS,
             svf::{SvfCoeff, SvfCoeffSimd, SvfStateSimd},
         },
-        volume::{db_to_amp, Volume},
+        volume::{Volume, db_to_amp},
     },
     event::ProcEvents,
     node::{
@@ -19,7 +20,6 @@ use firewheel_core::{
         ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    StreamInfo,
 };
 
 pub const DEFAULT_Q: f32 = Q_BUTTERWORTH_ORD2;
@@ -669,10 +669,10 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
             let out = self.filter_0.process(s, &self.filter_0_coeff);
 
-            for ch_i in 0..CHANNELS {
+            for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                 // Safety: These bounds have been checked above.
                 unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
+                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                 }
             }
         }
@@ -703,10 +703,10 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
             let out = self.filter_0.process(s, &self.filter_0_coeff);
 
-            for ch_i in 0..CHANNELS {
+            for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                 // Safety: These bounds have been checked above.
                 unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
+                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                 }
             }
         }
@@ -737,10 +737,10 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let s = self.filter_0.process(s, &self.filter_0_coeff);
             let out = self.filter_1.process(s, &self.filter_1_coeff);
 
-            for ch_i in 0..CHANNELS {
+            for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                 // Safety: These bounds have been checked above.
                 unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
+                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                 }
             }
         }
@@ -863,11 +863,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
                     let out = self.filter_0.process(s, &self.filter_0_coeff);
 
-                    for ch_i in 0..CHANNELS {
+                    for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                         // Safety: These bounds have been checked above.
                         unsafe {
-                            *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) =
-                                out[ch_i];
+                            *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                         }
                     }
                 }
@@ -881,11 +880,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                     let s = self.filter_0.process(s, &self.filter_0_coeff);
                     let out = self.filter_1.process(s, &self.filter_1_coeff);
 
-                    for ch_i in 0..CHANNELS {
+                    for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                         // Safety: These bounds have been checked above.
                         unsafe {
-                            *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) =
-                                out[ch_i];
+                            *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                         }
                     }
                 }

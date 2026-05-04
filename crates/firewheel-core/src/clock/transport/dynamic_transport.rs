@@ -4,8 +4,8 @@ use core::num::NonZeroU32;
 use bevy_platform::prelude::Vec;
 
 use crate::clock::{
-    beats_per_second, seconds_per_beat, DurationMusical, DurationSeconds, InstantMusical,
-    InstantSamples, InstantSeconds, ProcTransportInfo,
+    DurationMusical, DurationSeconds, InstantMusical, InstantSamples, InstantSeconds,
+    ProcTransportInfo, beats_per_second, seconds_per_beat,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,7 +35,7 @@ pub struct DynamicTransport {
 impl DynamicTransport {
     /// Construct a new `DynamicTransport`.
     pub fn new(keyframes: Vec<TransportKeyframe>) -> Result<Self, DynamicTransportError> {
-        if keyframes.len() == 0 {
+        if keyframes.is_empty() {
             return Err(DynamicTransportError::NoKeyframes);
         }
         if keyframes[0].instant != InstantMusical::ZERO {

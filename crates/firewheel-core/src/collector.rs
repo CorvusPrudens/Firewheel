@@ -2,7 +2,7 @@
 //! realtime thread and safely deallocates them on another thread.
 //!
 //! The performance characteristics of the [`ArcGc`], [`OwnedGc`], and
-//! [`OwnedGcUnsized`] smart pointers are equivalant to [`Arc`]  when
+//! [`OwnedGcUnsized`] smart pointers are equivalent to [`Arc`]  when
 //! reading (but constructing them is a bit more expensive).
 //!
 //! This crate also contains optional triple buffer types for syncing
@@ -50,8 +50,8 @@ use core::{
 use bevy_platform::{
     prelude::{Box, Vec},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -187,7 +187,7 @@ impl<T: Send + Sync + ?Sized> StrongCount for Arc<T> {
 /// has its contents collected and later deallocated on another non-realtime
 /// thread.
 ///
-/// The performance characteristics of [`ArcGc`] are equivalant to [`Arc`]
+/// The performance characteristics of [`ArcGc`] are equivalent to [`Arc`]
 /// when reading (but constructing an [`ArcGc`] is a bit more expensive).
 ///
 /// Equality checking between instances of [`ArcGc`] relies _only_ on
@@ -240,7 +240,7 @@ impl<T: Send + Sync + 'static> ArcGc<T, GlobalRtGc> {
 
         Self {
             data,
-            collector: GlobalRtGc::default(),
+            collector: GlobalRtGc,
         }
     }
 }
@@ -270,7 +270,7 @@ impl<T: ?Sized + Send + Sync + 'static> ArcGc<T, GlobalRtGc> {
 
         Self {
             data,
-            collector: GlobalRtGc::default(),
+            collector: GlobalRtGc,
         }
     }
 }
@@ -334,7 +334,7 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector> Eq for ArcGc<T, C> {}
 
 impl<T: Debug + ?Sized + Send + Sync + 'static, C: Collector> Debug for ArcGc<T, C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        Debug::fmt(ArcGc::deref(&self), f)
+        Debug::fmt(ArcGc::deref(self), f)
     }
 }
 
@@ -342,7 +342,7 @@ impl<T: Debug + ?Sized + Send + Sync + 'static, C: Collector> Debug for ArcGc<T,
 /// its contents collected and later deallocated on another non-realtime
 /// thread.
 ///
-/// The performance characteristics of [`OwnedGc`] are equivalant to [`Arc`]
+/// The performance characteristics of [`OwnedGc`] are equivalent to [`Arc`]
 /// when reading (but constructing an [`OwnedGc`] is a bit more expensive).
 ///
 /// # Example
@@ -393,12 +393,12 @@ impl<T: ?Sized + Send + 'static, C: Collector> OwnedGc<T, C> {
         // from the user, so the only two `ArcGc`s to the underlying data that can
         // exist are the one in this struct instance and the one stored in the
         // collector. The collector never uses the data (it only drops it), and so
-        // it is gauranteed that the underlying data can only be accessed by one
+        // it is guaranteed that the underlying data can only be accessed by one
         // thread at a time.
         //
         // Also, `OwnedGc::get_mut` borrows `self` as mutable, ensuring that
         // mutable borrowing rules will be upheld.
-        unsafe { &*UnsafeCell::get(&(*self.data).0) }
+        unsafe { &*UnsafeCell::get(&self.data.0) }
     }
 
     /// Get a mutable reference to the owned value.
@@ -409,12 +409,12 @@ impl<T: ?Sized + Send + 'static, C: Collector> OwnedGc<T, C> {
         // from the user, so the only two `ArcGc`s to the underlying data that can
         // exist are the one in this struct instance and the one stored in the
         // collector. The collector never uses the data (it only drops it), and so
-        // it is gauranteed that the underlying data can only be accessed by one
+        // it is guaranteed that the underlying data can only be accessed by one
         // thread at a time.
         //
         // Also, `OwnedGc::get_mut` borrows `self` as mutable, ensuring that
         // mutable borrowing rules will be upheld.
-        unsafe { &mut *UnsafeCell::get(&(*self.data).0) }
+        unsafe { &mut *UnsafeCell::get(&self.data.0) }
     }
 }
 
@@ -453,7 +453,7 @@ struct OwnedGcWrapper<T: ?Sized + Send + 'static>(UnsafeCell<T>);
 // from the user, so the only two `ArcGc`s to the underlying data that can
 // exist are the one in this struct instance and the one stored in the
 // collector. The collector never uses the data (it only drops it), and so
-// it is gauranteed that the underlying data can only be accessed by one
+// it is guaranteed that the underlying data can only be accessed by one
 // thread at a time.
 unsafe impl<T: ?Sized + Send + 'static> Sync for OwnedGcWrapper<T> {}
 
@@ -463,7 +463,7 @@ unsafe impl<T: ?Sized + Send + 'static> Sync for OwnedGcWrapper<T> {}
 /// This is similar to [`OwnedGc`], except that it avoids double-indirection for
 /// boxed types.
 ///
-/// The performance characteristics of [`OwnedGcUnsized`] are equivalant to [`Arc`]
+/// The performance characteristics of [`OwnedGcUnsized`] are equivalent to [`Arc`]
 /// when reading (but constructing an [`OwnedGcUnsized`] is a bit more expensive).
 ///
 /// TODO: This is a workaround until
@@ -552,12 +552,12 @@ impl<T: ?Sized + Send + 'static, C: Collector> OwnedGcUnsized<T, C> {
         // hidden from the user, so the only two `ArcGc`s to the underlying data that
         // can exist are the one in this struct instance and the one stored in the
         // collector. The collector never uses the data (it only drops it), and so
-        // it is gauranteed that the underlying data can only be accessed by one
+        // it is guaranteed that the underlying data can only be accessed by one
         // thread at a time.
         //
         // Additionally, the internal `OwnedGc` is hidden from the user and never
         // gets dereferenced, and `OwnedGcUnsized::get_mut` borrows `self` as
-        // mutable, so all mutable borrowing rules are gauranteed to be upheld.
+        // mutable, so all mutable borrowing rules are guaranteed to be upheld.
         unsafe { self.ptr.as_ref() }
     }
 
@@ -571,12 +571,12 @@ impl<T: ?Sized + Send + 'static, C: Collector> OwnedGcUnsized<T, C> {
         // hidden from the user, so the only two `ArcGc`s to the underlying data that
         // can exist are the one in this struct instance and the one stored in the
         // collector. The collector never uses the data (it only drops it), and so
-        // it is gauranteed that the underlying data can only be accessed by one
+        // it is guaranteed that the underlying data can only be accessed by one
         // thread at a time.
         //
         // Additionally, the internal `OwnedGc` is hidden from the user and never
         // gets dereferenced, and `OwnedGcUnsized::get_mut` borrows `self` as
-        // mutable, so all mutable borrowing rules are gauranteed to be upheld.
+        // mutable, so all mutable borrowing rules are guaranteed to be upheld.
         unsafe { self.ptr.as_mut() }
     }
 }
@@ -587,12 +587,12 @@ impl<T: ?Sized + Send + 'static, C: Collector> OwnedGcUnsized<T, C> {
 // hidden from the user, so the only two `ArcGc`s to the underlying data that
 // can exist are the one in this struct instance and the one stored in the
 // collector. The collector never uses the data (it only drops it), and so
-// it is gauranteed that the underlying data can only be accessed by one
+// it is guaranteed that the underlying data can only be accessed by one
 // thread at a time.
 //
 // Additionally, the internal `OwnedGc` is hidden from the user and never
 // gets dereferenced, and `OwnedGcUnsized::get_mut` borrows `self` as
-// mutable, so all mutable borrowing rules are gauranteed to be upheld.
+// mutable, so all mutable borrowing rules are guaranteed to be upheld.
 //
 // Also, we specify that both the collector and the underlying data itself
 // must implement `Send`.

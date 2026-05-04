@@ -19,11 +19,11 @@ use crate::dsp::volume::is_buffer_silent;
 use crate::log::RealtimeLogger;
 use crate::mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask};
 use crate::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount},
     clock::{DurationSamples, InstantSamples, InstantSeconds},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType, ProcEvents},
-    StreamInfo,
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -75,7 +75,7 @@ impl fmt::Display for NodeError {
 
 /// Information about an [`AudioNode`].
 ///
-/// This struct enforces the use of the builder pattern for future-proofness, as
+/// This struct enforces the use of the builder pattern for future-proof-ness, as
 /// it is likely that more fields will be added in the future.
 #[derive(Debug)]
 pub struct AudioNodeInfo {
@@ -497,7 +497,7 @@ pub trait AudioNodeProcessor: 'static + Send {
         let _ = extra;
     }
 
-    /// Called when the node has been fully bypassed/unbypassed.
+    /// Called when the node has been fully bypassed/un-bypassed.
     ///
     /// The Firewheel processor automatically handles bypass declicking, so
     /// there is no need to handle that manually.
@@ -619,7 +619,7 @@ pub struct ProcBuffers<'a, 'b> {
 }
 
 impl<'a, 'b> ProcBuffers<'a, 'b> {
-    /// Thouroughly checks if all output buffers contain silence (as in all
+    /// Thoroughly checks if all output buffers contain silence (as in all
     /// samples have an absolute amplitude less than or equal to `min_amp`).
     ///
     /// If all buffers are silent, then [`ProcessStatus::ClearAllOutputs`] will
@@ -724,7 +724,7 @@ pub struct ProcInfo {
     /// Firewheel context was first started.
     ///
     /// Note, this value does *NOT* account for any output underflows
-    /// (underruns) that may have occured.
+    /// (underruns) that may have occurred.
     ///
     /// Note, generally this value will always count up, but there may be
     /// a few edge cases that cause this value to be less than the previous
@@ -747,7 +747,7 @@ pub struct ProcInfo {
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
 
-    /// If an output underflow (underrun) occured, then this will contain
+    /// If an output underflow (underrun) occurred, then this will contain
     /// an estimate for the number of frames (samples in a single channel
     /// of audio) that were dropped.
     ///
@@ -783,7 +783,7 @@ impl ProcInfo {
     /// have been processed since this Firewheel context was first started.
     ///
     /// Note, this value does *NOT* account for any output underflows
-    /// (underruns) that may have occured.
+    /// (underruns) that may have occurred.
     ///
     /// Note, generally this value will always count up, but there may be
     /// a few edge cases that cause this value to be less than the previous
@@ -895,7 +895,7 @@ pub struct TransportInfo {
     /// The current transport.
     pub transport: MusicalTransport,
 
-    /// The instant that `MusicaltTime::ZERO` occured in units of
+    /// The instant that `MusicaltTime::ZERO` occurred in units of
     /// `ClockSamples`.
     ///
     /// If the transport is not currently playing, then this will be `None`.

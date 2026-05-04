@@ -1,6 +1,7 @@
 use super::{MAX_HZ, MIN_HZ};
 use firewheel_core::node::NodeError;
 use firewheel_core::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{
@@ -16,7 +17,6 @@ use firewheel_core::{
         ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    StreamInfo,
 };
 
 pub type FastHighpassMonoNode = FastHighpassNode<1>;
@@ -207,10 +207,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
                 let out = self.filter.process(s, &self.coeff);
 
-                for ch_i in 0..CHANNELS {
+                for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                     // Safety: These bounds have been checked above.
                     unsafe {
-                        *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
+                        *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                     }
                 }
             }
@@ -236,10 +236,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
                 let out = self.filter.process(s, &self.coeff);
 
-                for ch_i in 0..CHANNELS {
+                for (ch_i, &o) in out.iter().enumerate().take(CHANNELS) {
                     // Safety: These bounds have been checked above.
                     unsafe {
-                        *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
+                        *buffers.outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = o;
                     }
                 }
             }

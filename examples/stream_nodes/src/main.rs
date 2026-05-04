@@ -149,7 +149,7 @@ fn main() {
             // If this happens excessively in Release mode, you may want to consider
             // increasing [`StreamWriterConfig::channel_config.latency_seconds`].
             if handle.underflow_occurred() {
-                println!("Underflow occured in stream writer node!");
+                println!("Underflow occurred in stream writer node!");
             }
 
             // If this happens excessively in Release mode, you may want to consider
@@ -157,7 +157,7 @@ fn main() {
             // example, if you are streaming data from a network, you may want to
             // increase the capacity to several seconds.
             if handle.overflow_occurred() {
-                println!("Overflow occured in stream writer node!");
+                println!("Overflow occurred in stream writer node!");
             }
 
             // Wait until the node's processor is ready to receive data.
@@ -194,20 +194,20 @@ fn main() {
                             // The output stream is not ready yet.
                         }
                         PushStatus::OverflowOccurred { num_frames_pushed } => {
-                            // An overflow occured. This may result in audible audio
+                            // An overflow occurred. This may result in audible audio
                             // glitches.
                             println!(
-                                "Overflow occured in stream writer node! Number of frames discarded: {}",
+                                "Overflow occurred in stream writer node! Number of frames discarded: {}",
                                 packet_frames - num_frames_pushed
                             );
                         }
                         PushStatus::UnderflowCorrected {
                             num_zero_frames_pushed,
                         } => {
-                            // An underflow occured. This may result in audible audio
+                            // An underflow occurred. This may result in audible audio
                             // glitches.
                             println!(
-                                "Underflow occured in stream writer node! Number of frames dropped: {}",
+                                "Underflow occurred in stream writer node! Number of frames dropped: {}",
                                 packet_frames - num_zero_frames_pushed
                             );
                         }
@@ -234,7 +234,7 @@ fn main() {
             // If this happens excessively in Release mode, you may want to consider
             // increasing [`StreamReaderConfig::channel_config.latency_seconds`].
             if handle.underflow_occurred() {
-                println!("Underflow occured in stream reader node!");
+                println!("Underflow occurred in stream reader node!");
             }
 
             // If this happens excessively in Release mode, you may want to consider
@@ -242,7 +242,7 @@ fn main() {
             // example, if you are streaming data from a network, you may want to
             // increase the capacity to several seconds.
             if handle.overflow_occurred() {
-                println!("Overflow occured in stream reader node!");
+                println!("Overflow occurred in stream reader node!");
             }
 
             // Wait until the node's processor is ready to read data.
@@ -257,20 +257,20 @@ fn main() {
                         // The input stream is not ready yet.
                     }
                     ReadStatus::UnderflowOccurred { num_frames_read } => {
-                        // An underflow occured. This may result in audible audio
+                        // An underflow occurred. This may result in audible audio
                         // glitches.
                         println!(
-                            "Underflow occured in stream reader node! Number of frames dropped: {}",
+                            "Underflow occurred in stream reader node! Number of frames dropped: {}",
                             packet_frames - num_frames_read
                         );
                     }
                     ReadStatus::OverflowCorrected {
                         num_frames_discarded,
                     } => {
-                        // An overflow occured. This may result in audible audio
+                        // An overflow occurred. This may result in audible audio
                         // glitches.
                         println!(
-                            "Overflow occured in stream reader node! Number of frames discarded: {}",
+                            "Overflow occurred in stream reader node! Number of frames discarded: {}",
                             num_frames_discarded
                         );
                     }
@@ -292,7 +292,7 @@ fn main() {
 
     loop {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
         }

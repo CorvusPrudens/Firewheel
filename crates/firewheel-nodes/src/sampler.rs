@@ -1,10 +1,10 @@
-// TODO: The logic in this has become increadibly complex and error-prone. The
+// TODO: The logic in this has become incredibly complex and error-prone. The
 // sampler engine should probably be rewritten using a state machine.
 //
 // Some features that are currently missing include:
 // * Ability to set loop start/end points
 // * Better quality time/pitch shifting algorithms (and possibly an API where
-//   users can implement their own resampling alogorithms)
+//   users can implement their own resampling algorithms)
 // * Ability to stream samples from a network/disk (this could be done using
 //   a custom `SampleResource`).
 
@@ -29,6 +29,7 @@ use bevy_platform::prelude::Box;
 use num_traits::Float;
 
 use firewheel_core::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     clock::InstantSeconds,
     collector::ArcGc,
@@ -36,7 +37,7 @@ use firewheel_core::{
     dsp::{
         buffer::InstanceBuffer,
         declick::{DeclickFadeCurve, Declicker},
-        volume::{Volume, DEFAULT_MIN_AMP},
+        volume::{DEFAULT_MIN_AMP, Volume},
     },
     event::{NodeEventType, ParamData, ProcEvents},
     mask::{MaskType, SilenceMask},
@@ -45,7 +46,6 @@ use firewheel_core::{
         ProcessStatus,
     },
     sample_resource::SampleResource,
-    StreamInfo,
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -116,7 +116,7 @@ pub enum SamplerNodeResource {
     ///
     /// A resource of audio samples that are streamed from disk or over a network.
     ///
-    /// Prefer this for resources which are greather than 20 or so seconds long
+    /// Prefer this for resources which are greater than 20 or so seconds long
     /// (i.e. music tracks and ambience).
     ///
     /// This uses considerably less memory, but requires a more complicated setup.
@@ -174,13 +174,13 @@ impl SamplerNodeResource {
     /// * `start_frame` - The sample (of a single channel of audio) in the
     ///   resource at which to start copying from. Not to be confused with video
     ///   frames.
-    /// * `speed` - The speed at which playback is occuring, where `1.0` is
-    /// playing at the sample rate of this resource, `0.5` is playing at half
-    /// the sample rate, and `2.0` is playing at twice the sample rate.
+    /// * `speed` - The speed at which playback is occurring, where `1.0` is
+    ///   playing at the sample rate of this resource, `0.5` is playing at half
+    ///   the sample rate, and `2.0` is playing at twice the sample rate.
     ///
     /// Returns the number of frames that were successfully filled. This may
     /// be less than the length of `out_buffer_range` if the range is all or
-    /// partly out of bounds of the resource, or if a cache miss occured.
+    /// partly out of bounds of the resource, or if a cache miss occurred.
     /// Any frames that were not successfully filled will be left untouched.
     pub fn fill_buffers(
         &mut self,
@@ -252,13 +252,13 @@ pub trait StreamedSample: SampleResourceInfo + Send + Sync + 'static {
     /// * `start_frame` - The sample (of a single channel of audio) in the
     ///   resource at which to start copying from. Not to be confused with video
     ///   frames.
-    /// * `speed` - The speed at which playback is occuring, where `1.0` is
-    /// playing at the sample rate of this resource, `0.5` is playing at half
-    /// the sample rate, and `2.0` is playing at twice the sample rate.
+    /// * `speed` - The speed at which playback is occurring, where `1.0` is
+    ///   playing at the sample rate of this resource, `0.5` is playing at half
+    ///   the sample rate, and `2.0` is playing at twice the sample rate.
     ///
     /// Returns the number of frames that were successfully filled. This may
     /// be less than the length of `out_buffer_range` if the range is all or
-    /// partly out of bounds of the resource, or if a cache miss occured.
+    /// partly out of bounds of the resource, or if a cache miss occurred.
     /// Any frames that were not successfully filled will be left untouched.
     fn fill_buffers(
         &mut self,
@@ -321,7 +321,7 @@ pub struct SamplerNode {
     ///
     /// By default this is set to `true`.
     pub crossfade_on_seek: bool,
-    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
     /// `0.0` (silence).
     ///
@@ -1172,19 +1172,15 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
         }
 
-        if volume_changed {
-            if let Some(loaded_sample) = &mut self.loaded_sample_state {
-                loaded_sample.gain = self.params.volume.amp_clamped(self.min_gain);
-                if loaded_sample.gain > 0.99999 && loaded_sample.gain < 1.00001 {
-                    loaded_sample.gain = 1.0;
-                }
+        if volume_changed && let Some(loaded_sample) = &mut self.loaded_sample_state {
+            loaded_sample.gain = self.params.volume.amp_clamped(self.min_gain);
+            if loaded_sample.gain > 0.99999 && loaded_sample.gain < 1.00001 {
+                loaded_sample.gain = 1.0;
             }
         }
 
-        if repeat_mode_changed {
-            if let Some(loaded_sample) = &mut self.loaded_sample_state {
-                loaded_sample.num_times_looped_back = 0;
-            }
+        if repeat_mode_changed && let Some(loaded_sample) = &mut self.loaded_sample_state {
+            loaded_sample.num_times_looped_back = 0;
         }
 
         if let Some(maybe_sample) = new_sample {
@@ -1195,12 +1191,12 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.stop(extra);
 
             #[cfg(feature = "scheduled_events")]
-            if new_playing == Some(true) && playback_instant.is_none() {
-                if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
-                    if queued_playback_instant.to_samples(info).is_some() {
-                        playback_instant = Some(queued_playback_instant);
-                    }
-                }
+            if new_playing == Some(true)
+                && playback_instant.is_none()
+                && let Some(queued_playback_instant) = self.queued_playback_instant.take()
+                && queued_playback_instant.to_samples(info).is_some()
+            {
+                playback_instant = Some(queued_playback_instant);
             }
 
             self.loaded_sample_state = None;

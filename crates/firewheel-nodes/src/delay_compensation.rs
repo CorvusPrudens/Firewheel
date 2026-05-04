@@ -8,7 +8,7 @@ use firewheel_core::{
         ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 /// The configuration for a [`DelayCompensationNode`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,11 +108,7 @@ impl AudioNodeProcessor for Processor {
         // TODO: Use constant mask instead
         let mut out_silence_mask = SilenceMask::NONE_SILENT;
 
-        let extra_input_frames = if info.frames > self.delay_frames {
-            info.frames - self.delay_frames
-        } else {
-            0
-        };
+        let extra_input_frames = info.frames.saturating_sub(self.delay_frames);
         let first_copy_frames = info.frames.min(self.delay_frames - self.ptr);
         let second_copy_frames = (info.frames - first_copy_frames).min(self.ptr);
 

@@ -12,7 +12,7 @@ use firewheel_core::{
     dsp::{
         declick::{DeclickFadeCurve, Declicker},
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_MIN_AMP},
+        volume::{DEFAULT_MIN_AMP, Volume},
     },
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcessStatus,
@@ -411,8 +411,7 @@ impl core::fmt::Display for ImpulseTooLongError {
         write!(
             f,
             "Impulse of length {} seconds is longer than Convolver with max length {} seconds. Please increase ConvolutionNodeConfig::max_impulse_len_seconds",
-            self.got_len_seconds,
-            self.max_len_seconds
+            self.got_len_seconds, self.max_len_seconds
         )
     }
 }

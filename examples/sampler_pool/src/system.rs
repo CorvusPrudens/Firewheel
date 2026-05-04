@@ -97,7 +97,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
         }
@@ -156,7 +156,6 @@ impl FxChain for MyCustomChain {
                 volume_params,
                 Some(VolumeNodeConfig {
                     channels: NonZeroChannelCount::MONO,
-                    ..Default::default()
                 }),
             )
             .expect("Volume node should construct without error");

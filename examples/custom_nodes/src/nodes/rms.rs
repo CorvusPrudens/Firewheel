@@ -40,7 +40,7 @@ struct SharedState {
 // send the rms value from the processor to the user.
 //
 // ------------------------------------------------------------------------------
-/// This node roughly estimates the RMS (root-mean-square, a meaasure of loundess)
+/// This node roughly estimates the RMS (root-mean-square, a measure of loudness)
 /// of a mono signal.
 ///
 /// Note this node doesn't calculate the true RMS (That requires a much more
@@ -49,7 +49,7 @@ struct SharedState {
 pub struct FastRmsNode {
     /// The size of the window used to measure the RMS value.
     ///
-    /// Smaller values are better at detecting short bursts of loundess (transients),
+    /// Smaller values are better at detecting short bursts of loudness (transients),
     /// while larger values are better for measuring loudness on a broader time scale.
     ///
     /// By default this is set to `0.05` (50ms).
@@ -139,7 +139,7 @@ impl AudioNode for FastRmsNode {
         let custom_state = cx.custom_state::<FastRmsState>().unwrap();
 
         Ok(Processor {
-            params: self.clone(),
+            params: *self,
             shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
@@ -191,7 +191,7 @@ impl AudioNodeProcessor for Processor {
         }
     }
 
-    // Called when the node has been fully bypassed/unbypassed.
+    // Called when the node has been fully bypassed/un-bypassed.
     //
     // The Firewheel processor automatically handles bypass declicking, so
     // there is no need to handle that manually.

@@ -1,6 +1,6 @@
 use bevy_platform::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use core::{
     num::{NonZeroU32, NonZeroUsize},
@@ -35,7 +35,7 @@ pub struct StreamWriterConfig {
     pub channels: NonZeroChannelCount,
 
     /// Whether or not to check for silence in the input stream. Highly
-    /// recommened to set this to `true` to improve audio graph performance
+    /// recommend to set this to `true` to improve audio graph performance
     /// when there is no input on the microphone.
     ///
     /// By default this is set to `true`.
@@ -80,7 +80,7 @@ impl StreamWriterState {
         self.active_state.is_some() && self.shared_state.stream_active.load(Ordering::Relaxed)
     }
 
-    /// Returns `true` if an underflow occured (due to the output stream
+    /// Returns `true` if an underflow occurred (due to the output stream
     /// running faster than the input stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
@@ -94,7 +94,7 @@ impl StreamWriterState {
             .swap(false, Ordering::Relaxed)
     }
 
-    /// Returns `true` if an overflow occured (due to the input stream
+    /// Returns `true` if an overflow occurred (due to the input stream
     /// running faster than the output stream).
     ///
     /// If this happens excessively in Release mode, you may want to consider
@@ -192,7 +192,7 @@ impl StreamWriterState {
     ///
     /// Returns the number of frames (not samples) that were successfully pushed.
     /// If this number is less than the number of frames in `data`, then it means
-    /// an overflow has occured.
+    /// an overflow has occurred.
     ///
     /// If there is no active stream, the stream is paused, or the processor end
     /// is not ready to receive samples, then no data will be sent and this will
@@ -218,7 +218,7 @@ impl StreamWriterState {
     ///
     /// Returns the number of frames (not samples) that were successfully pushed.
     /// If this number is less than the number of frames in `data`, then it means
-    /// an overflow has occured.
+    /// an overflow has occurred.
     ///b
     /// If there is no active stream, the stream is paused, or the processor end
     /// is not ready to receive samples, then no data will be sent and this will
@@ -255,7 +255,7 @@ impl StreamWriterState {
     /// Correct for any underflows.
     ///
     /// This returns the number of extra zero frames (samples in a single channel of audio)
-    /// that were added due to an underflow occurring. If no underflow occured, then `None`
+    /// that were added due to an underflow occurring. If no underflow occurred, then `None`
     /// is returned.
     ///
     /// Note, this method is already automatically called in [`StreamWriterState::push`] and

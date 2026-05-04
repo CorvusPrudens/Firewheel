@@ -98,18 +98,7 @@ impl ProcTransportState {
         assert!(self.current_speed_multiplier.is_finite() && self.current_speed_multiplier > 0.0);
 
         if let Some(new_transport) = &new_transport_state.transport {
-            if self.transport_state.playhead != new_transport_state.playhead
-                || self.transport_state.transport.is_none()
-            {
-                self.transport_start_samples = new_transport.transport_start(
-                    clock_samples,
-                    *new_transport_state.playhead,
-                    self.current_speed_multiplier,
-                    sample_rate,
-                );
-            } else {
-                let old_transport = self.transport_state.transport.as_ref().unwrap();
-
+            if let Some(old_transport) = &self.transport_state.transport {
                 if *new_transport_state.playing {
                     if !*self.transport_state.playing {
                         // Resume
@@ -153,6 +142,13 @@ impl ProcTransportState {
                         sample_rate_recip,
                     );
                 }
+            } else {
+                self.transport_start_samples = new_transport.transport_start(
+                    clock_samples,
+                    *new_transport_state.playhead,
+                    self.current_speed_multiplier,
+                    sample_rate,
+                );
             }
         }
 
@@ -205,20 +201,20 @@ impl ProcTransportState {
                 start_at: start_instant,
             } => {
                 let mut remove_automation_state = false;
-                if let Some(automation_state) = &mut self.automation_state {
-                    if automation_state.move_to_next_keyframe {
-                        automation_state.move_to_next_keyframe = false;
-                        automation_state.keyframe_index += 1;
+                if let Some(automation_state) = &mut self.automation_state
+                    && automation_state.move_to_next_keyframe
+                {
+                    automation_state.move_to_next_keyframe = false;
+                    automation_state.keyframe_index += 1;
 
-                        if let Some(keyframe) = keyframes.get(automation_state.keyframe_index) {
-                            self.current_speed_multiplier = keyframe.multiplier;
+                    if let Some(keyframe) = keyframes.get(automation_state.keyframe_index) {
+                        self.current_speed_multiplier = keyframe.multiplier;
 
-                            if automation_state.keyframe_index == keyframes.len() - 1 {
-                                remove_automation_state = true;
-                            }
-                        } else {
+                        if automation_state.keyframe_index == keyframes.len() - 1 {
                             remove_automation_state = true;
                         }
+                    } else {
+                        remove_automation_state = true;
                     }
                 }
 
@@ -226,30 +222,27 @@ impl ProcTransportState {
                     self.automation_state = None;
                 }
 
-                if let Some(automation_state) = &mut self.automation_state {
-                    if let Some(next_keyframe) = keyframes.get(automation_state.keyframe_index + 1)
-                    {
-                        let keyframe_start_samples = match next_keyframe.instant {
-                            EventInstant::AtClockSeconds(seconds) => {
-                                seconds.to_samples(sample_rate)
-                            }
-                            EventInstant::AtClockSamples(samples) => samples,
-                            EventInstant::DelaySeconds(seconds) => {
-                                clock_samples + seconds.to_samples(sample_rate)
-                            }
-                            EventInstant::DelaySamples(samples) => clock_samples + samples,
-                            EventInstant::AtClockMusical(musical) => transport.musical_to_samples(
-                                musical,
-                                self.transport_start_samples,
-                                self.current_speed_multiplier,
-                                sample_rate,
-                            ),
-                        };
-
-                        if clock_samples + DurationSamples(frames as i64) > keyframe_start_samples {
-                            frames = (keyframe_start_samples.0 - clock_samples.0) as usize;
-                            automation_state.move_to_next_keyframe = true;
+                if let Some(automation_state) = &mut self.automation_state
+                    && let Some(next_keyframe) = keyframes.get(automation_state.keyframe_index + 1)
+                {
+                    let keyframe_start_samples = match next_keyframe.instant {
+                        EventInstant::AtClockSeconds(seconds) => seconds.to_samples(sample_rate),
+                        EventInstant::AtClockSamples(samples) => samples,
+                        EventInstant::DelaySeconds(seconds) => {
+                            clock_samples + seconds.to_samples(sample_rate)
                         }
+                        EventInstant::DelaySamples(samples) => clock_samples + samples,
+                        EventInstant::AtClockMusical(musical) => transport.musical_to_samples(
+                            musical,
+                            self.transport_start_samples,
+                            self.current_speed_multiplier,
+                            sample_rate,
+                        ),
+                    };
+
+                    if clock_samples + DurationSamples(frames as i64) > keyframe_start_samples {
+                        frames = (keyframe_start_samples.0 - clock_samples.0) as usize;
+                        automation_state.move_to_next_keyframe = true;
                     }
                 }
 
@@ -368,11 +361,10 @@ impl ProcTransportState {
                 // End of the loop reached.
                 info.frames = (loop_end_clock_samples - clock_samples).0.max(0) as usize;
             }
-        } else if self.transport_state.stop_at.is_some() {
-            if proc_end_samples > stop_at_clock_samples {
-                // End of the transport reached.
-                info.frames = (stop_at_clock_samples - clock_samples).0.max(0) as usize;
-            }
+        } else if self.transport_state.stop_at.is_some() && proc_end_samples > stop_at_clock_samples
+        {
+            // End of the transport reached.
+            info.frames = (stop_at_clock_samples - clock_samples).0.max(0) as usize;
         }
 
         info

@@ -40,10 +40,10 @@ impl MusicalTransport {
     ///
     /// * `musical` - The time in musical beats to convert.
     /// * `transport_start` - The instant of the start of the transport (musical
-    /// time of `0`).
+    ///   time of `0`).
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     pub fn musical_to_seconds(
         &self,
         musical: InstantMusical,
@@ -64,10 +64,10 @@ impl MusicalTransport {
     ///
     /// * `musical` - The time in musical beats to convert.
     /// * `transport_start` - The instant of the start of the transport (musical
-    /// time of `0`).
+    ///   time of `0`).
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `sample_rate` - The sample rate of the stream.
     pub fn musical_to_samples(
         &self,
@@ -90,10 +90,10 @@ impl MusicalTransport {
     ///
     /// * `seconds` - The time in seconds to convert.
     /// * `transport_start` - The instant of the start of the transport (musical
-    /// time of `0`).
+    ///   time of `0`).
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `sample_rate` - The sample rate of the stream.
     pub fn seconds_to_musical(
         &self,
@@ -115,10 +115,10 @@ impl MusicalTransport {
     ///
     /// * `sample_time` - The time in samples to convert.
     /// * `transport_start` - The instant of the start of the transport (musical
-    /// time of `0`).
+    ///   time of `0`).
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `sample_rate` - The sample rate of the stream.
     /// * `sample_rate` - The reciprocal of the sample rate.
     pub fn samples_to_musical(
@@ -151,8 +151,8 @@ impl MusicalTransport {
     /// given `from` timestamp.
     ///
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     pub fn delta_seconds_from(
         &self,
         from: InstantMusical,
@@ -172,8 +172,8 @@ impl MusicalTransport {
     /// Return the tempo in beats per minute at the given musical time.
     ///
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     pub fn bpm_at_musical(&self, musical: InstantMusical, speed_multiplier: f64) -> f64 {
         match self {
             MusicalTransport::Static(t) => t.bpm_at_musical(musical, speed_multiplier),
@@ -185,10 +185,10 @@ impl MusicalTransport {
     ///
     /// * `frames` - The number of frames in this processing block.
     /// * `playhead` - The current playhead of the transport at frame `0` in this
-    /// processing block.
+    ///   processing block.
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `sample_rate` - The sample rate of the stream.
     pub fn proc_transport_info(
         &self,
@@ -211,8 +211,8 @@ impl MusicalTransport {
     /// * `now` - The current time in samples.
     /// * `playhead` - The current playhead of the transport.
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `sample_rate` - The sample rate of the stream.
     pub fn transport_start(
         &self,
@@ -263,7 +263,7 @@ pub struct SpeedMultiplierKeyframe {
 /// speed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransportSpeed {
-    /// Set the mulitplier to a single static value.
+    /// Set the multiplier to a single static value.
     Static {
         /// The speed multiplier.
         ///
@@ -296,11 +296,11 @@ impl TransportSpeed {
     /// Create a [`TransportSpeed`] with a single static value.
     ///
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `change_at`: If this is `Some`, then the change will happen when the transport
-    /// reaches the given playhead. If this is `None`, then the change will happen as soon
-    /// as the processor receives the event.
+    ///   reaches the given playhead. If this is `None`, then the change will happen as soon
+    ///   as the processor receives the event.
     pub const fn static_multiplier(multiplier: f64, change_at: Option<InstantMusical>) -> Self {
         Self::Static {
             multiplier,
@@ -351,7 +351,7 @@ pub struct TransportState {
     /// This has no effect if [`TransportState::loop_range`] is `Some`.
     pub stop_at: Option<InstantMusical>,
 
-    /// If this is `Some`, then the transport will continously loop the given region.
+    /// If this is `Some`, then the transport will continuously loop the given region.
     pub loop_range: Option<Range<InstantMusical>>,
 }
 
@@ -375,11 +375,11 @@ impl TransportState {
     /// Set a multiplier for the speed of the transport to a single static value.
     ///
     /// * `speed_multiplier` - A multiplier for the playback speed. A value of
-    /// `1.0` means no change in speed, a value less than `1.0` means a decrease
-    /// in speed, and a value greater than `1.0` means an increase in speed.
+    ///   `1.0` means no change in speed, a value less than `1.0` means a decrease
+    ///   in speed, and a value greater than `1.0` means an increase in speed.
     /// * `change_at`: If this is `Some`, then the change will happen when the transport
-    /// reaches the given playhead. If this is `None`, then the change will happen as soon
-    /// as the processor receives the event.
+    ///   reaches the given playhead. If this is `None`, then the change will happen as soon
+    ///   as the processor receives the event.
     pub fn set_speed_multiplier(
         &mut self,
         speed_multiplier: f64,

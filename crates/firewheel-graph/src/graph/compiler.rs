@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use thunderdome::Arena;
 
 #[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{vec, Box, Vec};
+use bevy_platform::prelude::{Box, Vec, vec};
 
 use crate::error::CompileGraphError;
 

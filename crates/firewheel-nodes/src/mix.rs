@@ -6,7 +6,7 @@ use firewheel_core::{
         fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
         mix::Mix,
-        volume::{Volume, DEFAULT_MIN_AMP},
+        volume::{DEFAULT_MIN_AMP, Volume},
     },
     event::ProcEvents,
     mask::{MaskType, SilenceMask},
@@ -75,7 +75,7 @@ pub struct MixNode {
     /// roughly equal to a typical block size of 1024 samples (23 ms) to
     /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
-    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
     /// `0.0` (silence).
     ///
@@ -401,6 +401,9 @@ impl AudioNodeProcessor for Processor {
                         let in0_ch_silent = info.in_silence_mask.is_channel_silent(ch_i);
                         let in1_ch_silent = info.in_silence_mask.is_channel_silent(channels + ch_i);
 
+                        // For some reason clippy doesn't see the third "or" expression and thinks
+                        // this can be simplified.
+                        #[allow(clippy::nonminimal_bool)]
                         let channel_silent = (in0_ch_silent && in1_ch_silent)
                             || (gain_0_silent && in1_ch_silent)
                             || (gain_1_silent && in0_ch_silent);
@@ -436,6 +439,9 @@ impl AudioNodeProcessor for Processor {
                         let in0_ch_silent = info.in_silence_mask.is_channel_silent(ch_i);
                         let in1_ch_silent = info.in_silence_mask.is_channel_silent(channels + ch_i);
 
+                        // For some reason clippy doesn't see the third "or" expression and thinks
+                        // this can be simplified.
+                        #[allow(clippy::nonminimal_bool)]
                         let channel_silent = (in0_ch_silent && in1_ch_silent)
                             || (gain_0_silent && in1_ch_silent)
                             || (gain_1_silent && in0_ch_silent);
@@ -465,7 +471,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        return ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask));
+        ProcessStatus::OutputsModifiedWithMask(MaskType::Silence(out_silence_mask))
     }
 
     fn new_stream(

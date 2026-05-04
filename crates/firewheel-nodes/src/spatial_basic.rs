@@ -47,8 +47,8 @@ pub struct SpatialBasicNode {
     ///
     /// * `-x` is to the left of the listener, and `+x` is to the right of the listener
     /// * Larger absolute `y` and `z` values will make the signal sound farther away.
-    /// (The algorithm used by this node makes no distinction between `-y`, `+y`, `-z`,
-    /// and `+z`).
+    ///   (The algorithm used by this node makes no distinction between `-y`, `+y`, `-z`,
+    ///   and `+z`).
     ///
     /// By default this is set to `(0.0, 0.0, 0.0)`
     pub offset: Vec3,
@@ -58,13 +58,13 @@ pub struct SpatialBasicNode {
     /// of the channels is fully silent when panned hard left or right).
     ///
     /// Setting this to a value less than `1.0` can help remove some of the
-    /// jarringness of having a sound playing in only one ear.
+    /// jarring-ness of having a sound playing in only one ear.
     ///
     /// By default this is set to `0.6`.
     pub panning_threshold: f32,
 
     /// If `true`, then any stereo input signals will be downmixed to mono before
-    /// going throught the spatialization algorithm. If `false` then the left and
+    /// going through the spatialization algorithm. If `false` then the left and
     /// right channels will be processed independently.
     ///
     /// This has no effect if only one input channel is connected.
@@ -94,7 +94,7 @@ pub struct SpatialBasicNode {
     /// roughly equal to a typical block size of 1024 samples (23 ms) to
     /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
-    /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
+    /// If the resulting gain (in raw amplitude, not decibels) is less than or equal
     /// to this value, the the gain will be clamped to `0` (silence).
     ///
     /// By default this is set to "0.0001" (-80 dB).
@@ -275,10 +275,10 @@ impl AudioNodeProcessor for Processor {
         let mut updated = false;
         for mut patch in events.drain_patches::<SpatialBasicNode>() {
             match &mut patch {
-                SpatialBasicNodePatch::Offset(offset) => {
-                    if !(offset.x.is_finite() && offset.y.is_finite() && offset.z.is_finite()) {
-                        *offset = Vec3::default();
-                    }
+                SpatialBasicNodePatch::Offset(offset)
+                    if !(offset.x.is_finite() && offset.y.is_finite() && offset.z.is_finite()) =>
+                {
+                    *offset = Vec3::default();
                 }
                 SpatialBasicNodePatch::PanningThreshold(threshold) => {
                     *threshold = threshold.clamp(0.0, 1.0);
@@ -416,7 +416,7 @@ impl AudioNodeProcessor for Processor {
             self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
 
-            return ProcessStatus::ClearAllOutputs;
+            ProcessStatus::ClearAllOutputs
         } else {
             ProcessStatus::OutputsModified
         }

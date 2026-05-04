@@ -3,15 +3,16 @@ use bevy_platform::sync::{Mutex, OnceLock};
 use core::{num::NonZeroU32, time::Duration};
 use firewheel_core::node::StreamStatus;
 use firewheel_graph::{
+    ActivateInfo, FirewheelContext,
     backend::BackendProcessInfo,
     error::{ActivateError, CompileGraphError},
     processor::FirewheelProcessor,
-    ActivateInfo, FirewheelContext,
 };
 use rtaudio::{Api, RtAudioError, StreamConfig};
 use std::sync::{
+    Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc,
+    mpsc,
 };
 
 pub use rtaudio;
@@ -199,13 +200,10 @@ impl DataCallback {
             unreachable!()
         };
 
-        let frames = if info.out_channels > 0 {
-            output.len() / info.out_channels
-        } else if info.in_channels > 0 {
-            input.len() / info.in_channels
-        } else {
-            0
-        };
+        let frames = output
+            .len()
+            .checked_div(info.out_channels)
+            .unwrap_or_else(|| input.len().checked_div(info.in_channels).unwrap_or(0));
 
         let mut output_stream_status = StreamStatus::empty();
         let mut input_stream_status = StreamStatus::empty();
@@ -217,13 +215,13 @@ impl DataCallback {
         }
 
         let mut dropped_frames = 0;
-        if status.contains(rtaudio::StreamStatus::OUTPUT_UNDERFLOW) {
-            if let Some(next_predicted_stream_time) = self.next_predicted_stream_time {
-                dropped_frames = ((info.stream_time - next_predicted_stream_time)
-                    * info.sample_rate as f64)
-                    .round()
-                    .max(0.0) as u32
-            }
+        if status.contains(rtaudio::StreamStatus::OUTPUT_UNDERFLOW)
+            && let Some(next_predicted_stream_time) = self.next_predicted_stream_time
+        {
+            dropped_frames = ((info.stream_time - next_predicted_stream_time)
+                * info.sample_rate as f64)
+                .round()
+                .max(0.0) as u32
         }
         self.next_predicted_stream_time =
             Some(info.stream_time + (frames as f64 * self.sample_rate_recip));
@@ -272,7 +270,7 @@ impl ErrorCallbackSingleton {
     }
 }
 
-/// An error occured while trying to start a CPAL audio stream.
+/// An error occurred while trying to start a CPAL audio stream.
 #[derive(Debug, thiserror::Error)]
 pub enum StartStreamError {
     /// The Firewheel context is already active. Either it has never been activated

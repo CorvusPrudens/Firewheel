@@ -1,5 +1,6 @@
 use bevy_platform::sync::atomic::{AtomicU32, Ordering};
 use firewheel_core::{
+    StreamInfo,
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
@@ -10,7 +11,6 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcExtra, ProcInfo, ProcStreamCtx, ProcessStatus,
     },
-    StreamInfo,
 };
 
 use firewheel_core::node::NodeError;
@@ -64,8 +64,8 @@ impl FastRmsState {
     /// Get the estimated RMS value in decibels.
     ///
     /// * `min_db` - If the RMS value is less than or equal to this value, then it
-    /// will be clamped to `f32::NEG_INFINITY` (silence). (You can use
-    /// [firewheel_core::dsp::volume::DEFAULT_MIN_DB].)
+    ///   will be clamped to `f32::NEG_INFINITY` (silence). (You can use
+    ///   [firewheel_core::dsp::volume::DEFAULT_MIN_DB].)
     ///
     /// If the node is currently disabled, then this will return a value
     /// of `f32::NEG_INFINITY` (silence).
@@ -109,7 +109,7 @@ impl AudioNode for FastRmsNode {
         let custom_state = cx.custom_state::<FastRmsState>().unwrap();
 
         Ok(Processor {
-            params: self.clone(),
+            params: *self,
             shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,

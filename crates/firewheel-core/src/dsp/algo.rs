@@ -5,7 +5,7 @@ pub fn max_peak(data: &[f32]) -> f32 {
     const CHUNK: usize = 8;
 
     // Processing in chunks like this breaks the dependency chain which allows
-    // the compiler to properly autovectorize this loop.
+    // the compiler to properly auto-vectorize this loop.
     let mut tmp = [0.0; CHUNK];
     let mut iter = data.chunks_exact(CHUNK);
     for chunk in iter.by_ref() {

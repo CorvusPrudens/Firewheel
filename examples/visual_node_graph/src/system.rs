@@ -26,7 +26,7 @@ use symphonium::cache::SymphoniumCache;
 
 use crate::ui::{GuiAudioNode, GuiAudioNodeType};
 
-pub const SAMPLE_PATHS: [&'static str; 4] = [
+pub const SAMPLE_PATHS: [&str; 4] = [
     "assets/test_files/swosh-sword-swing.flac",
     "assets/test_files/bird-sound.wav",
     "assets/test_files/beep_up.wav",
@@ -45,7 +45,7 @@ pub enum NodeType {
     FastLowpass,
     FastHighpass,
     FastBandpass,
-    SVF,
+    Svf,
     MixMono,
     MixStereo,
     Sampler,
@@ -64,7 +64,7 @@ pub struct AudioSystem {
     )>,
 }
 
-const IR_SAMPLE_PATHS: [&'static str; 2] = [
+const IR_SAMPLE_PATHS: [&str; 2] = [
     "assets/test_files/ir_outside.wav",
     "assets/test_files/ir_hall.wav",
 ];
@@ -103,7 +103,6 @@ impl AudioSystem {
                     )
                     .unwrap(),
                 )
-                .into()
             })
             .collect();
 
@@ -144,8 +143,8 @@ impl AudioSystem {
     }
 
     pub fn remove_node(&mut self, node_id: NodeID) {
-        if let Err(_) = self.cx.remove_node(node_id) {
-            tracing::error!("Node already removed!");
+        if let Err(e) = self.cx.remove_node(node_id) {
+            tracing::error!("{e}");
         }
     }
 
@@ -159,21 +158,19 @@ impl AudioSystem {
                 VolumeNode::default(),
                 Some(VolumeNodeConfig {
                     channels: NonZeroChannelCount::MONO,
-                    ..Default::default()
                 }),
             ),
             NodeType::VolumeStereo => self.cx.add_node(
                 VolumeNode::default(),
                 Some(VolumeNodeConfig {
                     channels: NonZeroChannelCount::STEREO,
-                    ..Default::default()
                 }),
             ),
             NodeType::VolumePan => self.cx.add_node(VolumePanNode::default(), None),
             NodeType::FastLowpass => self.cx.add_node(FastLowpassNode::<2>::default(), None),
             NodeType::FastHighpass => self.cx.add_node(FastHighpassNode::<2>::default(), None),
             NodeType::FastBandpass => self.cx.add_node(FastBandpassNode::<2>::default(), None),
-            NodeType::SVF => self.cx.add_node(SvfNode::<2>::default(), None),
+            NodeType::Svf => self.cx.add_node(SvfNode::<2>::default(), None),
             NodeType::MixMono => self.cx.add_node(
                 MixNode::default(),
                 Some(MixNodeConfig {
@@ -228,7 +225,7 @@ impl AudioSystem {
             NodeType::FastBandpass => GuiAudioNodeType::FastBandpass {
                 params: Default::default(),
             },
-            NodeType::SVF => GuiAudioNodeType::SVF {
+            NodeType::Svf => GuiAudioNodeType::Svf {
                 params: Default::default(),
             },
             NodeType::MixMono => GuiAudioNodeType::MixMono {
@@ -290,7 +287,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         // Update the firewheel context.
-        // This must be called reguarly (i.e. once every frame).
+        // This must be called regularly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
         }

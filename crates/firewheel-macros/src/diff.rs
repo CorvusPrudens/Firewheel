@@ -3,7 +3,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 
-use crate::{get_paths, struct_fields, TypeSet};
+use crate::{TypeSet, get_paths, struct_fields};
 
 pub fn derive_diff(input: TokenStream) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;

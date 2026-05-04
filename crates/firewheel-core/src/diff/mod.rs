@@ -169,7 +169,7 @@
 //! [`Diff`], the derive macros and implementations only need
 //! to worry about _local indexing._ And, since the paths
 //! are built only during [`Diff`], we can traverse them
-//! highly performantly during [`Patch`] calls in audio processors.
+//! with high performance during [`Patch`] calls in audio processors.
 //!
 //! Firewheel provides a number of primitive types in [`ParamData`]
 //! that cover most use-cases for audio parameters. For anything

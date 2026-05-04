@@ -22,11 +22,7 @@ impl ChannelCount {
     /// Returns `None` if `count` is greater than `64`.
     #[inline]
     pub const fn new(count: u32) -> Option<Self> {
-        if count <= 64 {
-            Some(Self(count))
-        } else {
-            None
-        }
+        if count <= 64 { Some(Self(count)) } else { None }
     }
 
     #[inline]
@@ -218,7 +214,12 @@ impl fmt::Display for ChannelConfigError {
                 )
             }
             Self::NumInOutNotEqual { got_in, got_out } => {
-                write!(f, "Number of input channels does not equal number of output channels | in: {}, out: {}", got_in.get(), got_out.get())
+                write!(
+                    f,
+                    "Number of input channels does not equal number of output channels | in: {}, out: {}",
+                    got_in.get(),
+                    got_out.get()
+                )
             }
         }
     }

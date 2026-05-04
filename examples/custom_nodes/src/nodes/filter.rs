@@ -173,7 +173,7 @@ impl AudioNodeProcessor for Processor {
         }
     }
 
-    // Called when the node has been fully bypassed/unbypassed.
+    // Called when the node has been fully bypassed/un-bypassed.
     //
     // The Firewheel processor automatically handles bypass declicking, so
     // there is no need to handle that manually.

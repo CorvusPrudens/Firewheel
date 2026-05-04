@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{vec, Vec};
+use bevy_platform::prelude::{Vec, vec};
 
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
@@ -22,8 +22,8 @@ impl SpatialBasicChain {
     ///
     /// * `params` - The new parameters.
     /// * `time` - The instant these new parameters should take effect. If this
-    /// is `None`, then the parameters will take effect as soon as the node receives
-    /// the event.
+    ///   is `None`, then the parameters will take effect as soon as the node receives
+    ///   the event.
     pub fn set_params(
         &mut self,
         params: firewheel_nodes::spatial_basic::SpatialBasicNode,

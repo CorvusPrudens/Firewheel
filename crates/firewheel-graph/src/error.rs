@@ -14,14 +14,18 @@ pub enum AddEdgeError {
     #[error("Could not add edge: could not find destination node with ID {0:?}")]
     DstNodeNotFound(NodeID),
     /// The given input port index is out of range.
-    #[error("Input port idx {port_idx:?} is out of range on node {node:?} with {num_in_ports:?} input ports")]
+    #[error(
+        "Input port idx {port_idx:?} is out of range on node {node:?} with {num_in_ports:?} input ports"
+    )]
     InPortOutOfRange {
         node: NodeID,
         port_idx: PortIdx,
         num_in_ports: ChannelCount,
     },
     /// The given output port index is out of range.
-    #[error("Output port idx {port_idx:?} is out of range on node {node:?} with {num_out_ports:?} output ports")]
+    #[error(
+        "Output port idx {port_idx:?} is out of range on node {node:?} with {num_out_ports:?} output ports"
+    )]
     OutPortOutOfRange {
         node: NodeID,
         port_idx: PortIdx,
@@ -40,7 +44,9 @@ pub enum CompileGraphError {
     #[error("Failed to compile audio graph: a cycle was detected")]
     CycleDetected,
     /// The input data contained an edge referring to a non-existing node.
-    #[error("Failed to compile audio graph: input data contains an edge {0:?} referring to a non-existing node {1:?}")]
+    #[error(
+        "Failed to compile audio graph: input data contains an edge {0:?} referring to a non-existing node {1:?}"
+    )]
     NodeOnEdgeNotFound(Edge, NodeID),
     /// The input data contained multiple nodes with the same ID.
     #[error(
@@ -75,7 +81,7 @@ pub enum ActivateError {
     GraphCompileError(#[from] CompileGraphError),
 }
 
-/// An error occured while updating a [`FirewheelContext`][crate::context::FirewheelContext].
+/// An error occurred while updating a [`FirewheelContext`][crate::context::FirewheelContext].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UpdateError {
     /// The context to processor message channel is full.
@@ -97,7 +103,7 @@ pub enum RemoveNodeError {
     CannotRemoveGraphOutNode,
 }
 
-/// An error occured while deactivate a [`FirewheelContext`][crate::context::FirewheelContext].
+/// An error occurred while deactivate a [`FirewheelContext`][crate::context::FirewheelContext].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum DeactivateError {
     #[error("Timed out waiting for the Firewheel context to deactivate")]

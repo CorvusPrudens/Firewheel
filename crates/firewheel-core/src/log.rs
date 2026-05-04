@@ -59,8 +59,8 @@ pub fn realtime_logger(config: RealtimeLoggerConfig) -> (RealtimeLogger, Realtim
     }
 
     let shared_state = ArcGc::new(SharedState {
-        message_too_long_occured: AtomicBool::new(false),
-        not_enough_slots_occured: AtomicBool::new(false),
+        message_too_long_occurred: AtomicBool::new(false),
+        not_enough_slots_occurred: AtomicBool::new(false),
     });
 
     (
@@ -87,8 +87,8 @@ pub fn realtime_logger(config: RealtimeLoggerConfig) -> (RealtimeLogger, Realtim
 }
 
 struct SharedState {
-    message_too_long_occured: AtomicBool,
-    not_enough_slots_occured: AtomicBool,
+    message_too_long_occurred: AtomicBool,
+    not_enough_slots_occurred: AtomicBool,
 }
 
 /// A helper used for realtime-safe logging on the audio thread.
@@ -139,14 +139,14 @@ impl RealtimeLogger {
         {
             if message.len() > self.max_msg_length {
                 self.shared_state
-                    .message_too_long_occured
+                    .message_too_long_occurred
                     .store(true, Ordering::Relaxed);
                 return Err(RealtimeLogError::MessageTooLong);
             }
 
             let Some(mut slot) = self.debug_cons.try_pop() else {
                 self.shared_state
-                    .not_enough_slots_occured
+                    .not_enough_slots_occurred
                     .store(true, Ordering::Relaxed);
                 return Err(RealtimeLogError::OutOfSlots);
             };
@@ -175,7 +175,7 @@ impl RealtimeLogger {
         {
             let Some(mut slot) = self.debug_cons.try_pop() else {
                 self.shared_state
-                    .not_enough_slots_occured
+                    .not_enough_slots_occurred
                     .store(true, Ordering::Relaxed);
                 return Err(RealtimeLogError::OutOfSlots);
             };
@@ -194,14 +194,14 @@ impl RealtimeLogger {
     pub fn try_error(&mut self, message: &str) -> Result<(), RealtimeLogError> {
         if message.len() > self.max_msg_length {
             self.shared_state
-                .message_too_long_occured
+                .message_too_long_occurred
                 .store(true, Ordering::Relaxed);
             return Err(RealtimeLogError::MessageTooLong);
         }
 
         let Some(mut slot) = self.error_cons.try_pop() else {
             self.shared_state
-                .not_enough_slots_occured
+                .not_enough_slots_occurred
                 .store(true, Ordering::Relaxed);
             return Err(RealtimeLogError::OutOfSlots);
         };
@@ -221,7 +221,7 @@ impl RealtimeLogger {
     pub fn try_error_with(&mut self, f: impl FnOnce(&mut String)) -> Result<(), RealtimeLogError> {
         let Some(mut slot) = self.error_cons.try_pop() else {
             self.shared_state
-                .not_enough_slots_occured
+                .not_enough_slots_occurred
                 .store(true, Ordering::Relaxed);
             return Err(RealtimeLogError::OutOfSlots);
         };
@@ -258,17 +258,21 @@ impl RealtimeLoggerMainThread {
     ) {
         if self
             .shared_state
-            .message_too_long_occured
+            .message_too_long_occurred
             .swap(false, Ordering::Relaxed)
         {
-            (log_error)("One or more realtime log messages were dropped because they were too long. Please increase message capacity.");
+            (log_error)(
+                "One or more realtime log messages were dropped because they were too long. Please increase message capacity.",
+            );
         }
         if self
             .shared_state
-            .not_enough_slots_occured
+            .not_enough_slots_occurred
             .swap(false, Ordering::Relaxed)
         {
-            (log_error)("One or more realtime log messages were dropped because the realtime logger ran out of slots. Please increase slot capacity.");
+            (log_error)(
+                "One or more realtime log messages were dropped because the realtime logger ran out of slots. Please increase slot capacity.",
+            );
         }
 
         #[cfg(debug_assertions)]

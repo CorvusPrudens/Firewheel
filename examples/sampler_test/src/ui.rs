@@ -72,10 +72,8 @@ impl App for DemoApp {
                         if ui.button("Pause").clicked() {
                             self.audio_system.pause(i);
                         }
-                    } else if self.audio_system.is_paused(i) {
-                        if ui.button("Resume").clicked() {
-                            self.audio_system.resume(i);
-                        }
+                    } else if self.audio_system.is_paused(i) && ui.button("Resume").clicked() {
+                        self.audio_system.resume(i);
                     }
 
                     if ui.button("Stop").clicked() {

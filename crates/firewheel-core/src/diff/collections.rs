@@ -112,6 +112,12 @@ tuple_diff!(Tuple2, A, A1, 0, B, B1, 1);
 tuple_diff!(Tuple3, A, A1, 0, B, B1, 1, C, C1, 2);
 tuple_diff!(Tuple4, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3);
 tuple_diff!(Tuple5, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4);
-tuple_diff!(Tuple6, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5);
-tuple_diff!(Tuple7, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6);
-tuple_diff!(Tuple8, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6, H, H1, 7);
+tuple_diff!(
+    Tuple6, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5
+);
+tuple_diff!(
+    Tuple7, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6
+);
+tuple_diff!(
+    Tuple8, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6, H, H1, 7
+);

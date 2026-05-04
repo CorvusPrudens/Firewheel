@@ -24,7 +24,7 @@ use core::num::NonZeroU32;
 use firewheel_core::{clock::EventInstant, event::ScheduledEventEntry};
 
 #[cfg(feature = "musical_transport")]
-use crate::processor::{transport::TransportSyncInfo, ProcTransportState};
+use crate::processor::{ProcTransportState, transport::TransportSyncInfo};
 
 const MAX_CLUMP_INDICES: usize = 8;
 
@@ -181,12 +181,11 @@ impl EventScheduler {
                 }
             };
 
-            if !self.scheduled_events_need_sorting {
-                if let Some((_, last_instant)) = self.sorted_event_buffer_indices.last() {
-                    if time_samples < *last_instant {
-                        self.scheduled_events_need_sorting = true;
-                    }
-                }
+            if !self.scheduled_events_need_sorting
+                && let Some((_, last_instant)) = self.sorted_event_buffer_indices.last()
+                && time_samples < *last_instant
+            {
+                self.scheduled_events_need_sorting = true;
             }
 
             self.scheduled_event_arena[slot as usize] = Some(ScheduledEventEntry {
@@ -209,7 +208,9 @@ impl EventScheduler {
                     self.immediate_event_buffer_capacity *= 2;
                 }
                 BufferOutOfSpaceMode::Panic => {
-                    panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
+                    panic!(
+                        "Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity."
+                    );
                 }
                 BufferOutOfSpaceMode::DropEvents => {
                     let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity.");
@@ -416,10 +417,10 @@ impl EventScheduler {
             self.sorted_event_buffer_indices.retain(|(slot, _)| {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-                if let Some(node_id) = msg.node_id {
-                    if event.event.node_id != node_id {
-                        return true;
-                    }
+                if let Some(node_id) = msg.node_id
+                    && event.event.node_id != node_id
+                {
+                    return true;
                 }
                 // Else `None` means to remove scheduled events for all nodes.
 
@@ -589,11 +590,10 @@ impl EventScheduler {
                     if let Some(event) = immediate_event_buffer
                         .get(i as usize)
                         .and_then(|e| e.as_ref())
+                        && let NodeEventType::SetBypassed(bypassed) = &event.event
                     {
-                        if let NodeEventType::SetBypassed(bypassed) = &event.event {
-                            *set_bypassed = Some(*bypassed);
-                            return;
-                        }
+                        *set_bypassed = Some(*bypassed);
+                        return;
                     }
                 }
                 #[cfg(feature = "scheduled_events")]
@@ -601,11 +601,10 @@ impl EventScheduler {
                     if let Some(event) = scheduled_event_arena
                         .get(i as usize)
                         .and_then(|e| e.as_ref())
+                        && let NodeEventType::SetBypassed(bypassed) = &event.event.event
                     {
-                        if let NodeEventType::SetBypassed(bypassed) = &event.event.event {
-                            *set_bypassed = Some(*bypassed);
-                            return;
-                        }
+                        *set_bypassed = Some(*bypassed);
+                        return;
                     }
                 }
             }
@@ -616,7 +615,9 @@ impl EventScheduler {
                         let _ = logger.try_error("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity to avoid audio glitches.");
                     }
                     BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity.");
+                        panic!(
+                            "Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity."
+                        );
                     }
                     BufferOutOfSpaceMode::DropEvents => {
                         let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase FirewheelConfig::event_queue_capacity.");

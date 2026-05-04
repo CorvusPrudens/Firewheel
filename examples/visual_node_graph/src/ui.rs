@@ -69,7 +69,7 @@ pub enum GuiAudioNodeType {
     FastBandpass {
         params: Memo<FastBandpassNode<2>>,
     },
-    SVF {
+    Svf {
         params: Memo<SvfNode<2>>,
     },
     MixMono {
@@ -94,75 +94,75 @@ pub enum GuiAudioNodeType {
 
 impl GuiAudioNode {
     fn title(&self) -> String {
-        match &self.node {
-            &GuiAudioNodeType::SystemIn => "System In",
-            &GuiAudioNodeType::SystemOut => "System Out",
-            &GuiAudioNodeType::BeepTest { .. } => "Beep Test",
-            &GuiAudioNodeType::WhiteNoiseGen { .. } => "White Noise Generator",
-            &GuiAudioNodeType::PinkNoiseGen { .. } => "Pink Noise Generator",
-            &GuiAudioNodeType::StereoToMono { .. } => "Stereo To Mono",
-            &GuiAudioNodeType::VolumeMono { .. } => "Volume (Mono)",
-            &GuiAudioNodeType::VolumeStereo { .. } => "Volume (Stereo)",
-            &GuiAudioNodeType::VolumePan { .. } => "Volume & Pan",
-            &GuiAudioNodeType::FastLowpass { .. } => "Fast Lowpass",
-            &GuiAudioNodeType::FastHighpass { .. } => "Fast Highpass",
-            &GuiAudioNodeType::FastBandpass { .. } => "Fast Bandpass",
-            &GuiAudioNodeType::SVF { .. } => "SVF",
-            &GuiAudioNodeType::MixMono { .. } => "Mix (Mono)",
-            &GuiAudioNodeType::MixStereo { .. } => "Mix (Stereo)",
-            &GuiAudioNodeType::Sampler { .. } => "Sampler",
-            &GuiAudioNodeType::Freeverb { .. } => "Freeverb",
-            &GuiAudioNodeType::ConvolutionMono { .. } => "Convolution (Mono)",
-            &GuiAudioNodeType::ConvolutionStereo { .. } => "Convolution (Stereo)",
+        match self.node {
+            GuiAudioNodeType::SystemIn => "System In",
+            GuiAudioNodeType::SystemOut => "System Out",
+            GuiAudioNodeType::BeepTest { .. } => "Beep Test",
+            GuiAudioNodeType::WhiteNoiseGen { .. } => "White Noise Generator",
+            GuiAudioNodeType::PinkNoiseGen { .. } => "Pink Noise Generator",
+            GuiAudioNodeType::StereoToMono => "Stereo To Mono",
+            GuiAudioNodeType::VolumeMono { .. } => "Volume (Mono)",
+            GuiAudioNodeType::VolumeStereo { .. } => "Volume (Stereo)",
+            GuiAudioNodeType::VolumePan { .. } => "Volume & Pan",
+            GuiAudioNodeType::FastLowpass { .. } => "Fast Lowpass",
+            GuiAudioNodeType::FastHighpass { .. } => "Fast Highpass",
+            GuiAudioNodeType::FastBandpass { .. } => "Fast Bandpass",
+            GuiAudioNodeType::Svf { .. } => "SVF",
+            GuiAudioNodeType::MixMono { .. } => "Mix (Mono)",
+            GuiAudioNodeType::MixStereo { .. } => "Mix (Stereo)",
+            GuiAudioNodeType::Sampler { .. } => "Sampler",
+            GuiAudioNodeType::Freeverb { .. } => "Freeverb",
+            GuiAudioNodeType::ConvolutionMono { .. } => "Convolution (Mono)",
+            GuiAudioNodeType::ConvolutionStereo { .. } => "Convolution (Stereo)",
         }
         .into()
     }
 
     fn num_inputs(&self) -> usize {
-        match &self.node {
-            &GuiAudioNodeType::SystemIn => 0,
-            &GuiAudioNodeType::SystemOut => 2,
-            &GuiAudioNodeType::BeepTest { .. } => 0,
-            &GuiAudioNodeType::WhiteNoiseGen { .. } => 0,
-            &GuiAudioNodeType::PinkNoiseGen { .. } => 0,
-            &GuiAudioNodeType::StereoToMono { .. } => 2,
-            &GuiAudioNodeType::VolumeMono { .. } => 1,
-            &GuiAudioNodeType::VolumeStereo { .. } => 2,
-            &GuiAudioNodeType::VolumePan { .. } => 2,
-            &GuiAudioNodeType::FastLowpass { .. } => 2,
-            &GuiAudioNodeType::FastHighpass { .. } => 2,
-            &GuiAudioNodeType::FastBandpass { .. } => 2,
-            &GuiAudioNodeType::SVF { .. } => 2,
-            &GuiAudioNodeType::MixMono { .. } => 2,
-            &GuiAudioNodeType::MixStereo { .. } => 4,
-            &GuiAudioNodeType::Sampler { .. } => 0,
-            &GuiAudioNodeType::Freeverb { .. } => 2,
-            &GuiAudioNodeType::ConvolutionMono { .. } => 1,
-            &GuiAudioNodeType::ConvolutionStereo { .. } => 2,
+        match self.node {
+            GuiAudioNodeType::SystemIn => 0,
+            GuiAudioNodeType::SystemOut => 2,
+            GuiAudioNodeType::BeepTest { .. } => 0,
+            GuiAudioNodeType::WhiteNoiseGen { .. } => 0,
+            GuiAudioNodeType::PinkNoiseGen { .. } => 0,
+            GuiAudioNodeType::StereoToMono => 2,
+            GuiAudioNodeType::VolumeMono { .. } => 1,
+            GuiAudioNodeType::VolumeStereo { .. } => 2,
+            GuiAudioNodeType::VolumePan { .. } => 2,
+            GuiAudioNodeType::FastLowpass { .. } => 2,
+            GuiAudioNodeType::FastHighpass { .. } => 2,
+            GuiAudioNodeType::FastBandpass { .. } => 2,
+            GuiAudioNodeType::Svf { .. } => 2,
+            GuiAudioNodeType::MixMono { .. } => 2,
+            GuiAudioNodeType::MixStereo { .. } => 4,
+            GuiAudioNodeType::Sampler { .. } => 0,
+            GuiAudioNodeType::Freeverb { .. } => 2,
+            GuiAudioNodeType::ConvolutionMono { .. } => 1,
+            GuiAudioNodeType::ConvolutionStereo { .. } => 2,
         }
     }
 
     fn num_outputs(&self) -> usize {
-        match &self.node {
-            &GuiAudioNodeType::SystemIn => 1,
-            &GuiAudioNodeType::SystemOut => 0,
-            &GuiAudioNodeType::BeepTest { .. } => 1,
-            &GuiAudioNodeType::WhiteNoiseGen { .. } => 1,
-            &GuiAudioNodeType::PinkNoiseGen { .. } => 1,
-            &GuiAudioNodeType::StereoToMono { .. } => 1,
-            &GuiAudioNodeType::VolumeMono { .. } => 1,
-            &GuiAudioNodeType::VolumeStereo { .. } => 2,
-            &GuiAudioNodeType::VolumePan { .. } => 2,
-            &GuiAudioNodeType::FastLowpass { .. } => 2,
-            &GuiAudioNodeType::FastHighpass { .. } => 2,
-            &GuiAudioNodeType::FastBandpass { .. } => 2,
-            &GuiAudioNodeType::SVF { .. } => 2,
-            &GuiAudioNodeType::MixMono { .. } => 1,
-            &GuiAudioNodeType::MixStereo { .. } => 2,
-            &GuiAudioNodeType::Sampler { .. } => 2,
-            &GuiAudioNodeType::Freeverb { .. } => 2,
-            &GuiAudioNodeType::ConvolutionMono { .. } => 1,
-            &GuiAudioNodeType::ConvolutionStereo { .. } => 2,
+        match self.node {
+            GuiAudioNodeType::SystemIn => 1,
+            GuiAudioNodeType::SystemOut => 0,
+            GuiAudioNodeType::BeepTest { .. } => 1,
+            GuiAudioNodeType::WhiteNoiseGen { .. } => 1,
+            GuiAudioNodeType::PinkNoiseGen { .. } => 1,
+            GuiAudioNodeType::StereoToMono => 1,
+            GuiAudioNodeType::VolumeMono { .. } => 1,
+            GuiAudioNodeType::VolumeStereo { .. } => 2,
+            GuiAudioNodeType::VolumePan { .. } => 2,
+            GuiAudioNodeType::FastLowpass { .. } => 2,
+            GuiAudioNodeType::FastHighpass { .. } => 2,
+            GuiAudioNodeType::FastBandpass { .. } => 2,
+            GuiAudioNodeType::Svf { .. } => 2,
+            GuiAudioNodeType::MixMono { .. } => 1,
+            GuiAudioNodeType::MixStereo { .. } => 2,
+            GuiAudioNodeType::Sampler { .. } => 2,
+            GuiAudioNodeType::Freeverb { .. } => 2,
+            GuiAudioNodeType::ConvolutionMono { .. } => 1,
+            GuiAudioNodeType::ConvolutionStereo { .. } => 2,
         }
     }
 }
@@ -328,7 +328,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             ui.close_kind(UiKind::Menu);
         }
         if ui.button("SVF").clicked() {
-            let node = self.audio_system.add_node(NodeType::SVF);
+            let node = self.audio_system.add_node(NodeType::Svf);
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
@@ -419,10 +419,10 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
     }
 
     fn has_body(&mut self, node: &GuiAudioNode) -> bool {
-        match node.node {
-            GuiAudioNodeType::SystemIn { .. } | GuiAudioNodeType::SystemOut { .. } => false,
-            _ => true,
-        }
+        !matches!(
+            node.node,
+            GuiAudioNodeType::SystemIn | GuiAudioNodeType::SystemOut
+        )
     }
 
     fn show_body(
@@ -533,7 +533,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
                     params.update_memo(&mut self.audio_system.event_queue(node.id));
                 }
-                GuiAudioNodeType::SVF { params } => {
+                GuiAudioNodeType::Svf { params } => {
                     egui::ComboBox::from_label("filter type")
                         .selected_text(match params.filter_type {
                             SvfType::Lowpass => "Lowpass",
@@ -662,12 +662,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                                     .queue_event_for(node.id, SamplerNode::clear_sample_event());
                             }
 
-                            for sample_index in 0..SAMPLE_PATHS.len() {
+                            for (sample_index, (sample_path, sample)) in SAMPLE_PATHS
+                                .iter()
+                                .zip(self.audio_system.samples.iter())
+                                .enumerate()
+                            {
                                 if ui
                                     .selectable_value(
                                         &mut tmp_selection,
                                         Some(sample_index),
-                                        SAMPLE_PATHS[sample_index].rsplit("/").next().unwrap(),
+                                        sample_path.rsplit("/").next().unwrap(),
                                     )
                                     .clicked()
                                 {
@@ -680,9 +684,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
 
                                     self.audio_system.cx.queue_event_for(
                                         node.id,
-                                        SamplerNode::set_dyn_sample_event(
-                                            self.audio_system.samples[sample_index].clone(),
-                                        ),
+                                        SamplerNode::set_dyn_sample_event(sample.clone()),
                                     );
                                 }
                             }

@@ -1,18 +1,18 @@
 use bevy_platform::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::node::{NodeError, ProcStore};
 use firewheel_core::{
+    StreamInfo,
     channel_config::{ChannelConfig, ChannelCount},
     diff::EventQueue,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
-    StreamInfo,
 };
 use firewheel_core::{
     dsp::volume::Volume,
@@ -37,8 +37,8 @@ use bevy_platform::prelude::Box;
 use bevy_platform::prelude::Vec;
 
 use crate::processor::{
-    profiling::{ProfilerRx, ProfilerTx},
     BufferOutOfSpaceMode, FirewheelProcessorConfig, ProfilingData,
+    profiling::{ProfilerRx, ProfilerTx},
 };
 use crate::{
     error::{ActivateError, RemoveNodeError},
@@ -553,7 +553,7 @@ impl FirewheelContext {
     /// If the context is active, request the context to be deactivated and wait
     /// for the context to be deactivated before returning.
     ///
-    /// If the `timoeout` duration has been reached and the context is still not
+    /// If the `timeout` duration has been reached and the context is still not
     /// deactivated, then an error is returned.
     #[cfg(not(target_family = "wasm"))]
     pub fn deactivate_blocking(
@@ -595,7 +595,7 @@ impl FirewheelContext {
     /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
     /// the system's time (`Instant::now`). (Instead it is based on the amount of data
     /// that has been processed.) For applications where the timing of audio events is
-    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// critical (i.e. a rhythm game), sync the game to this audio clock instead of the
     /// OS's clock (`Instant::now()`).
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
@@ -619,7 +619,7 @@ impl FirewheelContext {
             musical: clock.current_playhead,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: clock.transport_is_playing,
-            update_instant: self.is_active().then(|| clock.update_instant.clone()),
+            update_instant: self.is_active().then_some(clock.update_instant),
         }
     }
 
@@ -636,7 +636,7 @@ impl FirewheelContext {
     /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
     /// the system's time (`Instant::now`). (Instead it is based on the amount of data
     /// that has been processed.) For applications where the timing of audio events is
-    /// critical (i.e. a rythm game), sync the game to this audio clock instead of the
+    /// critical (i.e. a rhythm game), sync the game to this audio clock instead of the
     /// OS's clock (`Instant::now()`).
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
@@ -667,7 +667,7 @@ impl FirewheelContext {
             };
         }
 
-        let update_instant = clock.update_instant.clone();
+        let update_instant = clock.update_instant;
         let delay = update_instant.elapsed();
 
         // Account for the delay between when the clock was last updated and now.
@@ -677,12 +677,10 @@ impl FirewheelContext {
 
         #[cfg(feature = "musical_transport")]
         let musical = clock.current_playhead.map(|musical_time| {
-            if clock.transport_is_playing && self.transport_state.transport.is_some() {
-                self.transport_state
-                    .transport
-                    .as_ref()
-                    .unwrap()
-                    .delta_seconds_from(musical_time, delta_seconds, clock.speed_multiplier)
+            if clock.transport_is_playing
+                && let Some(transport) = &self.transport_state.transport
+            {
+                transport.delta_seconds_from(musical_time, delta_seconds, clock.speed_multiplier)
             } else {
                 musical_time
             }
@@ -716,7 +714,7 @@ impl FirewheelContext {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        self.is_active().then(|| clock.update_instant.clone())
+        self.is_active().then_some(clock.update_instant)
     }
 
     /// Sync the state of the musical transport.
@@ -791,7 +789,7 @@ impl FirewheelContext {
 
     /// Update the firewheel context.
     ///
-    /// This must be called reguarly (i.e. once every frame).
+    /// This must be called regularly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError> {
         self.logger_rx.flush(
             |msg| {
@@ -818,21 +816,21 @@ impl FirewheelContext {
 
         for msg in self.from_processor_rx.pop_iter() {
             match msg {
-                ProcessorToContextMsg::ReturnEventGroup(mut event_group) => {
+                ProcessorToContextMsg::DropEventGroup(mut event_group) => {
                     event_group.clear();
                     self.event_group_pool.push(event_group);
                 }
-                ProcessorToContextMsg::ReturnSchedule(schedule_data) => {
+                ProcessorToContextMsg::DropSchedule(schedule_data) => {
                     let _ = schedule_data;
                 }
                 #[cfg(feature = "musical_transport")]
-                ProcessorToContextMsg::ReturnTransportState(transport_state) => {
+                ProcessorToContextMsg::DropTransportState(transport_state) => {
                     if self.transport_state_alloc_reuse.is_none() {
                         self.transport_state_alloc_reuse = Some(transport_state);
                     }
                 }
                 #[cfg(feature = "scheduled_events")]
-                ProcessorToContextMsg::ReturnClearScheduledEvents(msgs) => {
+                ProcessorToContextMsg::DropClearScheduledEvents(msgs) => {
                     let _ = msgs;
                 }
             }

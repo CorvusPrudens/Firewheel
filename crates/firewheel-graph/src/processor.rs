@@ -1,7 +1,7 @@
 use audioadapter::{Adapter, AdapterMut};
 use bevy_platform::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use core::num::NonZeroU32;
 use ringbuf::traits::Producer;
@@ -13,6 +13,7 @@ use bevy_platform::prelude::{Box, Vec};
 use bevy_platform::time::Instant;
 
 use firewheel_core::{
+    StreamInfo,
     clock::InstantSamples,
     dsp::{
         buffer::ConstSequentialBuffer,
@@ -20,7 +21,6 @@ use firewheel_core::{
     },
     event::{NodeEvent, ProcEventsIndex},
     node::{AudioNodeProcessor, ProcExtra},
-    StreamInfo,
 };
 
 use crate::{
@@ -253,13 +253,14 @@ pub(crate) enum ContextToProcessorMsg {
     ClearScheduledEvents(SmallVec<[ClearScheduledEventsEvent; 1]>),
 }
 
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum ProcessorToContextMsg {
-    ReturnEventGroup(Vec<NodeEvent>),
-    ReturnSchedule(Box<ScheduleHeapData>),
+    DropEventGroup(Vec<NodeEvent>),
+    DropSchedule(Box<ScheduleHeapData>),
     #[cfg(feature = "musical_transport")]
-    ReturnTransportState(Box<TransportState>),
+    DropTransportState(Box<TransportState>),
     #[cfg(feature = "scheduled_events")]
-    ReturnClearScheduledEvents(SmallVec<[ClearScheduledEventsEvent; 1]>),
+    DropClearScheduledEvents(SmallVec<[ClearScheduledEventsEvent; 1]>),
 }
 
 #[cfg(feature = "scheduled_events")]

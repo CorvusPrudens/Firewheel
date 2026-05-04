@@ -1,8 +1,9 @@
 use eframe::App;
 use egui::{
+    Pos2, Rect, Ui,
     emath::RectTransform,
     epaint::{self, PathStroke},
-    pos2, vec2, Pos2, Rect, Ui,
+    pos2, vec2,
 };
 use std::f32::consts::PI;
 
@@ -36,9 +37,9 @@ impl DemoApp {
         };
         let frames = data.frames;
 
-        let mut left_rect = rect.clone();
+        let mut left_rect = rect;
         left_rect.set_height(left_rect.height() / 2.0);
-        let mut right_rect = left_rect.clone();
+        let mut right_rect = left_rect;
         right_rect = right_rect.translate(vec2(0.0, left_rect.height()));
 
         let to_left_rect =
