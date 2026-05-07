@@ -26,7 +26,7 @@ impl SpatialBasicChain {
     ///   the event.
     pub fn set_params(
         &mut self,
-        params: firewheel_nodes::spatial_basic::SpatialBasicNode,
+        params: &firewheel_nodes::spatial_basic::SpatialBasicNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         node_ids: &[NodeID],
         cx: &mut FirewheelContext,
@@ -40,8 +40,8 @@ impl SpatialBasicChain {
         #[cfg(feature = "scheduled_events")]
         let event_queue = &mut cx.event_queue_scheduled(node_id, time);
 
-        self.spatial_basic
-            .diff(&params, PathBuilder::default(), event_queue);
+        params.diff(&self.spatial_basic, PathBuilder::default(), event_queue);
+        self.spatial_basic = *params;
     }
 }
 

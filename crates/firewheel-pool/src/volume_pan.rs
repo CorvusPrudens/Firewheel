@@ -31,7 +31,7 @@ impl VolumePanChain {
     ///   the event.
     pub fn set_params(
         &mut self,
-        params: firewheel_nodes::volume_pan::VolumePanNode,
+        params: &firewheel_nodes::volume_pan::VolumePanNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         node_ids: &[NodeID],
         cx: &mut FirewheelContext,
@@ -43,8 +43,8 @@ impl VolumePanChain {
         #[cfg(feature = "scheduled_events")]
         let event_queue = &mut cx.event_queue_scheduled(node_id, time);
 
-        self.volume_pan
-            .diff(&params, PathBuilder::default(), event_queue);
+        params.diff(&self.volume_pan, PathBuilder::default(), event_queue);
+        self.volume_pan = *params;
     }
 }
 

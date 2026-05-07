@@ -60,7 +60,7 @@ impl App for DemoApp {
                         // you would want to reset the parameters to the desired state when playing
                         // a new sample.
                         fx_chain_state.fx_chain.set_params(
-                            VolumePanNode::default(),
+                            &VolumePanNode::default(),
                             None, // Apply the changes immediately
                             &fx_chain_state.node_ids,
                             cx,
