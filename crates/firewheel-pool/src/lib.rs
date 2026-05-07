@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use core::num::NonZeroUsize;
+
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
@@ -20,7 +22,9 @@ mod sampler;
 #[cfg(feature = "sampler")]
 pub use sampler::SamplerPool;
 
+mod volume;
 mod volume_pan;
+pub use volume::VolumeChain;
 pub use volume_pan::VolumePanChain;
 
 #[cfg(feature = "spatial_basic")]
@@ -35,9 +39,16 @@ pub type SamplerPoolSpatialBasic = AudioNodePool<SamplerPool, SpatialBasicChain>
 
 /// A trait describing an "FX chain" for use in an [`AudioNodePool`].
 pub trait FxChain: Default {
+    /// The one-time configuration for constructing a new instance of this fx chain.
+    ///
+    /// When no configuration is required, [`EmptyConfig`](firewheel_core::node::EmptyConfig)
+    /// should be used.
+    type Configuration: Default;
+
     /// Construct the nodes in the FX chain and connect them, returning a list of the
     /// new node ids.
     ///
+    /// * `config` - The configuration of this fx chain instance.
     /// * `first_node_id` - The ID of the first node in this fx chain instance.
     /// * `first_node_num_out_channels` - The number of output channels in the first node.
     /// * `dst_node_id` - The ID of the node that the last node in this FX chain should
@@ -46,12 +57,13 @@ pub trait FxChain: Default {
     /// * `cx` - The firewheel context.
     fn construct_and_connect(
         &mut self,
+        configuration: &Self::Configuration,
         first_node_id: NodeID,
         first_node_num_out_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
         cx: &mut FirewheelContext,
-    ) -> Vec<NodeID>;
+    ) -> Result<Vec<NodeID>, NodeError>;
 }
 
 struct Worker<N: PoolableNode, FX: FxChain> {
@@ -148,36 +160,41 @@ where
     ///   overhead. A value of `16` is a good place to start.
     /// * `first_node` - The state of the first node in each FX chain instance.
     /// * `first_node_config` - The configuration of the first node in each FX chain instance.
+    ///   Set to `None` to use the default configuration.
+    /// * `fx_chain_config` - The configuration of each fx chain instance. Set to `None` to
+    ///   use the default configuration.
     /// * `first_node_num_out_channels` - The number of output channels in the first node.
     /// * `dst_node_id` - The ID of the node that the last effect in each fx chain instance
     ///   will connect to.
     /// * `dst_num_channels` - The number of input channels in `dst_node_id`.
     /// * `cx` - The firewheel context.
     pub fn new(
-        num_workers: usize,
+        num_workers: NonZeroUsize,
         first_node: N::AudioNode,
         first_node_config: Option<<N::AudioNode as AudioNode>::Configuration>,
+        fx_chain_config: Option<FX::Configuration>,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
         cx: &mut FirewheelContext,
     ) -> Result<Self, NodeError> {
-        assert_ne!(num_workers, 0);
-
         let first_node_num_out_channels = N::num_output_channels(first_node_config.as_ref());
 
-        let workers: Result<Vec<Worker<N, FX>>, NodeError> = (0..num_workers)
+        let fx_chain_config = fx_chain_config.unwrap_or_default();
+
+        let workers: Result<Vec<Worker<N, FX>>, NodeError> = (0..num_workers.get())
             .map(|_| {
                 let first_node_id = cx.add_node(first_node.clone(), first_node_config.clone())?;
 
                 let mut fx_chain = FX::default();
 
                 let fx_ids = fx_chain.construct_and_connect(
+                    &fx_chain_config,
                     first_node_id,
                     first_node_num_out_channels,
                     dst_node_id,
                     dst_num_channels,
                     cx,
-                );
+                )?;
 
                 Ok(Worker {
                     first_node_params: first_node.clone(),
@@ -195,7 +212,7 @@ where
 
         Ok(Self {
             workers: workers?,
-            worker_ids: Arena::with_capacity(num_workers),
+            worker_ids: Arena::with_capacity(num_workers.get()),
             num_active_workers: 0,
         })
     }
@@ -217,7 +234,7 @@ where
     /// * `cx` - The Firewheel context.
     /// * `first_node` - A closure to send additional events to the first node, such
     ///   as setting the sample resource.
-    /// * `fx_chain` - A closure to add additional nodes to this worker instance.
+    /// * `fx_chain` - A closure to send events to the fx chain in this worker instance.
     ///
     /// This will return an error if `params.playback == PlaybackState::Stop`.
     pub fn new_worker(
@@ -306,6 +323,9 @@ where
     ///   is `None`, then the parameters will take effect as soon as the node receives
     ///   the event.
     /// * `cx` - The Firewheel context
+    /// * `first_node` - A closure to send additional events to the first node, such
+    ///   as setting the sample resource.
+    /// * `fx_chain` - A closure to send events to the fx chain in this worker instance.
     ///
     /// If the parameters signify that the sequence is stopped, then this worker
     /// will be removed and the `worker_id` will be invalidated.
@@ -317,6 +337,8 @@ where
         params: &N::AudioNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         cx: &mut FirewheelContext,
+        first_node: impl FnOnce(&mut ContextQueue),
+        fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
     ) -> bool {
         let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
             return false;
@@ -331,7 +353,11 @@ where
 
         N::diff(&worker.first_node_params, params, &mut event_queue);
 
+        (first_node)(&mut event_queue);
+
         worker.first_node_params = params.clone();
+
+        (fx_chain)(&mut worker.fx_state, cx);
 
         if N::params_stopped(params) {
             self.worker_ids.remove(worker_id.0);

@@ -1062,6 +1062,105 @@ impl FirewheelContext {
             .connect(src_node, dst_node, ports_src_dst, check_for_cycles)
     }
 
+    /// Connect two nodes in the graph, connecting output port 0 to input port
+    /// 0, output port 1 to input port 1, etc.
+    ///
+    /// If the number of output ports on `src_node` does not equal the number
+    /// of input ports on `dst_node`, then only the first valid ports will be
+    /// connected.
+    pub fn auto_connect(
+        &mut self,
+        src_node: NodeID,
+        dst_node: NodeID,
+        check_for_cycles: bool,
+    ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
+        let num_src_out_ports = self
+            .node_info(src_node)
+            .ok_or(AddEdgeError::SrcNodeNotFound(src_node))?
+            .info
+            .channel_config
+            .num_outputs
+            .get();
+        let num_dst_in_ports = self
+            .node_info(dst_node)
+            .ok_or(AddEdgeError::DstNodeNotFound(dst_node))?
+            .info
+            .channel_config
+            .num_inputs
+            .get();
+        let num_connect_ports = num_src_out_ports.min(num_dst_in_ports);
+
+        let ports_src_dst: SmallVec<[(u32, u32); 4]> =
+            (0..num_connect_ports).map(|i| (i, i)).collect();
+
+        self.graph
+            .connect(src_node, dst_node, &ports_src_dst, check_for_cycles)
+    }
+
+    /// Connect the first two output ports of a node to the first two input
+    /// ports of a second node.
+    ///
+    /// * `src_node` - The ID of the source node.
+    /// * `dst_node` - The ID of the destination node.
+    /// * `check_for_cycles` - If `true`, then this will run a check to
+    ///   see if adding these edges will create a cycle in the graph, and
+    ///   return an error if it does. Note, checking for cycles can be quite
+    ///   expensive, so avoid enabling this when calling this method many times
+    ///   in a row.
+    ///
+    /// ## Behavior
+    ///
+    /// * If `num_out_ports_on_src_node >= 2 && num_in_ports_on_dst_node >= 2`,
+    ///   then src port 0 will be connected to dst port 0, and src port 1 will be
+    ///   connected to dst port 1.
+    /// * If `num_out_ports_on_src_node == 1 && num_in_ports_on_dst_node >= 2`,
+    ///   then src port 0 will be connected to both dst port 0 and dst port 1.
+    /// * In all other cases, an error will be returned. (Note that converting
+    ///   a stereo signal into a mono signal should be done with the
+    ///   `StereoToMonoNode`.)
+    pub fn connect_stereo(
+        &mut self,
+        src_node: NodeID,
+        dst_node: NodeID,
+        check_for_cycles: bool,
+    ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
+        let num_src_out_ports = self
+            .node_info(src_node)
+            .ok_or(AddEdgeError::SrcNodeNotFound(src_node))?
+            .info
+            .channel_config
+            .num_outputs;
+        let num_dst_in_ports = self
+            .node_info(dst_node)
+            .ok_or(AddEdgeError::DstNodeNotFound(dst_node))?
+            .info
+            .channel_config
+            .num_inputs;
+
+        let ports_src_dst = if num_src_out_ports.get() >= 2 && num_dst_in_ports.get() >= 2 {
+            &[(0, 0), (1, 1)]
+        } else if num_src_out_ports.get() == 1 && num_dst_in_ports.get() >= 2 {
+            &[(0, 0), (0, 1)]
+        } else {
+            return Err(if num_dst_in_ports.get() < 2 {
+                AddEdgeError::InPortOutOfRange {
+                    node: dst_node,
+                    port_idx: 1,
+                    num_in_ports: num_dst_in_ports,
+                }
+            } else {
+                AddEdgeError::InPortOutOfRange {
+                    node: src_node,
+                    port_idx: 0,
+                    num_in_ports: num_src_out_ports,
+                }
+            });
+        };
+
+        self.graph
+            .connect(src_node, dst_node, ports_src_dst, check_for_cycles)
+    }
+
     /// Remove connections (edges) between two nodes from the graph.
     ///
     /// * `src_node` - The ID of the source node.

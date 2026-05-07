@@ -1,8 +1,11 @@
+use std::num::NonZeroUsize;
+
 use firewheel::{
     channel_config::NonZeroChannelCount,
     collector::ArcGc,
     cpal::CpalStream,
     diff::Memo,
+    node::{EmptyConfig, NodeError},
     nodes::{
         sampler::SamplerNode,
         volume::{VolumeNode, VolumeNodeConfig},
@@ -40,9 +43,10 @@ impl AudioSystem {
         let graph_out = cx.graph_out_node_id();
 
         let sampler_pool_1 = SamplerPoolVolumePan::new(
-            NUM_WORKERS,                 // The number of workers to create in this pool.
-            SamplerNode::default(),      // Use the default sampler node parameters.
-            None,                        // Use the default configuration.
+            NonZeroUsize::new(NUM_WORKERS).unwrap(), // The number of workers to create in this pool.
+            SamplerNode::default(),                  // Use the default sampler node parameters.
+            None,                                    // Use the default sampler node configuration.
+            None,                                    // Use the default fx chain configuration.
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
@@ -50,9 +54,10 @@ impl AudioSystem {
         .expect("Sampler pool should construct without error");
 
         let sampler_pool_2 = AudioNodePool::new(
-            NUM_WORKERS,                 // The number of workers to create in this pool.
-            SamplerNode::default(),      // Use the default sampler node parameters.
-            None,                        // Use the default configuration.
+            NonZeroUsize::new(NUM_WORKERS).unwrap(), // The number of workers to create in this pool.
+            SamplerNode::default(),                  // Use the default sampler node parameters.
+            None,                                    // Use the default sampler node configuration.
+            None,                                    // Use the default fx chain configuration.
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
@@ -127,8 +132,14 @@ pub struct MyCustomChain {
 }
 
 impl FxChain for MyCustomChain {
+    /// The one-time configuration for constructing a new instance of this fx chain.
+    ///
+    /// When no configuration is required, `EmptyConfig` should be used.
+    type Configuration = EmptyConfig;
+
     fn construct_and_connect(
         &mut self,
+        _configuration: &Self::Configuration,
         // The ID of the sampler node in this worker instance.
         sampler_node_id: firewheel::node::NodeID,
         // The number of channels in the sampler node.
@@ -140,25 +151,21 @@ impl FxChain for MyCustomChain {
         dst_num_channels: NonZeroChannelCount,
         // The firewheel context.
         cx: &mut FirewheelContext,
-    ) -> Vec<firewheel::node::NodeID> {
+    ) -> Result<Vec<firewheel::node::NodeID>, NodeError> {
         // In this example we only support stereo, but you can have your FX
         // chain support multiple channel configurations.
         assert_eq!(sampler_num_channels, NonZeroChannelCount::STEREO);
         assert_eq!(dst_num_channels, NonZeroChannelCount::STEREO);
 
-        let stereo_to_mono_node_id = cx
-            .add_node(StereoToMonoNode, None)
-            .expect("Stereo to mono node should construct without error");
+        let stereo_to_mono_node_id = cx.add_node(StereoToMonoNode, None)?;
 
         let volume_params = VolumeNode::default();
-        let volume_node_id = cx
-            .add_node(
-                volume_params,
-                Some(VolumeNodeConfig {
-                    channels: NonZeroChannelCount::MONO,
-                }),
-            )
-            .expect("Volume node should construct without error");
+        let volume_node_id = cx.add_node(
+            volume_params,
+            Some(VolumeNodeConfig {
+                channels: NonZeroChannelCount::MONO,
+            }),
+        )?;
 
         // Connect the sampler node to the stereo_to_mono node.
         cx.connect(
@@ -166,18 +173,15 @@ impl FxChain for MyCustomChain {
             stereo_to_mono_node_id,
             &[(0, 0), (1, 1)],
             false,
-        )
-        .unwrap();
+        )?;
 
         // Connect the stereo_to_mono node to the volume node.
-        cx.connect(stereo_to_mono_node_id, volume_node_id, &[(0, 0)], false)
-            .unwrap();
+        cx.connect(stereo_to_mono_node_id, volume_node_id, &[(0, 0)], false)?;
 
         // Connect the volume node to the destination node.
-        cx.connect(volume_node_id, dst_node_id, &[(0, 0), (0, 1)], false)
-            .unwrap();
+        cx.connect(volume_node_id, dst_node_id, &[(0, 0), (0, 1)], false)?;
 
         // Return the list of node IDs in this FX chain.
-        vec![stereo_to_mono_node_id, volume_node_id]
+        Ok(vec![stereo_to_mono_node_id, volume_node_id])
     }
 }

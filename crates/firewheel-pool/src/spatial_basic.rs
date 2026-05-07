@@ -4,17 +4,22 @@ use bevy_platform::prelude::{Vec, vec};
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
 
-use firewheel_core::{channel_config::NonZeroChannelCount, diff::Diff, node::NodeID};
+use firewheel_core::{
+    channel_config::NonZeroChannelCount,
+    diff::Diff,
+    node::{EmptyConfig, NodeError, NodeID},
+};
 use firewheel_graph::FirewheelContext;
+use firewheel_nodes::spatial_basic::SpatialBasicNode;
 
 use crate::FxChain;
 
 /// A default [`FxChain`] for 3D game audio.
 ///
-/// This chain contains a single `SpatialBasic` node.
+/// This chain contains a single [`SpatialBasicNode`]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct SpatialBasicChain {
-    pub spatial_basic: firewheel_nodes::spatial_basic::SpatialBasicNode,
+    pub spatial_basic: SpatialBasicNode,
 }
 
 impl SpatialBasicChain {
@@ -26,7 +31,7 @@ impl SpatialBasicChain {
     ///   the event.
     pub fn set_params(
         &mut self,
-        params: &firewheel_nodes::spatial_basic::SpatialBasicNode,
+        params: &SpatialBasicNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         node_ids: &[NodeID],
         cx: &mut FirewheelContext,
@@ -46,19 +51,19 @@ impl SpatialBasicChain {
 }
 
 impl FxChain for SpatialBasicChain {
+    type Configuration = EmptyConfig;
+
     fn construct_and_connect(
         &mut self,
+        _configuration: &Self::Configuration,
         first_node_id: NodeID,
         first_node_num_out_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
         cx: &mut FirewheelContext,
-    ) -> Vec<NodeID> {
+    ) -> Result<Vec<NodeID>, NodeError> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
-
-        let spatial_basic_node_id = cx
-            .add_node(spatial_basic_params, None)
-            .expect("Spatial basic node should construct without error");
+        let spatial_basic_node_id = cx.add_node(spatial_basic_params, None)?;
 
         cx.connect(
             first_node_id,
@@ -69,8 +74,7 @@ impl FxChain for SpatialBasicChain {
                 &[(0, 0), (1, 1)]
             },
             false,
-        )
-        .unwrap();
+        )?;
 
         cx.connect(
             spatial_basic_node_id,
@@ -81,9 +85,8 @@ impl FxChain for SpatialBasicChain {
                 &[(0, 0), (1, 1)]
             },
             false,
-        )
-        .unwrap();
+        )?;
 
-        vec![spatial_basic_node_id]
+        Ok(vec![spatial_basic_node_id])
     }
 }

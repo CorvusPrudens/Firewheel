@@ -10,19 +10,19 @@ use firewheel_core::{
     node::{EmptyConfig, NodeError, NodeID},
 };
 use firewheel_graph::FirewheelContext;
-use firewheel_nodes::{volume::VolumeNodeConfig, volume_pan::VolumePanNode};
+use firewheel_nodes::volume::{VolumeNode, VolumeNodeConfig};
 
 use crate::FxChain;
 
-/// A default [`FxChain`] for 2D game audio.
+/// A default [`FxChain`] for with a single [`VolumeNode`].
 ///
-/// This chain contains a single [`VolumePanNode`].
+/// This works with any number of channels.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct VolumePanChain {
-    pub volume_pan: VolumePanNode,
+pub struct VolumeChain {
+    pub volume_node: VolumeNode,
 }
 
-impl VolumePanChain {
+impl VolumeChain {
     /// Set the parameters of the volume pan node.
     ///
     /// * `params` - The new parameters.
@@ -31,7 +31,7 @@ impl VolumePanChain {
     ///   the event.
     pub fn set_params(
         &mut self,
-        params: &firewheel_nodes::volume_pan::VolumePanNode,
+        params: &VolumeNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         node_ids: &[NodeID],
         cx: &mut FirewheelContext,
@@ -43,12 +43,12 @@ impl VolumePanChain {
         #[cfg(feature = "scheduled_events")]
         let event_queue = &mut cx.event_queue_scheduled(node_id, time);
 
-        params.diff(&self.volume_pan, PathBuilder::default(), event_queue);
-        self.volume_pan = *params;
+        params.diff(&self.volume_node, PathBuilder::default(), event_queue);
+        self.volume_node = *params;
     }
 }
 
-impl FxChain for VolumePanChain {
+impl FxChain for VolumeChain {
     type Configuration = EmptyConfig;
 
     fn construct_and_connect(
@@ -57,39 +57,20 @@ impl FxChain for VolumePanChain {
         first_node_id: NodeID,
         first_node_num_out_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
-        dst_num_channels: NonZeroChannelCount,
+        _dst_num_channels: NonZeroChannelCount,
         cx: &mut FirewheelContext,
     ) -> Result<Vec<NodeID>, NodeError> {
-        let volume_pan_params = VolumePanNode::default();
-        let volume_pan_node_id = cx.add_node(
-            volume_pan_params,
+        let volume_params = VolumeNode::default();
+        let volume_node_id = cx.add_node(
+            volume_params,
             Some(VolumeNodeConfig {
-                channels: NonZeroChannelCount::STEREO,
+                channels: first_node_num_out_channels,
             }),
         )?;
 
-        cx.connect(
-            first_node_id,
-            volume_pan_node_id,
-            if first_node_num_out_channels.get().get() == 1 {
-                &[(0, 0), (0, 1)]
-            } else {
-                &[(0, 0), (1, 1)]
-            },
-            false,
-        )?;
+        cx.auto_connect(first_node_id, volume_node_id, false)?;
+        cx.auto_connect(volume_node_id, dst_node_id, false)?;
 
-        cx.connect(
-            volume_pan_node_id,
-            dst_node_id,
-            if dst_num_channels.get().get() == 1 {
-                &[(0, 0), (1, 0)]
-            } else {
-                &[(0, 0), (1, 1)]
-            },
-            false,
-        )?;
-
-        Ok(vec![volume_pan_node_id])
+        Ok(vec![volume_node_id])
     }
 }

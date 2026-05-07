@@ -50,7 +50,7 @@ impl Default for NodeID {
 
 /// Trait-based catchall error type for node trait methods
 #[derive(Debug)]
-pub struct NodeError(Box<dyn Error>);
+pub struct NodeError(pub Box<dyn Error>);
 
 impl NodeError {
     pub const fn from_boxed(error: Box<dyn Error>) -> Self {
@@ -70,6 +70,12 @@ where
 impl fmt::Display for NodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Node Error: {}", self.0)
+    }
+}
+
+impl From<NodeError> for Box<dyn Error> {
+    fn from(value: NodeError) -> Self {
+        value.0
     }
 }
 
