@@ -393,9 +393,15 @@ impl SamplerNode {
 
     /// Returns an event type to sync the `play` parameter.
     pub fn sync_play_event(&self) -> NodeEventType {
+        // Diff for Notify<bool> is defined here:
+        // https://github.com/BillyDM/Firewheel/blob/380806ce61b3a417eb676a4fd8640da49905ec23/crates/firewheel-core/src/diff/leaf.rs#L247
+        let mut bytes: [u8; 20] = [0; 20];
+        bytes[0..8].copy_from_slice(&self.play.id().to_ne_bytes());
+        bytes[8] = *self.play as u8;
+
         NodeEventType::Param {
             // TODO: This is not how `Patch` for `Notify<bool>` is implemented.
-            data: ParamData::Bool(*self.play),
+            data: ParamData::CustomBytes(bytes),
             path: ParamPath::Single(1),
         }
     }
