@@ -1,10 +1,9 @@
 use firewheel_core::{
-    channel_config::NonZeroChannelCount,
     diff::{Diff, PathBuilder},
     node::NodeID,
 };
 use firewheel_graph::{ContextQueue, FirewheelContext};
-use firewheel_nodes::sampler::{SamplerConfig, SamplerNode, SamplerState};
+use firewheel_nodes::sampler::{SamplerNode, SamplerState};
 
 use crate::{PoolError, PoolableNode};
 
@@ -15,13 +14,6 @@ pub struct SamplerPool;
 
 impl PoolableNode for SamplerPool {
     type AudioNode = SamplerNode;
-
-    /// Return the number of output channels for the given configuration.
-    fn num_output_channels(config: Option<&SamplerConfig>) -> NonZeroChannelCount {
-        config
-            .map(|c| c.channels)
-            .unwrap_or(SamplerConfig::default().channels)
-    }
 
     /// Return `true` if the given parameters signify that the sequence is stopped,
     /// `false` otherwise.

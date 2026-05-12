@@ -47,6 +47,7 @@ pub(crate) struct AudioGraph {
 
     graph_in_id: NodeID,
     graph_out_id: NodeID,
+    graph_channel_config: ChannelConfig,
     needs_compile: bool,
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
@@ -54,6 +55,8 @@ pub(crate) struct AudioGraph {
     nodes_to_call_update_method: Vec<NodeID>,
 
     prev_node_arena_capacity: usize,
+
+    modify_guard_stack: Vec<ModifyGraphGuard>,
 }
 
 impl AudioGraph {
@@ -101,6 +104,10 @@ impl AudioGraph {
             existing_edges: HashMap::with_capacity(config.initial_edge_capacity as usize),
             graph_in_id,
             graph_out_id,
+            graph_channel_config: ChannelConfig {
+                num_inputs: config.num_graph_inputs,
+                num_outputs: config.num_graph_outputs,
+            },
             needs_compile: true,
             nodes_to_remove_from_schedule: Vec::with_capacity(
                 config.initial_node_capacity as usize,
@@ -108,7 +115,68 @@ impl AudioGraph {
             active_nodes_to_remove: HashMap::with_capacity(config.initial_node_capacity as usize),
             nodes_to_call_update_method: Vec::new(),
             prev_node_arena_capacity: 0,
+            modify_guard_stack: Vec::new(),
         }
+    }
+
+    pub fn begin_modify_guard(&mut self) {
+        self.modify_guard_stack.push(ModifyGraphGuard {
+            prev_needs_compile: self.needs_compile,
+            prev_graph_channel_config: self.graph_channel_config,
+            ..Default::default()
+        });
+    }
+
+    pub fn end_modify_guard(&mut self, restore_prev_state: bool) {
+        let Some(mut guard) = self.modify_guard_stack.pop() else {
+            return;
+        };
+
+        if !restore_prev_state {
+            for node_entry in guard.removed_nodes.drain(..) {
+                self.nodes_to_remove_from_schedule.push(node_entry.id);
+                self.active_nodes_to_remove
+                    .insert(node_entry.id, node_entry);
+            }
+
+            return;
+        }
+
+        for edge_id in guard.new_edges.drain(..) {
+            let _ = self.disconnect_by_edge_id(edge_id, true);
+        }
+
+        for node_id in guard.new_nodes.drain(..) {
+            assert!(self.remove_node(node_id, true).unwrap().is_empty());
+        }
+
+        if guard.prev_graph_channel_config != self.graph_channel_config {
+            assert!(
+                self.set_graph_channel_config(guard.prev_graph_channel_config, true)
+                    .is_empty()
+            );
+        }
+
+        for node_entry in guard.removed_nodes.drain(..) {
+            if node_entry.info.call_update_method {
+                self.nodes_to_call_update_method.push(node_entry.id);
+            }
+
+            assert!(self.nodes.insert_at(node_entry.id.0, node_entry).is_none());
+        }
+
+        for edge in guard.removed_edges.drain(..) {
+            self.connect(
+                edge.src_node,
+                edge.dst_node,
+                &[(edge.src_port, edge.dst_port)],
+                false,
+                true,
+            )
+            .unwrap();
+        }
+
+        self.needs_compile = guard.prev_needs_compile;
     }
 
     /// The ID of the graph input node
@@ -143,6 +211,10 @@ impl AudioGraph {
 
         self.needs_compile = true;
 
+        if let Some(guard) = self.modify_guard_stack.last_mut() {
+            guard.new_nodes.push(new_id);
+        }
+
         Ok(new_id)
     }
 
@@ -163,6 +235,10 @@ impl AudioGraph {
 
         self.needs_compile = true;
 
+        if let Some(guard) = self.modify_guard_stack.last_mut() {
+            guard.new_nodes.push(new_id);
+        }
+
         Ok(new_id)
     }
 
@@ -179,7 +255,8 @@ impl AudioGraph {
     pub fn remove_node(
         &mut self,
         node_id: NodeID,
-    ) -> Result<SmallVec<[EdgeID; 4]>, RemoveNodeError> {
+        is_restoring_graph_state: bool,
+    ) -> Result<SmallVec<[Edge; 4]>, RemoveNodeError> {
         if node_id == self.graph_in_id {
             return Err(RemoveNodeError::CannotRemoveGraphInNode);
         }
@@ -194,16 +271,28 @@ impl AudioGraph {
         };
 
         for port_idx in 0..node_entry.info.channel_config.num_inputs.get() {
-            removed_edges.append(&mut self.remove_edges_with_input_port(node_id, port_idx));
+            removed_edges.append(&mut self.remove_edges_with_input_port(
+                node_id,
+                port_idx,
+                is_restoring_graph_state,
+            ));
         }
         for port_idx in 0..node_entry.info.channel_config.num_outputs.get() {
-            removed_edges.append(&mut self.remove_edges_with_output_port(node_id, port_idx));
+            removed_edges.append(&mut self.remove_edges_with_output_port(
+                node_id,
+                port_idx,
+                is_restoring_graph_state,
+            ));
         }
 
-        self.nodes_to_remove_from_schedule.push(node_id);
-        self.active_nodes_to_remove.insert(node_id, node_entry);
-
         self.needs_compile = true;
+
+        if !is_restoring_graph_state && let Some(guard) = self.modify_guard_stack.last_mut() {
+            guard.removed_nodes.push(node_entry);
+        } else {
+            self.nodes_to_remove_from_schedule.push(node_id);
+            self.active_nodes_to_remove.insert(node_id, node_entry);
+        }
 
         Ok(removed_edges)
     }
@@ -258,7 +347,8 @@ impl AudioGraph {
     pub fn set_graph_channel_config(
         &mut self,
         channel_config: ChannelConfig,
-    ) -> SmallVec<[EdgeID; 4]> {
+        is_restoring_graph_state: bool,
+    ) -> SmallVec<[Edge; 4]> {
         let mut removed_edges = SmallVec::new();
 
         let graph_in_node = self.nodes.get_mut(self.graph_in_id.0).unwrap();
@@ -268,9 +358,11 @@ impl AudioGraph {
 
             if channel_config.num_inputs < old_num_inputs {
                 for port_idx in channel_config.num_inputs.get()..old_num_inputs.get() {
-                    removed_edges.append(
-                        &mut self.remove_edges_with_output_port(self.graph_in_id, port_idx),
-                    );
+                    removed_edges.append(&mut self.remove_edges_with_output_port(
+                        self.graph_in_id,
+                        port_idx,
+                        is_restoring_graph_state,
+                    ));
                 }
             }
 
@@ -285,14 +377,18 @@ impl AudioGraph {
 
             if channel_config.num_outputs < old_num_outputs {
                 for port_idx in channel_config.num_outputs.get()..old_num_outputs.get() {
-                    removed_edges.append(
-                        &mut self.remove_edges_with_input_port(self.graph_out_id, port_idx),
-                    );
+                    removed_edges.append(&mut self.remove_edges_with_input_port(
+                        self.graph_out_id,
+                        port_idx,
+                        is_restoring_graph_state,
+                    ));
                 }
             }
 
             self.needs_compile = true;
         }
+
+        self.graph_channel_config = channel_config;
 
         removed_edges
     }
@@ -320,6 +416,7 @@ impl AudioGraph {
         dst_node: NodeID,
         ports_src_dst: &[(PortIdx, PortIdx)],
         check_for_cycles: bool,
+        is_restoring_graph_state: bool,
     ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
         let src_node_entry = self
             .nodes
@@ -387,9 +484,14 @@ impl AudioGraph {
         }
 
         if check_for_cycles && self.cycle_detected() {
-            self.disconnect(src_node, dst_node, ports_src_dst);
+            for edge_id in edge_ids {
+                self.disconnect_by_edge_id(edge_id, true);
+            }
 
             return Err(AddEdgeError::CycleDetected);
+        } else if !is_restoring_graph_state && let Some(guard) = self.modify_guard_stack.last_mut()
+        {
+            guard.new_edges.extend_from_slice(&edge_ids);
         }
 
         self.needs_compile = true;
@@ -405,15 +507,14 @@ impl AudioGraph {
     ///   where the first value in a tuple is the output port on `src_node`,
     ///   and the second value in that tuple is the input port on `dst_node`.
     ///
-    /// If none of the edges existed in the graph, then `false` will be
-    /// returned.
+    /// Returns the list of edges that were successfully removed.
     pub fn disconnect(
         &mut self,
         src_node: NodeID,
         dst_node: NodeID,
         ports_src_dst: &[(PortIdx, PortIdx)],
-    ) -> bool {
-        let mut any_removed = false;
+    ) -> SmallVec<[Edge; 4]> {
+        let mut removed_edges = SmallVec::new();
 
         for (src_port, dst_port) in ports_src_dst.iter().copied() {
             if let Some(edge_id) = self.existing_edges.remove(&EdgeHash {
@@ -422,12 +523,18 @@ impl AudioGraph {
                 dst_node,
                 dst_port,
             }) {
-                self.disconnect_by_edge_id(edge_id);
-                any_removed = true;
+                self.disconnect_by_edge_id(edge_id, false);
+                removed_edges.push(Edge {
+                    id: edge_id,
+                    src_node,
+                    dst_node,
+                    src_port,
+                    dst_port,
+                });
             }
         }
 
-        any_removed
+        removed_edges
     }
 
     /// Remove all connections (edges) between two nodes in the graph.
@@ -438,21 +545,21 @@ impl AudioGraph {
         &mut self,
         src_node: NodeID,
         dst_node: NodeID,
-    ) -> SmallVec<[EdgeID; 4]> {
+    ) -> SmallVec<[Edge; 4]> {
         let mut removed_edges = SmallVec::new();
 
         if !self.nodes.contains(src_node.0) || !self.nodes.contains(dst_node.0) {
             return removed_edges;
         };
 
-        for (edge_id, edge) in self.edges.iter() {
+        for (_, edge) in self.edges.iter() {
             if edge.src_node == src_node && edge.dst_node == dst_node {
-                removed_edges.push(EdgeID(edge_id));
+                removed_edges.push(*edge);
             }
         }
 
-        for &edge_id in removed_edges.iter() {
-            self.disconnect_by_edge_id(edge_id);
+        for &edge in removed_edges.iter() {
+            let _ = self.disconnect_by_edge_id(edge.id, false);
         }
 
         removed_edges
@@ -460,8 +567,12 @@ impl AudioGraph {
 
     /// Remove a connection (edge) via the edge's unique ID.
     ///
-    /// If the edge did not exist in this graph, then `false` will be returned.
-    pub fn disconnect_by_edge_id(&mut self, edge_id: EdgeID) -> bool {
+    /// If the edge did not exist in this graph, then `None` will be returned.
+    pub fn disconnect_by_edge_id(
+        &mut self,
+        edge_id: EdgeID,
+        is_restoring_graph_state: bool,
+    ) -> Option<Edge> {
         if let Some(edge) = self.edges.remove(edge_id.0) {
             self.existing_edges.remove(&EdgeHash {
                 src_node: edge.src_node,
@@ -472,9 +583,13 @@ impl AudioGraph {
 
             self.needs_compile = true;
 
-            true
+            if !is_restoring_graph_state && let Some(guard) = self.modify_guard_stack.last_mut() {
+                guard.removed_edges.push(edge);
+            }
+
+            Some(edge)
         } else {
-            false
+            None
         }
     }
 
@@ -487,18 +602,19 @@ impl AudioGraph {
         &mut self,
         node_id: NodeID,
         port_idx: PortIdx,
-    ) -> SmallVec<[EdgeID; 4]> {
-        let mut edges_to_remove = SmallVec::new();
+        is_restoring_graph_state: bool,
+    ) -> SmallVec<[Edge; 4]> {
+        let mut edges_to_remove: SmallVec<[Edge; 4]> = SmallVec::new();
 
         // Remove all existing edges which have this port.
-        for (edge_id, edge) in self.edges.iter() {
+        for (_, edge) in self.edges.iter() {
             if edge.dst_node == node_id && edge.dst_port == port_idx {
-                edges_to_remove.push(EdgeID(edge_id));
+                edges_to_remove.push(*edge);
             }
         }
 
-        for edge_id in edges_to_remove.iter() {
-            self.disconnect_by_edge_id(*edge_id);
+        for edge in edges_to_remove.iter() {
+            self.disconnect_by_edge_id(edge.id, is_restoring_graph_state);
         }
 
         edges_to_remove
@@ -508,18 +624,19 @@ impl AudioGraph {
         &mut self,
         node_id: NodeID,
         port_idx: PortIdx,
-    ) -> SmallVec<[EdgeID; 4]> {
-        let mut edges_to_remove = SmallVec::new();
+        is_restoring_graph_state: bool,
+    ) -> SmallVec<[Edge; 4]> {
+        let mut edges_to_remove: SmallVec<[Edge; 4]> = SmallVec::new();
 
         // Remove all existing edges which have this port.
-        for (edge_id, edge) in self.edges.iter() {
+        for (_, edge) in self.edges.iter() {
             if edge.src_node == node_id && edge.src_port == port_idx {
-                edges_to_remove.push(EdgeID(edge_id));
+                edges_to_remove.push(*edge);
             }
         }
 
-        for edge_id in edges_to_remove.iter() {
-            self.disconnect_by_edge_id(*edge_id);
+        for edge in edges_to_remove.iter() {
+            self.disconnect_by_edge_id(edge.id, is_restoring_graph_state);
         }
 
         edges_to_remove

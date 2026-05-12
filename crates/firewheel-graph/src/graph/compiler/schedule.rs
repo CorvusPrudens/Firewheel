@@ -914,7 +914,9 @@ mod tests {
         let node0 = graph.graph_in_node();
         let node1 = graph.graph_out_node();
 
-        let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
+        let edge0 = graph
+            .connect(node0, node1, &[(0, 0)], false, false)
+            .unwrap()[0];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -965,19 +967,37 @@ mod tests {
         let node5 = add_dummy_node(&mut graph, (5, 2)).unwrap();
         let node6 = graph.graph_out_node();
 
-        let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
-        let edge1 = graph.connect(node0, node2, &[(1, 0)], false).unwrap()[0];
-        let edge2 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
-        let edge3 = graph.connect(node1, node4, &[(1, 1)], false).unwrap()[0];
-        let edge4 = graph.connect(node3, node5, &[(0, 0)], false).unwrap()[0];
-        let edge5 = graph.connect(node3, node5, &[(1, 1)], false).unwrap()[0];
-        let edge6 = graph.connect(node4, node5, &[(0, 2)], false).unwrap()[0];
-        let edge7 = graph.connect(node4, node5, &[(1, 3)], false).unwrap()[0];
-        let edge8 = graph.connect(node2, node5, &[(0, 4)], false).unwrap()[0];
+        let edge0 = graph
+            .connect(node0, node1, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge1 = graph
+            .connect(node0, node2, &[(1, 0)], false, false)
+            .unwrap()[0];
+        let edge2 = graph
+            .connect(node1, node3, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge3 = graph
+            .connect(node1, node4, &[(1, 1)], false, false)
+            .unwrap()[0];
+        let edge4 = graph
+            .connect(node3, node5, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge5 = graph
+            .connect(node3, node5, &[(1, 1)], false, false)
+            .unwrap()[0];
+        let edge6 = graph
+            .connect(node4, node5, &[(0, 2)], false, false)
+            .unwrap()[0];
+        let edge7 = graph
+            .connect(node4, node5, &[(1, 3)], false, false)
+            .unwrap()[0];
+        let edge8 = graph
+            .connect(node2, node5, &[(0, 4)], false, false)
+            .unwrap()[0];
 
         // Test adding multiple edges at once.
         let edges = graph
-            .connect(node5, node6, &[(0, 0), (1, 1)], false)
+            .connect(node5, node6, &[(0, 0), (1, 1)], false, false)
             .unwrap();
         let edge9 = edges[0];
         let edge10 = edges[1];
@@ -1061,15 +1081,33 @@ mod tests {
         let node5 = graph.graph_out_node();
         let node6 = add_dummy_node(&mut graph, (1, 1)).unwrap();
 
-        let edge0 = graph.connect(node0, node2, &[(0, 0)], false).unwrap()[0];
-        let edge1 = graph.connect(node0, node3, &[(0, 1)], false).unwrap()[0];
-        let edge2 = graph.connect(node2, node4, &[(0, 0)], false).unwrap()[0];
-        let edge3 = graph.connect(node3, node4, &[(1, 3)], false).unwrap()[0];
-        let edge4 = graph.connect(node1, node3, &[(0, 1)], false).unwrap()[0];
-        let edge5 = graph.connect(node1, node4, &[(0, 4)], false).unwrap()[0];
-        let edge6 = graph.connect(node1, node3, &[(0, 0)], false).unwrap()[0];
-        let edge7 = graph.connect(node4, node5, &[(0, 0)], false).unwrap()[0];
-        let edge8 = graph.connect(node4, node6, &[(2, 0)], false).unwrap()[0];
+        let edge0 = graph
+            .connect(node0, node2, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge1 = graph
+            .connect(node0, node3, &[(0, 1)], false, false)
+            .unwrap()[0];
+        let edge2 = graph
+            .connect(node2, node4, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge3 = graph
+            .connect(node3, node4, &[(1, 3)], false, false)
+            .unwrap()[0];
+        let edge4 = graph
+            .connect(node1, node3, &[(0, 1)], false, false)
+            .unwrap()[0];
+        let edge5 = graph
+            .connect(node1, node4, &[(0, 4)], false, false)
+            .unwrap()[0];
+        let edge6 = graph
+            .connect(node1, node3, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge7 = graph
+            .connect(node4, node5, &[(0, 0)], false, false)
+            .unwrap()[0];
+        let edge8 = graph
+            .connect(node4, node6, &[(2, 0)], false, false)
+            .unwrap()[0];
 
         let schedule = graph.compile_internal(128).unwrap();
 
@@ -1268,17 +1306,25 @@ mod tests {
         // A zero input/output node shouldn't cause a cycle to be detected.
         let _node4 = add_dummy_node(&mut graph, (0, 0));
 
-        graph.connect(node1, node2, &[(0, 0)], false).unwrap();
-        graph.connect(node2, node3, &[(0, 0)], false).unwrap();
-        let edge3 = graph.connect(node3, node1, &[(0, 0)], false).unwrap()[0];
+        graph
+            .connect(node1, node2, &[(0, 0)], false, false)
+            .unwrap();
+        graph
+            .connect(node2, node3, &[(0, 0)], false, false)
+            .unwrap();
+        let edge3 = graph
+            .connect(node3, node1, &[(0, 0)], false, false)
+            .unwrap()[0];
 
         assert!(graph.cycle_detected());
 
-        graph.disconnect_by_edge_id(edge3);
+        graph.disconnect_by_edge_id(edge3, false);
 
         assert!(!graph.cycle_detected());
 
-        graph.connect(node3, node2, &[(0, 1)], false).unwrap();
+        graph
+            .connect(node3, node2, &[(0, 1)], false, false)
+            .unwrap();
 
         assert!(graph.cycle_detected());
     }

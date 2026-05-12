@@ -1,5 +1,8 @@
 use crate::graph::{Edge, EdgeID, PortIdx};
-use firewheel_core::{channel_config::ChannelCount, node::NodeID};
+use firewheel_core::{
+    channel_config::ChannelCount,
+    node::{NodeError, NodeID},
+};
 
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::String;
@@ -108,4 +111,30 @@ pub enum RemoveNodeError {
 pub enum DeactivateError {
     #[error("Timed out waiting for the Firewheel context to deactivate")]
     TimedOut,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ModifyGraphError {
+    /// An error occured while adding a new node to the graph.
+    #[error("{0}")]
+    NodeError(NodeError),
+    #[error("{0}")]
+    /// An error occured while removing a node from the graph.
+    RemoveNodeError(#[from] RemoveNodeError),
+    /// An error occured while adding a new edge to the graph.
+    #[error("{0}")]
+    AddEdgeError(#[from] AddEdgeError),
+    /// An error occurred while updating a [`FirewheelContext`][crate::context::FirewheelContext].
+    #[error("{0}")]
+    UpdateError(#[from] UpdateError),
+    /// An error while trying to compile the graph, i.e. a
+    /// cycle was detected.
+    #[error("{0}")]
+    CompileGraphError(#[from] CompileGraphError),
+}
+
+impl From<NodeError> for ModifyGraphError {
+    fn from(e: NodeError) -> Self {
+        Self::NodeError(e)
+    }
 }

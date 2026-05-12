@@ -5,14 +5,13 @@ use bevy_platform::prelude::{Vec, vec};
 use firewheel_core::clock::EventInstant;
 
 use firewheel_core::{
-    channel_config::NonZeroChannelCount,
     diff::{Diff, PathBuilder},
-    node::{EmptyConfig, NodeError, NodeID},
+    node::{EmptyConfig, NodeID},
 };
 use firewheel_graph::FirewheelContext;
 use firewheel_nodes::volume::{VolumeNode, VolumeNodeConfig};
 
-use crate::FxChain;
+use crate::{FxChain, FxChainIo, ModifyNodePoolError};
 
 /// A default [`FxChain`] for with a single [`VolumeNode`].
 ///
@@ -54,22 +53,19 @@ impl FxChain for VolumeChain {
     fn construct_and_connect(
         &mut self,
         _configuration: &Self::Configuration,
-        first_node_id: NodeID,
-        first_node_num_out_channels: NonZeroChannelCount,
-        dst_node_id: NodeID,
-        _dst_num_channels: NonZeroChannelCount,
+        io: &FxChainIo,
         cx: &mut FirewheelContext,
-    ) -> Result<Vec<NodeID>, NodeError> {
+    ) -> Result<Vec<NodeID>, ModifyNodePoolError> {
         let volume_params = VolumeNode::default();
         let volume_node_id = cx.add_node(
             volume_params,
             Some(VolumeNodeConfig {
-                channels: first_node_num_out_channels,
+                channels: io.first_node_out_channels,
             }),
         )?;
 
-        cx.auto_connect(first_node_id, volume_node_id, false)?;
-        cx.auto_connect(volume_node_id, dst_node_id, false)?;
+        cx.auto_connect(io.first_node_id, volume_node_id, false)?;
+        cx.auto_connect(volume_node_id, io.dst_node_id, false)?;
 
         Ok(vec![volume_node_id])
     }

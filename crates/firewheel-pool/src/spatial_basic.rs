@@ -5,14 +5,13 @@ use bevy_platform::prelude::{Vec, vec};
 use firewheel_core::clock::EventInstant;
 
 use firewheel_core::{
-    channel_config::NonZeroChannelCount,
     diff::Diff,
-    node::{EmptyConfig, NodeError, NodeID},
+    node::{EmptyConfig, NodeID},
 };
 use firewheel_graph::FirewheelContext;
 use firewheel_nodes::spatial_basic::SpatialBasicNode;
 
-use crate::FxChain;
+use crate::{FxChain, FxChainIo, ModifyNodePoolError};
 
 /// A default [`FxChain`] for 3D game audio.
 ///
@@ -56,19 +55,16 @@ impl FxChain for SpatialBasicChain {
     fn construct_and_connect(
         &mut self,
         _configuration: &Self::Configuration,
-        first_node_id: NodeID,
-        first_node_num_out_channels: NonZeroChannelCount,
-        dst_node_id: NodeID,
-        dst_num_channels: NonZeroChannelCount,
+        io: &FxChainIo,
         cx: &mut FirewheelContext,
-    ) -> Result<Vec<NodeID>, NodeError> {
+    ) -> Result<Vec<NodeID>, ModifyNodePoolError> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
         let spatial_basic_node_id = cx.add_node(spatial_basic_params, None)?;
 
         cx.connect(
-            first_node_id,
+            io.first_node_id,
             spatial_basic_node_id,
-            if first_node_num_out_channels.get().get() == 1 {
+            if io.first_node_out_channels.get().get() == 1 {
                 &[(0, 0), (0, 1)]
             } else {
                 &[(0, 0), (1, 1)]
@@ -78,8 +74,8 @@ impl FxChain for SpatialBasicChain {
 
         cx.connect(
             spatial_basic_node_id,
-            dst_node_id,
-            if dst_num_channels.get().get() == 1 {
+            io.dst_node_id,
+            if io.dst_node_in_channels.get().get() == 1 {
                 &[(0, 0), (1, 0)]
             } else {
                 &[(0, 0), (1, 1)]

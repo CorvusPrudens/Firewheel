@@ -2,6 +2,7 @@ use bevy_platform::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use core::error::Error;
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
@@ -36,10 +37,6 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::processor::{
-    BufferOutOfSpaceMode, FirewheelProcessorConfig, ProfilingData,
-    profiling::{ProfilerRx, ProfilerTx},
-};
 use crate::{
     error::{ActivateError, RemoveNodeError},
     processor::SharedFlags,
@@ -49,6 +46,13 @@ use crate::{
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
     processor::{
         ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorInner, ProcessorToContextMsg,
+    },
+};
+use crate::{
+    error::{CompileGraphError, DeactivateError},
+    processor::{
+        BufferOutOfSpaceMode, FirewheelProcessorConfig, ProfilingData,
+        profiling::{ProfilerRx, ProfilerTx},
     },
 };
 
@@ -389,6 +393,26 @@ impl FirewheelContext {
         }
     }
 
+    /// Try to modify the graph. If the given closure returns an error (or
+    /// if a cycle is detected), then any changes made to the graph inside
+    /// the closure will be reverted.
+    ///
+    /// Any custom error type can be used, though
+    /// [`ModifyGraphError`](crate::error::ModifyGraphError) is provided
+    /// for convenience.
+    pub fn try_modify_graph<E: Error>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        self.graph.begin_modify_guard();
+
+        let res = (f)(self);
+
+        self.graph.end_modify_guard(res.is_err());
+
+        res
+    }
+
     /// Get an immutable reference to the processor store.
     ///
     /// If an audio stream is currently running, this will return `None`.
@@ -556,17 +580,14 @@ impl FirewheelContext {
     /// If the `timeout` duration has been reached and the context is still not
     /// deactivated, then an error is returned.
     #[cfg(not(target_family = "wasm"))]
-    pub fn deactivate_blocking(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<(), crate::error::DeactivateError> {
+    pub fn deactivate_blocking(&mut self, timeout: Duration) -> Result<(), DeactivateError> {
         self.request_deactivate();
 
         let now = bevy_platform::time::Instant::now();
 
         while self.is_active() {
             if now.elapsed() > timeout {
-                return Err(crate::error::DeactivateError::TimedOut);
+                return Err(DeactivateError::TimedOut);
             }
 
             bevy_platform::thread::sleep(core::time::Duration::from_millis(1));
@@ -967,11 +988,8 @@ impl FirewheelContext {
     ///
     /// This will return an error if the ID is of the graph input or graph
     /// output node.
-    pub fn remove_node(
-        &mut self,
-        node_id: NodeID,
-    ) -> Result<SmallVec<[EdgeID; 4]>, RemoveNodeError> {
-        self.graph.remove_node(node_id)
+    pub fn remove_node(&mut self, node_id: NodeID) -> Result<SmallVec<[Edge; 4]>, RemoveNodeError> {
+        self.graph.remove_node(node_id, false)
     }
 
     /// Returns `true` if the node exists in the graph.
@@ -984,6 +1002,13 @@ impl FirewheelContext {
     /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
         self.graph.node_info(id)
+    }
+
+    /// Get the [`ChannelConfig`] of a node in the graph.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
+    pub fn node_channel_config(&self, id: NodeID) -> Option<ChannelConfig> {
+        self.graph.node_info(id).map(|n| n.info.channel_config)
     }
 
     /// Get an immutable reference to the custom state of a node.
@@ -1030,8 +1055,8 @@ impl FirewheelContext {
     pub fn set_graph_channel_config(
         &mut self,
         channel_config: ChannelConfig,
-    ) -> SmallVec<[EdgeID; 4]> {
-        self.graph.set_graph_channel_config(channel_config)
+    ) -> SmallVec<[Edge; 4]> {
+        self.graph.set_graph_channel_config(channel_config, false)
     }
 
     /// Add connections (edges) between two nodes to the graph.
@@ -1059,7 +1084,7 @@ impl FirewheelContext {
         check_for_cycles: bool,
     ) -> Result<SmallVec<[EdgeID; 4]>, AddEdgeError> {
         self.graph
-            .connect(src_node, dst_node, ports_src_dst, check_for_cycles)
+            .connect(src_node, dst_node, ports_src_dst, check_for_cycles, false)
     }
 
     /// Connect two nodes in the graph, connecting output port 0 to input port
@@ -1068,6 +1093,11 @@ impl FirewheelContext {
     /// If the number of output ports on `src_node` does not equal the number
     /// of input ports on `dst_node`, then only the first valid ports will be
     /// connected.
+    ///
+    /// If successful, then this returns a list of edge IDs in order.
+    ///
+    /// If this returns an error, then the audio graph has not been
+    /// modified.
     pub fn auto_connect(
         &mut self,
         src_node: NodeID,
@@ -1094,7 +1124,7 @@ impl FirewheelContext {
             (0..num_connect_ports).map(|i| (i, i)).collect();
 
         self.graph
-            .connect(src_node, dst_node, &ports_src_dst, check_for_cycles)
+            .connect(src_node, dst_node, &ports_src_dst, check_for_cycles, false)
     }
 
     /// Connect the first two output ports of a node to the first two input
@@ -1118,6 +1148,11 @@ impl FirewheelContext {
     /// * In all other cases, an error will be returned. (Note that converting
     ///   a stereo signal into a mono signal should be done with the
     ///   `StereoToMonoNode`.)
+    ///
+    /// If successful, then this returns a list of edge IDs in order.
+    ///
+    /// If this returns an error, then the audio graph has not been
+    /// modified.
     pub fn connect_stereo(
         &mut self,
         src_node: NodeID,
@@ -1158,7 +1193,7 @@ impl FirewheelContext {
         };
 
         self.graph
-            .connect(src_node, dst_node, ports_src_dst, check_for_cycles)
+            .connect(src_node, dst_node, ports_src_dst, check_for_cycles, false)
     }
 
     /// Remove connections (edges) between two nodes from the graph.
@@ -1169,14 +1204,13 @@ impl FirewheelContext {
     ///   where the first value in a tuple is the output port on `src_node`,
     ///   and the second value in that tuple is the input port on `dst_node`.
     ///
-    /// If none of the edges existed in the graph, then `false` will be
-    /// returned.
+    /// Returns the list of edges that were successfully removed.
     pub fn disconnect(
         &mut self,
         src_node: NodeID,
         dst_node: NodeID,
         ports_src_dst: &[(PortIdx, PortIdx)],
-    ) -> bool {
+    ) -> SmallVec<[Edge; 4]> {
         self.graph.disconnect(src_node, dst_node, ports_src_dst)
     }
 
@@ -1184,19 +1218,21 @@ impl FirewheelContext {
     ///
     /// * `src_node` - The ID of the source node.
     /// * `dst_node` - The ID of the destination node.
+    ///
+    /// Returns the list of edges that were successfully removed.
     pub fn disconnect_all_between(
         &mut self,
         src_node: NodeID,
         dst_node: NodeID,
-    ) -> SmallVec<[EdgeID; 4]> {
+    ) -> SmallVec<[Edge; 4]> {
         self.graph.disconnect_all_between(src_node, dst_node)
     }
 
     /// Remove a connection (edge) via the edge's unique ID.
     ///
-    /// If the edge did not exist in this graph, then `false` will be returned.
-    pub fn disconnect_by_edge_id(&mut self, edge_id: EdgeID) -> bool {
-        self.graph.disconnect_by_edge_id(edge_id)
+    /// If the edge did not exist in this graph, then `None` will be returned.
+    pub fn disconnect_by_edge_id(&mut self, edge_id: EdgeID) -> Option<Edge> {
+        self.graph.disconnect_by_edge_id(edge_id, false)
     }
 
     /// Get information about the given [Edge]
@@ -1204,11 +1240,16 @@ impl FirewheelContext {
         self.graph.edge(edge_id)
     }
 
-    /// Runs a check to see if a cycle exists in the audio graph.
+    /// Runs a check to see if a cycle exists in the audio graph. If a cycle
+    /// exists, an error is returned.
     ///
     /// Note, this method is expensive.
-    pub fn cycle_detected(&mut self) -> bool {
-        self.graph.cycle_detected()
+    pub fn cycle_detected(&mut self) -> Result<(), CompileGraphError> {
+        if self.graph.cycle_detected() {
+            Err(CompileGraphError::CycleDetected)
+        } else {
+            Ok(())
+        }
     }
 
     /// Queue an event to be sent to an audio node's processor.
