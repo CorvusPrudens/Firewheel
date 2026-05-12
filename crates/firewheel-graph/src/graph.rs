@@ -653,4 +653,27 @@ impl AudioGraph {
                 .retain(|node_id| self.nodes.contains(node_id.0));
         }
     }
+
+    pub(crate) fn drop_old_schedule_data(&mut self, mut data: Box<ScheduleHeapData>) {
+        for n in data.removed_nodes.drain(..) {
+            let id = n.id;
+
+            // Make sure all node processors are dropped before node states in
+            // order to be compatible with CLAP plugin hosting.
+            drop(n);
+            firewheel_core::collector::GlobalRtGc::collect();
+
+            let _ = self.active_nodes_to_remove.remove(&id);
+        }
+    }
+}
+
+#[derive(Default)]
+struct ModifyGraphGuard {
+    prev_needs_compile: bool,
+    prev_graph_channel_config: ChannelConfig,
+    new_nodes: Vec<NodeID>,
+    removed_nodes: Vec<NodeEntry>,
+    new_edges: Vec<EdgeID>,
+    removed_edges: Vec<Edge>,
 }

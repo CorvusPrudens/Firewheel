@@ -821,7 +821,7 @@ impl FirewheelContext {
                     self.event_group_pool.push(event_group);
                 }
                 ProcessorToContextMsg::DropSchedule(schedule_data) => {
-                    let _ = schedule_data;
+                    self.graph.drop_old_schedule_data(schedule_data);
                 }
                 #[cfg(feature = "musical_transport")]
                 ProcessorToContextMsg::DropTransportState(transport_state) => {
@@ -1350,12 +1350,12 @@ impl Drop for FirewheelContext {
         #[cfg(target_family = "wasm")]
         self.request_deactivate();
 
-        // Make sure node processors are dropped before node states in order
-        // to be compatible with CLAP plugin hosting.
+        // Make sure all node processors are dropped before node states in
+        // order to be compatible with CLAP plugin hosting.
         if let Some(p) = &mut self.processor_drop_rx {
             p.clear();
         }
-
+        self.from_processor_rx.clear();
         firewheel_core::collector::GlobalRtGc::collect();
     }
 }
