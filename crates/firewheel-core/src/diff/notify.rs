@@ -15,13 +15,13 @@ fn increment_counter() -> u64 {
         static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
 
         portable_atomic::cfg_has_atomic_cas! {
-            return NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed);
+            NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
         }
 
         portable_atomic::cfg_no_atomic_cas! {
             let val = NOTIFY_COUNTER.load(Ordering::Relaxed) + 1;
             NOTIFY_COUNTER.store(val, Ordering::Relaxed);
-            return val;
+            val
         }
     }
 
@@ -44,7 +44,7 @@ fn increment_counter() -> u64 {
             NOTIFY_COUNTER_0.store((val & (u32::MAX as u64)) as u32, Ordering::Relaxed);
             NOTIFY_COUNTER_1.store((val >> 32) as u32, Ordering::Relaxed);
 
-            return val;
+            val
         }
 
         portable_atomic::cfg_no_atomic_32! {
@@ -52,7 +52,7 @@ fn increment_counter() -> u64 {
 
             // Just accept the locking behavior for these esoteric platforms.
             static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
-            return NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed);
+            NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
         }
     }
 }

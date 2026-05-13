@@ -10,7 +10,7 @@ use firewheel_core::{
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Box;
 
-/// A source of audio samples for a [`SamplerNode`].
+/// A source of audio samples for a [`SamplerNode`](super::SamplerNode).
 pub enum SamplerNodeResource {
     /// A resource of audio samples where the entire contents of the sample are
     /// already loaded into memory.
