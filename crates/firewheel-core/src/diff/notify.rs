@@ -1,17 +1,60 @@
+use bevy_platform::sync::atomic::Ordering;
+
 use crate::{
     diff::{Diff, Patch, RealtimeClone},
     event::ParamData,
 };
-use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 
-// Increment an atomic counter.
+// Increment a realtime-safe atomic counter.
 //
-// This is guaranteed to never return zero.
-#[inline(always)]
+// This is gauranteed to never return zero.
 fn increment_counter() -> u64 {
-    static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
+    portable_atomic::cfg_has_atomic_64! {
+        use portable_atomic::AtomicU64;
 
-    NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
+        static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+        portable_atomic::cfg_has_atomic_cas! {
+            return NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
+
+        portable_atomic::cfg_no_atomic_cas! {
+            let val = NOTIFY_COUNTER.load(Ordering::Relaxed) + 1;
+            NOTIFY_COUNTER.store(val, Ordering::Relaxed);
+            return val;
+        }
+    }
+
+    portable_atomic::cfg_no_atomic_64! {
+        portable_atomic::cfg_has_atomic_32! {
+            use portable_atomic::AtomicU32;
+
+            // While it is technically possible that the high and low bits in the counter
+            // get desynced, in practice this is only ever used for diffing, so it is
+            // exceedingly unlikely that a desync in the counter will have an effect on
+            // the desired diffing behavior.
+            static NOTIFY_COUNTER_0: AtomicU32 = AtomicU32::new(1);
+            static NOTIFY_COUNTER_1: AtomicU32 = AtomicU32::new(0);
+
+            let val_0 = NOTIFY_COUNTER_0.load(Ordering::Relaxed);
+            let val_1 = NOTIFY_COUNTER_1.load(Ordering::Relaxed);
+
+            let val = val_0 as u64 + ((val_1 as u64) << 32) + 1u64;
+
+            NOTIFY_COUNTER_0.store((val & (u32::MAX as u64)) as u32, Ordering::Relaxed);
+            NOTIFY_COUNTER_1.store((val >> 32) as u32, Ordering::Relaxed);
+
+            return val;
+        }
+
+        portable_atomic::cfg_no_atomic_32! {
+            use portable_atomic::AtomicU64;
+
+            // Just accept the locking behavior for these esoteric platforms.
+            static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
+            return NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 /// A lightweight wrapper that guarantees an event
@@ -89,7 +132,7 @@ impl<T> AsRef<T> for Notify<T> {
 
 impl<T> AsMut<T> for Notify<T> {
     fn as_mut(&mut self) -> &mut T {
-        self.counter = increment_counter();
+        self.counter += 1;
 
         &mut self.value
     }
@@ -111,7 +154,7 @@ impl<T> core::ops::Deref for Notify<T> {
 
 impl<T> core::ops::DerefMut for Notify<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.counter = increment_counter();
+        self.counter += 1;
 
         &mut self.value
     }

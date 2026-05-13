@@ -12,15 +12,13 @@ use firewheel_core::clock::{DurationSamples, DurationSeconds};
 use firewheel_core::collector::{OwnedGc, OwnedGcUnsized};
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcStreamCtx};
 
-use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use bevy_platform::sync::{Arc, Mutex};
 use bevy_platform::time::Instant;
-use core::sync::atomic::AtomicU32;
 use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
 };
 use firewheel_core::diff::{EventQueue, PatchError, PathBuilder, RealtimeClone};
-use firewheel_core::sample_resource::SampleResourceInfo;
 use smallvec::SmallVec;
 
 #[cfg(not(feature = "std"))]
@@ -54,6 +52,17 @@ use firewheel_core::clock::EventInstant;
 pub const MAX_OUT_CHANNELS: usize = 8;
 pub const DEFAULT_NUM_DECLICKERS: usize = 2;
 pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
+
+mod resampler;
+mod resource;
+mod shared_state;
+
+pub use self::resource::{SamplerNodeResource, StreamedSample};
+
+use self::shared_state::{
+    SharedChannelAudioThread, SharedChannelMainThread, SharedPlaybackState, SharedState,
+};
+use resampler::Resampler;
 
 /// The configuration of a [`SamplerNode`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,180 +110,6 @@ pub enum PlaybackSpeedQuality {
     /// antialiasing filter.
     LinearFast,
     // TODO: more quality options
-}
-
-/// A source of audio samples for a [`SamplerNode`].
-pub enum SamplerNodeResource {
-    /// A resource of audio samples where the entire contents of the sample are
-    /// already loaded into memory.
-    ///
-    /// Prefer this for resources which are less than 20 or so seconds long
-    /// (i.e. sound effects).
-    InMemory(ArcGc<dyn SampleResource + Send + Sync + 'static>),
-
-    /// NOT IMPLEMENTED YET! Will lead to a panic if used.
-    ///
-    /// A resource of audio samples that are streamed from disk or over a network.
-    ///
-    /// Prefer this for resources which are greater than 20 or so seconds long
-    /// (i.e. music tracks and ambience).
-    ///
-    /// This uses considerably less memory, but requires a more complicated setup.
-    /// It also has the potential to run into cache misses if the playhead is moved
-    /// to a region that hasn't been loaded yet, or if the stream fails to send
-    /// enough samples in time.
-    Streamed(OwnedGcUnsized<dyn StreamedSample>),
-}
-
-impl SamplerNodeResource {
-    pub fn from_sample<T: SampleResource + Send + Sync + 'static>(sample: T) -> Self {
-        Self::InMemory(sample.into())
-    }
-
-    pub fn from_streamed<T: StreamedSample>(sample: T) -> Self {
-        Self::Streamed(OwnedGcUnsized::new_unsized(Box::new(sample)))
-    }
-
-    /// The number of channels in this resource.
-    pub fn num_channels(&self) -> NonZeroUsize {
-        match self {
-            Self::InMemory(s) => s.num_channels(),
-            Self::Streamed(s) => s.num_channels(),
-        }
-    }
-
-    /// The length of this resource in samples (of a single channel of audio).
-    ///
-    /// Not to be confused with video frames.
-    pub fn len_frames(&self) -> u64 {
-        match self {
-            Self::InMemory(s) => s.len_frames(),
-            Self::Streamed(s) => s.len_frames(),
-        }
-    }
-
-    /// The sample rate of this resource.
-    ///
-    /// Returns `None` if the sample rate is unknown.
-    pub fn sample_rate(&self) -> Option<NonZeroU32> {
-        match self {
-            Self::InMemory(s) => s.sample_rate(),
-            Self::Streamed(s) => s.sample_rate(),
-        }
-    }
-
-    /// Fill the given buffers with audio data starting from the given
-    /// starting frame in the resource.
-    ///
-    /// * `out_buffer` - The buffers to fill with data. If the length of `buffers`
-    ///   is greater than the number of channels in this resource, then ignore
-    ///   the extra buffers.
-    /// * `out_buffer_range` - The range inside each buffer slice in which to
-    ///   fill with data. Do not fill any data outside of this range.
-    /// * `start_frame` - The sample (of a single channel of audio) in the
-    ///   resource at which to start copying from. Not to be confused with video
-    ///   frames.
-    /// * `speed` - The speed at which playback is occurring, where `1.0` is
-    ///   playing at the sample rate of this resource, `0.5` is playing at half
-    ///   the sample rate, and `2.0` is playing at twice the sample rate.
-    ///
-    /// Returns the number of frames that were successfully filled. This may
-    /// be less than the length of `out_buffer_range` if the range is all or
-    /// partly out of bounds of the resource, or if a cache miss occurred.
-    /// Any frames that were not successfully filled will be left untouched.
-    pub fn fill_buffers(
-        &mut self,
-        out_buffer: &mut [&mut [f32]],
-        out_buffer_range: Range<usize>,
-        start_frame: u64,
-        speed: f64,
-        is_playing_backwards: bool,
-    ) -> usize {
-        match self {
-            SamplerNodeResource::InMemory(s) => {
-                s.fill_buffers(out_buffer, out_buffer_range.clone(), start_frame)
-            }
-            SamplerNodeResource::Streamed(s) => s.fill_buffers(
-                out_buffer,
-                out_buffer_range,
-                start_frame,
-                speed,
-                is_playing_backwards,
-            ),
-        }
-    }
-
-    /// Returns `true` if the given range of frames is loaded
-    /// into memory and ready to be read.
-    pub fn range_is_ready(&mut self, range: Range<u64>) -> bool {
-        if let SamplerNodeResource::Streamed(s) = self {
-            s.range_is_ready(range)
-        } else {
-            true
-        }
-    }
-
-    /// Request to cache a new region at the given starting frame.
-    pub fn cache_new_starting_frame(&mut self, frame: u64, speed: f64, will_play_backwards: bool) {
-        if let SamplerNodeResource::Streamed(s) = self {
-            s.cache_new_starting_frame(frame, speed, will_play_backwards);
-        }
-    }
-}
-
-impl From<ArcGc<dyn SampleResource + Send + Sync + 'static>> for SamplerNodeResource {
-    fn from(value: ArcGc<dyn SampleResource + Send + Sync + 'static>) -> Self {
-        Self::InMemory(value)
-    }
-}
-
-impl From<OwnedGcUnsized<dyn StreamedSample>> for SamplerNodeResource {
-    fn from(value: OwnedGcUnsized<dyn StreamedSample>) -> Self {
-        Self::Streamed(value)
-    }
-}
-
-/// A resource of audio samples that are streamed from disk or over a network.
-///
-/// This uses considerably less memory, but requires a more complicated setup. It
-/// also has the potential to run into cache misses if the playhead is moved to a
-/// region that hasn't been loaded yet, or if the stream fails to send enough samples
-/// in time.
-pub trait StreamedSample: SampleResourceInfo + Send + Sync + 'static {
-    /// Fill the given buffers with audio data starting from the given
-    /// starting frame in the resource.
-    ///
-    /// * `out_buffer` - The buffers to fill with data. If the length of `buffers`
-    ///   is greater than the number of channels in this resource, then ignore
-    ///   the extra buffers.
-    /// * `out_buffer_range` - The range inside each buffer slice in which to
-    ///   fill with data. Do not fill any data outside of this range.
-    /// * `start_frame` - The sample (of a single channel of audio) in the
-    ///   resource at which to start copying from. Not to be confused with video
-    ///   frames.
-    /// * `speed` - The speed at which playback is occurring, where `1.0` is
-    ///   playing at the sample rate of this resource, `0.5` is playing at half
-    ///   the sample rate, and `2.0` is playing at twice the sample rate.
-    ///
-    /// Returns the number of frames that were successfully filled. This may
-    /// be less than the length of `out_buffer_range` if the range is all or
-    /// partly out of bounds of the resource, or if a cache miss occurred.
-    /// Any frames that were not successfully filled will be left untouched.
-    fn fill_buffers(
-        &mut self,
-        out_buffer: &mut [&mut [f32]],
-        out_buffer_range: Range<usize>,
-        start_frame: u64,
-        speed: f64,
-        is_playing_backwards: bool,
-    ) -> usize;
-
-    /// Returns `true` if the given range of frames is loaded
-    /// into memory and ready to be read.
-    fn range_is_ready(&mut self, range: Range<u64>) -> bool;
-
-    /// Request to cache a new region at the given starting frame.
-    fn cache_new_starting_frame(&mut self, frame: u64, speed: f64, will_play_backwards: bool);
 }
 
 /// A node that plays samples
@@ -511,24 +346,29 @@ impl SamplerNode {
 
 #[derive(Clone)]
 pub struct SamplerState {
-    shared_state: ArcGc<SharedState>,
+    shared_channel: Option<Arc<Mutex<SharedChannelMainThread>>>,
+    shared_state: Arc<SharedState>,
 }
 
 impl SamplerState {
     fn new() -> Self {
         Self {
-            shared_state: ArcGc::new(SharedState::default()),
+            shared_channel: None,
+            shared_state: Arc::new(SharedState::default()),
         }
     }
 
     /// Get the current position of the playhead in units of frames (samples of
     /// a single channel of audio).
     pub fn playhead_frames(&self) -> DurationSamples {
-        DurationSamples(
-            self.shared_state
-                .sample_playhead_frames
-                .load(Ordering::Relaxed) as i64,
-        )
+        self.shared_channel
+            .as_ref()
+            .and_then(|s| {
+                s.lock()
+                    .map(|mut s| DurationSamples(s.sample_playhead_frames() as i64))
+                    .ok()
+            })
+            .unwrap_or(DurationSamples::ZERO)
     }
 
     /// Get the current position of the sample playhead in seconds.
@@ -555,9 +395,7 @@ impl SamplerState {
             return frames;
         };
 
-        if SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
-            == SharedPlaybackState::Playing
-        {
+        if self.shared_state.playback_state() == SharedPlaybackState::Playing {
             DurationSamples(
                 frames.0
                     + InstantSeconds(update_instant.elapsed().as_secs_f64())
@@ -588,62 +426,57 @@ impl SamplerState {
 
     /// Returns `true` if the processor currently has a sample resource.
     pub fn has_sample_resource(&self) -> bool {
-        self.shared_state
-            .has_sample_resource
-            .load(Ordering::Relaxed)
+        self.shared_state.has_sample_resource()
     }
 
     /// Returns `true` if the sample is currently playing.
     pub fn playing(&self) -> bool {
-        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
-            == SharedPlaybackState::Playing
+        self.shared_state.playback_state() == SharedPlaybackState::Playing
     }
 
     /// Returns `true` if the sample is currently paused.
     pub fn paused(&self) -> bool {
-        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
-            == SharedPlaybackState::Paused
+        self.shared_state.playback_state() == SharedPlaybackState::Paused
     }
 
     /// Returns `true` if the sample has either not started playing yet or has finished
     /// playing.
     pub fn stopped(&self) -> bool {
-        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
-            == SharedPlaybackState::Stopped
+        self.shared_state.playback_state() == SharedPlaybackState::Stopped
     }
 
     /// Manually set the shared `playing` flag. This can be useful to account for the delay
     /// between sending a play event and the node's processor receiving that event.
     pub fn mark_playing(&self) {
         self.shared_state
-            .playback_state
-            .store(SharedPlaybackState::Playing as u32, Ordering::Relaxed);
+            .set_playback_state(SharedPlaybackState::Playing);
     }
 
     /// Manually set the shared `paused` flag. This can be useful to account for the delay
     /// between sending a play event and the node's processor receiving that event.
     pub fn mark_paused(&self) {
         self.shared_state
-            .playback_state
-            .store(SharedPlaybackState::Paused as u32, Ordering::Relaxed);
+            .set_playback_state(SharedPlaybackState::Paused);
     }
 
     /// Manually set the shared `stopped` flag. This can be useful to account for the delay
     /// between sending a play event and the node's processor receiving that event.
     pub fn mark_stopped(&self) {
         self.shared_state
-            .playback_state
-            .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
+            .set_playback_state(SharedPlaybackState::Stopped);
     }
 
     /// Returns the ID stored in the "finished" flag.
     pub fn finished(&self) -> u64 {
-        self.shared_state.finished.load(Ordering::Relaxed)
+        self.shared_channel
+            .as_ref()
+            .and_then(|s| s.lock().map(|mut s| s.finished().unwrap_or(0)).ok())
+            .unwrap_or(0)
     }
 
     /// Clears the "finished" flag.
     pub fn clear_finished(&self) {
-        self.shared_state.finished.store(0, Ordering::Relaxed);
+        self.shared_state.clear_finished();
     }
 
     /// A score of how suitable this node is to start new work (Play a new sample). The
@@ -653,8 +486,7 @@ impl SamplerState {
             return u64::MAX;
         }
 
-        let playback_state =
-            SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed));
+        let playback_state = self.shared_state.playback_state();
 
         if *params.play {
             let playhead_frames = self.playhead_frames();
@@ -802,7 +634,7 @@ impl AudioNode for SamplerNode {
     fn construct_processor(
         &self,
         config: &Self::Configuration,
-        cx: ConstructProcessorContext,
+        mut cx: ConstructProcessorContext,
     ) -> Result<impl AudioNodeProcessor, NodeError> {
         let stop_declicker_buffers = if config.num_declickers == 0 {
             None
@@ -814,10 +646,15 @@ impl AudioNode for SamplerNode {
             ))
         };
 
+        let custom_state = cx.custom_state_mut::<SamplerState>().unwrap();
+        let (channel_main_thread, channel_audio_thread) =
+            self::shared_state::shared_channel(Arc::clone(&custom_state.shared_state));
+        custom_state.shared_channel = Some(Arc::new(Mutex::new(channel_main_thread)));
+
         Ok(SamplerProcessor {
             config: *config,
             params: *self,
-            shared_state: ArcGc::clone(&cx.custom_state::<SamplerState>().unwrap().shared_state),
+            shared_channel: channel_audio_thread,
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             stop_declicker_buffers,
@@ -840,7 +677,7 @@ impl AudioNode for SamplerNode {
 struct SamplerProcessor {
     config: SamplerConfig,
     params: SamplerNode,
-    shared_state: ArcGc<SharedState>,
+    shared_channel: SharedChannelAudioThread,
 
     loaded_sample_state: Option<LoadedSampleState>,
 
@@ -1190,9 +1027,9 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if let Some(maybe_sample) = new_sample {
-            self.shared_state
-                .has_sample_resource
-                .store(maybe_sample.is_some(), Ordering::Relaxed);
+            self.shared_channel
+                .shared_state
+                .set_has_sample_resource(maybe_sample.is_some());
 
             self.stop(extra);
 
@@ -1301,17 +1138,15 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.loaded_sample_state.as_mut().unwrap().playhead_frames =
                             new_playhead_frames;
 
-                        self.shared_state
-                            .sample_playhead_frames
-                            .store(new_playhead_frames, Ordering::Relaxed);
+                        self.shared_channel
+                            .set_sample_playhead_frames(new_playhead_frames);
                     }
 
                     if new_playhead_frames
                         == self.loaded_sample_state.as_ref().unwrap().sample_len_frames
                     {
-                        self.shared_state
-                            .finished
-                            .store(self.params.play.id(), Ordering::Relaxed);
+                        self.shared_channel
+                            .set_finished(Some(self.params.play.id()));
 
                         new_playing = false;
                     } else if new_playhead_frames != 0
@@ -1335,24 +1170,22 @@ impl AudioNodeProcessor for SamplerProcessor {
             } else {
                 // Stop
                 self.stop(extra);
-                self.shared_state
-                    .finished
-                    .store(self.params.play.id(), Ordering::Relaxed);
+                self.shared_channel
+                    .set_finished(Some(self.params.play.id()));
             }
 
             self.playing = new_playing;
         }
 
-        self.shared_state.playback_state.store(
-            if self.playing {
+        self.shared_channel
+            .shared_state
+            .set_playback_state(if self.playing {
                 SharedPlaybackState::Playing
             } else if self.paused {
                 SharedPlaybackState::Paused
             } else {
                 SharedPlaybackState::Stopped
-            } as u32,
-            Ordering::Relaxed,
-        );
+            });
     }
 
     fn bypassed(&mut self, _bypassed: bool) {
@@ -1366,16 +1199,15 @@ impl AudioNodeProcessor for SamplerProcessor {
         buffers: ProcBuffers,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        self.shared_state.playback_state.store(
-            if self.playing {
+        self.shared_channel
+            .shared_state
+            .set_playback_state(if self.playing {
                 SharedPlaybackState::Playing
             } else if self.paused {
                 SharedPlaybackState::Paused
             } else {
                 SharedPlaybackState::Stopped
-            } as u32,
-            Ordering::Relaxed,
-        );
+            });
 
         let currently_processing_sample = self.currently_processing_sample();
 
@@ -1398,20 +1230,18 @@ impl AudioNodeProcessor for SamplerProcessor {
 
             num_filled_channels = n_channels;
 
-            self.shared_state.sample_playhead_frames.store(
+            self.shared_channel.set_sample_playhead_frames(
                 self.loaded_sample_state.as_ref().unwrap().playhead_frames,
-                Ordering::Relaxed,
             );
 
             if finished {
                 self.playing = false;
 
-                self.shared_state
-                    .playback_state
-                    .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
-                self.shared_state
-                    .finished
-                    .store(self.params.play.id(), Ordering::Relaxed);
+                self.shared_channel
+                    .shared_state
+                    .set_playback_state(SharedPlaybackState::Stopped);
+                self.shared_channel
+                    .set_finished(Some(self.params.play.id()));
             }
         }
 
@@ -1490,46 +1320,10 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.loaded_sample_state = None;
             self.playing = false;
             self.paused = false;
-            self.shared_state
-                .playback_state
-                .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
-            self.shared_state.finished.store(0, Ordering::Relaxed);
-        }
-    }
-}
-
-struct SharedState {
-    sample_playhead_frames: AtomicU64,
-    has_sample_resource: AtomicBool,
-    playback_state: AtomicU32,
-    finished: AtomicU64,
-}
-
-impl Default for SharedState {
-    fn default() -> Self {
-        Self {
-            sample_playhead_frames: AtomicU64::new(0),
-            has_sample_resource: AtomicBool::new(false),
-            playback_state: AtomicU32::new(SharedPlaybackState::Stopped as u32),
-            finished: AtomicU64::new(0),
-        }
-    }
-}
-
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum SharedPlaybackState {
-    Stopped = 0,
-    Paused,
-    Playing,
-}
-
-impl SharedPlaybackState {
-    fn from_u32(val: u32) -> Self {
-        match val {
-            1 => Self::Paused,
-            2 => Self::Playing,
-            _ => Self::Stopped,
+            self.shared_channel
+                .shared_state
+                .set_playback_state(SharedPlaybackState::Stopped);
+            self.shared_channel.set_finished(None);
         }
     }
 }
@@ -1548,272 +1342,4 @@ struct LoadedSampleState {
 struct StopDeclickerState {
     frames_left: usize,
     channels: usize,
-}
-
-struct Resampler {
-    fract_in_frame: f64,
-    is_first_process: bool,
-    prev_speed: f64,
-    _quality: PlaybackSpeedQuality,
-    wraparound_buffer: [[f32; 2]; MAX_OUT_CHANNELS],
-}
-
-impl Resampler {
-    pub fn new(quality: PlaybackSpeedQuality) -> Self {
-        Self {
-            fract_in_frame: 0.0,
-            is_first_process: true,
-            prev_speed: 1.0,
-            _quality: quality,
-            wraparound_buffer: [[0.0; 2]; MAX_OUT_CHANNELS],
-        }
-    }
-
-    pub fn resample_linear(
-        &mut self,
-        out_buffers: &mut [&mut [f32]],
-        out_buffer_range: Range<usize>,
-        extra: &mut ProcExtra,
-        processor: &mut SamplerProcessor,
-        looping: bool,
-    ) -> (bool, usize) {
-        let total_out_frames = out_buffer_range.end - out_buffer_range.start;
-
-        assert_ne!(total_out_frames, 0);
-
-        let in_frame_start = if self.is_first_process {
-            self.prev_speed = processor.speed;
-            self.fract_in_frame = 0.0;
-
-            0.0
-        } else {
-            self.fract_in_frame + processor.speed
-        };
-
-        let out_frame_to_in_frame = |out_frame: f64, in_frame_start: f64, speed: f64| -> f64 {
-            in_frame_start + (out_frame * speed)
-        };
-
-        // The function which maps the output frame to the input frame is given by
-        // the kinematic equation:
-        //
-        // in_frame = in_frame_start + (out_frame * start_speed) + (0.5 * accel * out_frame^2)
-        //      where: accel = (end_speed - start_speed)
-        let out_frame_to_in_frame_with_accel =
-            |out_frame: f64, in_frame_start: f64, start_speed: f64, half_accel: f64| -> f64 {
-                in_frame_start + (out_frame * start_speed) + (out_frame * out_frame * half_accel)
-            };
-
-        let num_channels = processor.num_channels_filled();
-        let copy_start = if self.is_first_process { 0 } else { 2 };
-        let mut finished_playing = false;
-
-        if self.prev_speed == processor.speed {
-            self.resample_linear_inner(
-                out_frame_to_in_frame,
-                in_frame_start,
-                self.prev_speed,
-                out_buffer_range.clone(),
-                processor,
-                extra,
-                looping,
-                copy_start,
-                num_channels,
-                out_buffers,
-                out_buffer_range.start,
-                &mut finished_playing,
-            );
-        } else {
-            let half_accel = 0.5 * (processor.speed - self.prev_speed) / total_out_frames as f64;
-
-            self.resample_linear_inner(
-                |out_frame: f64, in_frame_start: f64, speed: f64| {
-                    out_frame_to_in_frame_with_accel(out_frame, in_frame_start, speed, half_accel)
-                },
-                in_frame_start,
-                self.prev_speed,
-                out_buffer_range.clone(),
-                processor,
-                extra,
-                looping,
-                copy_start,
-                num_channels,
-                out_buffers,
-                out_buffer_range.start,
-                &mut finished_playing,
-            );
-        }
-
-        self.prev_speed = processor.speed;
-        self.is_first_process = false;
-
-        (finished_playing, num_channels)
-    }
-
-    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
-    fn resample_linear_inner<OutToInFrame>(
-        &mut self,
-        out_to_in_frame: OutToInFrame,
-        in_frame_start: f64,
-        speed: f64,
-        out_buffer_range: Range<usize>,
-        processor: &mut SamplerProcessor,
-        extra: &mut ProcExtra,
-        looping: bool,
-        mut copy_start: usize,
-        num_channels: usize,
-        out_buffers: &mut [&mut [f32]],
-        out_buffer_start: usize,
-        finished_playing: &mut bool,
-    ) where
-        OutToInFrame: Fn(f64, f64, f64) -> f64,
-    {
-        let mut scratch_buffers = extra.scratch_buffers.all_mut();
-
-        let total_out_frames = out_buffer_range.end - out_buffer_range.start;
-        let output_frame_end = (total_out_frames - 1) as f64;
-
-        let input_frame_end = out_to_in_frame(output_frame_end, in_frame_start, speed);
-        let input_frames_needed = input_frame_end.trunc() as usize + 2;
-
-        let mut input_frames_processed = 0;
-        let mut output_frames_processed = 0;
-        while output_frames_processed < total_out_frames {
-            let input_frames =
-                (input_frames_needed - input_frames_processed).min(processor.max_block_frames);
-
-            if input_frames > copy_start {
-                let (finished, _) = processor.copy_from_sample(
-                    &mut scratch_buffers[..num_channels],
-                    copy_start..input_frames,
-                    looping,
-                );
-                if finished {
-                    *finished_playing = true;
-                }
-            }
-
-            let max_block_frames_minus_1 = processor.max_block_frames - 1;
-            let out_ch_start = out_buffer_start + output_frames_processed;
-
-            let mut out_frames_count = 0;
-
-            // Have an optimized loop for stereo audio.
-            if num_channels == 2 {
-                let mut last_in_frame = 0;
-                let mut last_fract_frame = 0.0;
-
-                let (out_ch_0, out_ch_1) = out_buffers.split_first_mut().unwrap();
-                let (r_ch_0, r_ch_1) = scratch_buffers.split_first_mut().unwrap();
-
-                let out_ch_0 = &mut out_ch_0[out_ch_start..out_buffer_range.end];
-                let out_ch_1 = &mut out_ch_1[0][out_ch_start..out_buffer_range.end];
-
-                let r_ch_0 = &mut r_ch_0[..processor.max_block_frames];
-                let r_ch_1 = &mut r_ch_1[0][..processor.max_block_frames];
-
-                if copy_start > 0 {
-                    r_ch_0[0] = self.wraparound_buffer[0][0];
-                    r_ch_1[0] = self.wraparound_buffer[1][0];
-
-                    r_ch_0[1] = self.wraparound_buffer[0][1];
-                    r_ch_1[1] = self.wraparound_buffer[1][1];
-                }
-
-                for (i, (out_s_0, out_s_1)) in
-                    out_ch_0.iter_mut().zip(out_ch_1.iter_mut()).enumerate()
-                {
-                    let out_frame = (i + output_frames_processed) as f64;
-
-                    let in_frame_f64 = out_to_in_frame(out_frame, in_frame_start, speed);
-
-                    let in_frame_usize = in_frame_f64.trunc() as usize - input_frames_processed;
-                    let fract_frame = in_frame_f64.fract();
-
-                    if in_frame_usize >= max_block_frames_minus_1 {
-                        break;
-                    }
-
-                    let s0_0 = r_ch_0[in_frame_usize];
-                    let s0_1 = r_ch_1[in_frame_usize];
-
-                    let s1_0 = r_ch_0[in_frame_usize + 1];
-                    let s1_1 = r_ch_1[in_frame_usize + 1];
-
-                    *out_s_0 = s0_0 + ((s1_0 - s0_0) * fract_frame as f32);
-                    *out_s_1 = s0_1 + ((s1_1 - s0_1) * fract_frame as f32);
-
-                    last_in_frame = in_frame_usize;
-                    last_fract_frame = fract_frame;
-
-                    out_frames_count += 1;
-                }
-
-                self.wraparound_buffer[0][0] = r_ch_0[last_in_frame];
-                self.wraparound_buffer[1][0] = r_ch_1[last_in_frame];
-
-                self.wraparound_buffer[0][1] = r_ch_0[last_in_frame + 1];
-                self.wraparound_buffer[1][1] = r_ch_1[last_in_frame + 1];
-
-                self.fract_in_frame = last_fract_frame;
-            } else {
-                for ((out_ch, r_ch), w_ch) in out_buffers[..num_channels]
-                    .iter_mut()
-                    .zip(scratch_buffers[..num_channels].iter_mut())
-                    .zip(self.wraparound_buffer[..num_channels].iter_mut())
-                {
-                    // Hint to compiler to optimize loop.
-                    assert_eq!(r_ch.len(), processor.max_block_frames);
-
-                    if copy_start > 0 {
-                        r_ch[0] = w_ch[0];
-                        r_ch[1] = w_ch[1];
-                    }
-
-                    let mut last_in_frame = 0;
-                    let mut last_fract_frame = 0.0;
-                    let mut out_frames_ch_count = 0;
-                    for (i, out_s) in out_ch[out_ch_start..out_buffer_range.end]
-                        .iter_mut()
-                        .enumerate()
-                    {
-                        let out_frame = (i + output_frames_processed) as f64;
-
-                        let in_frame_f64 = out_to_in_frame(out_frame, in_frame_start, speed);
-
-                        let in_frame_usize = in_frame_f64.trunc() as usize - input_frames_processed;
-                        last_fract_frame = in_frame_f64.fract();
-
-                        if in_frame_usize >= max_block_frames_minus_1 {
-                            break;
-                        }
-
-                        let s0 = r_ch[in_frame_usize];
-                        let s1 = r_ch[in_frame_usize + 1];
-
-                        *out_s = s0 + ((s1 - s0) * last_fract_frame as f32);
-
-                        last_in_frame = in_frame_usize;
-                        out_frames_ch_count += 1;
-                    }
-
-                    w_ch[0] = r_ch[last_in_frame];
-                    w_ch[1] = r_ch[last_in_frame + 1];
-
-                    self.fract_in_frame = last_fract_frame;
-                    out_frames_count = out_frames_ch_count;
-                }
-            }
-
-            output_frames_processed += out_frames_count;
-            input_frames_processed += input_frames - 2;
-
-            copy_start = 2;
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.fract_in_frame = 0.0;
-        self.is_first_process = true;
-    }
 }
