@@ -170,7 +170,7 @@ pub(super) struct OutBufferAssignment {
     pub buffer_index: usize,
 }
 
-pub struct NodeHeapData {
+pub(crate) struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
     pub is_pre_process: bool,
@@ -178,15 +178,15 @@ pub struct NodeHeapData {
 }
 
 pub struct ScheduleHeapData {
-    pub schedule: CompiledSchedule,
-    pub nodes_to_remove: Vec<NodeID>,
-    pub removed_nodes: Vec<NodeHeapData>,
-    pub new_node_processors: Vec<NodeHeapData>,
-    pub new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
+    pub(crate) schedule: CompiledSchedule,
+    pub(crate) nodes_to_remove: Vec<NodeID>,
+    pub(crate) removed_nodes: Vec<NodeHeapData>,
+    pub(crate) new_node_processors: Vec<NodeHeapData>,
+    pub(crate) new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
 }
 
 impl ScheduleHeapData {
-    pub fn new(
+    pub(crate) fn new(
         schedule: CompiledSchedule,
         nodes_to_remove: Vec<NodeID>,
         new_node_processors: Vec<NodeHeapData>,
@@ -240,6 +240,8 @@ pub struct CompiledSchedule {
     buffers: Vec<f32>,
     buffer_flags: Vec<BufferFlags>,
     num_buffers: usize,
+    reuse_buffer_allocation: bool,
+    buffer_capacity: usize,
 
     bypass_declick_buffer: SequentialBuffer<f32>,
 
@@ -271,6 +273,12 @@ impl Debug for CompiledSchedule {
 
         writeln!(f, "    num_buffers: {}", self.num_buffers)?;
         writeln!(f, "    max_block_frames: {}", self.max_block_frames)?;
+        writeln!(
+            f,
+            "    reuse_buffer_allocation: {}",
+            self.reuse_buffer_allocation
+        )?;
+        writeln!(f, "    buffer_capacity: {}", self.buffer_capacity)?;
 
         writeln!(f, "}}")
     }
@@ -284,25 +292,37 @@ impl CompiledSchedule {
         max_num_node_out_buffers: usize,
         max_block_frames: usize,
         graph_in_node_id: NodeID,
+        prev_buffer_capacity: usize,
     ) -> Self {
         assert!(max_block_frames <= u16::MAX as usize);
 
-        let mut buffers = Vec::new();
-        buffers.reserve_exact(num_buffers * max_block_frames);
-        buffers.resize(num_buffers * max_block_frames, 0.0);
+        let reuse_buffer_allocation = num_buffers <= prev_buffer_capacity;
+
+        let (buffer_capacity, buffers, buffer_flags) = if reuse_buffer_allocation {
+            (prev_buffer_capacity, Vec::new(), Vec::new())
+        } else {
+            let buffers = vec![0.0; max_block_frames * num_buffers];
+            let buffer_flags = vec![
+                BufferFlags {
+                    silent: true,
+                    constant: true,
+                    frames: max_block_frames as u16,
+                };
+                num_buffers
+            ];
+
+            (
+                (buffers.capacity() / max_block_frames).min(buffer_flags.capacity()),
+                buffers,
+                buffer_flags,
+            )
+        };
 
         Self {
             pre_proc_nodes,
             schedule,
             buffers,
-            buffer_flags: vec![
-                BufferFlags {
-                    silent: false,
-                    constant: false,
-                    frames: 0,
-                };
-                num_buffers
-            ],
+            buffer_flags,
             num_buffers,
             bypass_declick_buffer: SequentialBuffer::new(
                 NonZeroUsize::new(max_num_node_out_buffers).unwrap_or(NonZeroUsize::MIN),
@@ -310,16 +330,45 @@ impl CompiledSchedule {
             ),
             max_block_frames,
             graph_in_node_id,
+            reuse_buffer_allocation,
+            buffer_capacity,
+        }
+    }
+
+    pub(crate) fn sync_new_buffers(&mut self, old_schedule: &mut CompiledSchedule) {
+        if self.reuse_buffer_allocation {
+            assert_eq!(old_schedule.max_block_frames, self.max_block_frames);
+
+            core::mem::swap(&mut self.buffers, &mut old_schedule.buffers);
+            core::mem::swap(&mut self.buffer_flags, &mut old_schedule.buffer_flags);
+
+            // # Realtime safety
+            // The compiler always sets `reuse_buffer_allocation` to `false` if resizing
+            // would cause an allocation.
+            self.buffers
+                .resize(self.max_block_frames * self.num_buffers, 0.0);
+            self.buffer_flags.resize(
+                self.num_buffers,
+                BufferFlags {
+                    silent: true,
+                    constant: true,
+                    frames: self.max_block_frames as u16,
+                },
+            );
         }
     }
 
     #[cfg(feature = "node_profiling")]
-    pub fn num_nodes(&self) -> usize {
+    pub(crate) fn num_nodes(&self) -> usize {
         self.pre_proc_nodes.len() + self.schedule.len()
     }
 
+    pub(crate) fn buffer_capacity(&self) -> usize {
+        self.buffer_capacity
+    }
+
     #[cfg(feature = "node_profiling")]
-    pub fn iter_node_ids(&self) -> impl Iterator<Item = NodeID> + use<'_> {
+    pub(crate) fn iter_node_ids(&self) -> impl Iterator<Item = NodeID> + use<'_> {
         self.pre_proc_nodes
             .iter()
             .map(|n| n.id)
@@ -327,15 +376,15 @@ impl CompiledSchedule {
     }
 
     #[cfg(feature = "node_profiling")]
-    pub fn graph_in_node_id(&self) -> NodeID {
+    pub(crate) fn graph_in_node_id(&self) -> NodeID {
         self.graph_in_node_id
     }
 
-    pub fn max_block_frames(&self) -> usize {
+    pub(crate) fn max_block_frames(&self) -> usize {
         self.max_block_frames
     }
 
-    pub fn prepare_graph_inputs(
+    pub(crate) fn prepare_graph_inputs(
         &mut self,
         frames: usize,
         num_stream_inputs: usize,
@@ -422,7 +471,7 @@ impl CompiledSchedule {
         }
     }
 
-    pub fn read_graph_outputs(
+    pub(crate) fn read_graph_outputs(
         &mut self,
         frames: usize,
         num_stream_outputs: usize,
@@ -462,11 +511,11 @@ impl CompiledSchedule {
     }
 
     #[cfg(feature = "scheduled_events")]
-    pub fn has_pre_proc_nodes(&self) -> bool {
+    pub(crate) fn has_pre_proc_nodes(&self) -> bool {
         !self.pre_proc_nodes.is_empty()
     }
 
-    pub fn process(
+    pub(crate) fn process(
         &mut self,
         frames: usize,
         force_clear_buffers: bool,

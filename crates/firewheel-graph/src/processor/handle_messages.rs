@@ -107,6 +107,10 @@ impl FirewheelProcessorInner {
                 }
             }
 
+            new_schedule_data
+                .schedule
+                .sync_new_buffers(&mut old_schedule_data.schedule);
+
             let _ = self
                 .to_graph_tx
                 .try_push(ProcessorToContextMsg::DropSchedule(old_schedule_data));

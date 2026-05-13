@@ -55,6 +55,7 @@ pub(crate) struct AudioGraph {
     nodes_to_call_update_method: Vec<NodeID>,
 
     prev_node_arena_capacity: usize,
+    prev_buffer_capacity: usize,
 
     modify_guard_stack: Vec<ModifyGraphGuard>,
 }
@@ -115,6 +116,7 @@ impl AudioGraph {
             active_nodes_to_remove: HashMap::with_capacity(config.initial_node_capacity as usize),
             nodes_to_call_update_method: Vec::new(),
             prev_node_arena_capacity: 0,
+            prev_buffer_capacity: 0,
             modify_guard_stack: Vec::new(),
         }
     }
@@ -657,6 +659,7 @@ impl AudioGraph {
 
     pub(crate) fn on_schedule_send_failed(&mut self, failed_schedule: Box<ScheduleHeapData>) {
         self.needs_compile = true;
+        self.prev_buffer_capacity = 0;
 
         for node in failed_schedule.new_node_processors.iter() {
             if let Some(node_entry) = &mut self.nodes.get_mut(node.id.0) {
@@ -667,6 +670,7 @@ impl AudioGraph {
 
     pub(crate) fn deactivate(&mut self) {
         self.needs_compile = true;
+        self.prev_buffer_capacity = 0;
     }
 
     pub(crate) fn compile(
@@ -674,6 +678,8 @@ impl AudioGraph {
         stream_info: &StreamInfo,
     ) -> Result<Box<ScheduleHeapData>, CompileGraphError> {
         let schedule = self.compile_internal(stream_info.max_block_frames.get() as usize)?;
+
+        let buffer_capacity = schedule.buffer_capacity();
 
         let mut new_node_processors = Vec::new();
         for (_, entry) in self.nodes.iter_mut() {
@@ -721,6 +727,7 @@ impl AudioGraph {
         ));
 
         self.needs_compile = false;
+        self.prev_buffer_capacity = buffer_capacity;
 
         #[cfg(feature = "tracing")]
         tracing::debug!("compiled new audio graph: {:?}", &schedule_data);
@@ -743,6 +750,7 @@ impl AudioGraph {
             self.graph_in_id,
             self.graph_out_id,
             max_block_frames,
+            self.prev_buffer_capacity,
         )
     }
 

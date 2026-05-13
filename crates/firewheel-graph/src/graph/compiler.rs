@@ -130,13 +130,19 @@ pub fn compile(
     graph_in_id: NodeID,
     graph_out_id: NodeID,
     max_block_frames: usize,
+    prev_buffer_capacity: usize,
 ) -> Result<CompiledSchedule, CompileGraphError> {
-    Ok(
-        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, max_block_frames)
-            .sort_topologically(true)?
-            .solve_buffer_requirements()?
-            .merge(),
+    Ok(GraphIR::preprocess(
+        nodes,
+        edges,
+        graph_in_id,
+        graph_out_id,
+        max_block_frames,
+        prev_buffer_capacity,
     )
+    .sort_topologically(true)?
+    .solve_buffer_requirements()?
+    .merge())
 }
 
 pub fn cycle_detected<'a>(
@@ -146,7 +152,8 @@ pub fn cycle_detected<'a>(
     graph_out_id: NodeID,
 ) -> bool {
     matches!(
-        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0).sort_topologically(false),
+        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0, 0)
+            .sort_topologically(false),
         Err(CompileGraphError::CycleDetected)
     )
 }
@@ -170,6 +177,8 @@ struct GraphIR<'a> {
     max_in_buffers: usize,
     max_out_buffers: usize,
     max_block_frames: usize,
+
+    prev_buffer_capacity: usize,
 }
 
 impl<'a> GraphIR<'a> {
@@ -181,6 +190,7 @@ impl<'a> GraphIR<'a> {
         graph_in_id: NodeID,
         graph_out_id: NodeID,
         max_block_frames: usize,
+        prev_buffer_capacity: usize,
     ) -> Self {
         assert!(nodes.contains(graph_in_id.0));
         assert!(nodes.contains(graph_out_id.0));
@@ -209,6 +219,7 @@ impl<'a> GraphIR<'a> {
             max_in_buffers: 0,
             max_out_buffers: 0,
             max_block_frames,
+            prev_buffer_capacity,
         }
     }
 
@@ -457,6 +468,7 @@ impl<'a> GraphIR<'a> {
             self.max_out_buffers,
             self.max_block_frames,
             self.graph_in_id,
+            self.prev_buffer_capacity,
         )
     }
 }
