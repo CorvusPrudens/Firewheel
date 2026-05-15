@@ -182,8 +182,10 @@ impl ProfilerTx {
     }
 
     pub fn begin_new_bookkeeping_part(&mut self) {
-        if self.is_profiling_bookkeeping {
-            self.bookkeeping_start_instant = Instant::now();
+        if self.is_profiling_bookkeeping
+            && let Some(now) = crate::time::now()
+        {
+            self.bookkeeping_start_instant = now;
         }
     }
 
@@ -199,16 +201,18 @@ impl ProfilerTx {
     pub fn begin_node_profiling(&mut self) {
         self.node_schedule_index = 0;
 
-        if self.is_profiling_nodes {
-            self.node_profile_start_instant = Instant::now();
+        if self.is_profiling_nodes
+            && let Some(now) = crate::time::now()
+        {
+            self.node_profile_start_instant = now;
         }
     }
 
     #[cfg(feature = "node_profiling")]
     pub fn node_completed(&mut self) {
-        if self.is_profiling_nodes {
-            let new_profile_instant = Instant::now();
-
+        if self.is_profiling_nodes
+            && let Some(new_profile_instant) = crate::time::now()
+        {
             let node_cpu_usage = new_profile_instant
                 .duration_since(self.node_profile_start_instant)
                 .as_secs_f64()
@@ -221,14 +225,16 @@ impl ProfilerTx {
     }
 
     pub fn process_loop_completed(&mut self) {
+        let Some(now) = crate::time::now() else {
+            return;
+        };
+
         #[cfg(feature = "node_profiling")]
         if self.is_profiling_nodes {
             for (node, &sum) in self.nodes.iter_mut().zip(self.node_cpu_sums.iter()) {
                 node.cpu_usage = node.cpu_usage.max(sum);
             }
         }
-
-        let now = Instant::now();
 
         let overall_cpu_usage = now.duration_since(self.proc_start_instant).as_secs_f64()
             * self.total_cpu_seconds_recip;
