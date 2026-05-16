@@ -169,7 +169,10 @@ impl HostEnumerator {
         let default_device_id = default_device.and_then(|d| match d.id() {
             Ok(id) => Some(id),
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!("Failed to get ID of default audio input device: {}", e);
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
                 None
             }
         });
@@ -197,7 +200,10 @@ impl HostEnumerator {
                 }
             }
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 error!("Failed to get input audio devices: {}", e);
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
             }
         }
 
@@ -212,7 +218,10 @@ impl HostEnumerator {
         let default_device_id = default_device.and_then(|d| match d.id() {
             Ok(id) => Some(id),
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!("Failed to get ID of default audio output device: {}", e);
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
                 None
             }
         });
@@ -240,7 +249,10 @@ impl HostEnumerator {
                 }
             }
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 error!("Failed to get output audio devices: {}", e);
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
             }
         }
 
@@ -328,6 +340,7 @@ pub struct CpalStream {
 impl CpalStream {
     /// Create a new audio stream with the given [`FirewheelContext`].
     pub fn new(cx: &mut FirewheelContext, config: CpalConfig) -> Result<Self, StartStreamError> {
+        #[cfg(any(feature = "log", feature = "tracing"))]
         info!("Attempting to start CPAL audio stream...");
 
         if cx.is_active() {
@@ -338,10 +351,13 @@ impl CpalStream {
             match cpal::host_from_id(host_id) {
                 Ok(host) => host,
                 Err(e) => {
+                    #[cfg(any(feature = "log", feature = "tracing"))]
                     warn!(
                         "Requested audio host {:?} is not available: {}. Falling back to default host...",
                         &host_id, e
                     );
+                    #[cfg(not(any(feature = "log", feature = "tracing")))]
+                    let _ = e;
                     cpal::default_host()
                 }
             }
@@ -358,6 +374,7 @@ impl CpalStream {
             }
 
             if out_device.is_none() {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!(
                     "Could not find requested audio output device: {}. Falling back to default device...",
                     &device_id
@@ -376,7 +393,10 @@ impl CpalStream {
         let out_device_id = match out_device.id() {
             Ok(id) => Some(id),
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!("Failed to get id of output audio device: {}", e);
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
                 None
             }
         };
@@ -527,6 +547,7 @@ impl CpalStream {
 
         let out_sample_format = default_config.sample_format();
 
+        #[cfg(any(feature = "log", feature = "tracing"))]
         info!(
             "Starting output audio stream with device \"{:?}\" with configuration {:?} (native sample format: {:?})",
             &out_device_id, &out_stream_config, out_sample_format,
@@ -603,7 +624,11 @@ impl CpalStream {
                 )?
             }
             fmt => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 error!("Unsupported cpal output sample format: {:?}", fmt);
+
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = fmt;
                 return Err(StartStreamError::BuildStreamError(
                     cpal::BuildStreamError::StreamConfigNotSupported,
                 ));
@@ -710,10 +735,13 @@ fn start_input_stream(
         match cpal::host_from_id(host_id) {
             Ok(host) => host,
             Err(e) => {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!(
                     "Requested audio host {:?} is not available: {}. Falling back to default host...",
                     &host_id, e
                 );
+                #[cfg(not(any(feature = "log", feature = "tracing")))]
+                let _ = e;
                 cpal::default_host()
             }
         }
@@ -731,11 +759,13 @@ fn start_input_stream(
 
         if in_device.is_none() {
             if config.fallback {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!(
                     "Could not find requested audio input device: {}. Falling back to default device...",
                     &device_id
                 );
             } else {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 warn!(
                     "Could not find requested audio input device: {}. No input stream will be started.",
                     &device_id
@@ -751,6 +781,7 @@ fn start_input_stream(
         } else if config.fail_on_no_input {
             return Err(StartStreamError::DefaultInputDeviceNotFound);
         } else {
+            #[cfg(any(feature = "log", feature = "tracing"))]
             warn!("No default audio input device found. Input stream will not be started.");
             return Ok(StartInputStreamResult::NotStarted);
         }
@@ -760,7 +791,10 @@ fn start_input_stream(
     let in_device_id = match in_device.id() {
         Ok(id) => Some(id),
         Err(e) => {
+            #[cfg(any(feature = "log", feature = "tracing"))]
             warn!("Failed to get id of input audio device: {}", e);
+            #[cfg(not(any(feature = "log", feature = "tracing")))]
+            let _ = e;
             None
         }
     };
@@ -798,6 +832,7 @@ fn start_input_stream(
                 output_sample_rate,
             ));
         } else {
+            #[cfg(any(feature = "log", feature = "tracing"))]
             warn!(
                 "Could not use output sample rate {} for the input sample rate. Input stream will not be started",
                 output_sample_rate
@@ -836,6 +871,7 @@ fn start_input_stream(
 
     let input_stream_running = Arc::new(AtomicBool::new(true));
 
+    #[cfg(any(feature = "log", feature = "tracing"))]
     info!(
         "Starting input audio stream with device \"{:?}\" with configuration {:?}",
         &in_device_id, &stream_config
@@ -918,7 +954,10 @@ fn start_input_stream(
             )
         }
         fmt => {
+            #[cfg(any(feature = "log", feature = "tracing"))]
             error!("Unsupported cpal output sample format: {:?}", fmt);
+            #[cfg(not(any(feature = "log", feature = "tracing")))]
+            let _ = fmt;
             Err(cpal::BuildStreamError::StreamConfigNotSupported)
         }
     };
@@ -929,6 +968,7 @@ fn start_input_stream(
             if config.fail_on_no_input {
                 return Err(StartStreamError::BuildStreamError(e));
             } else {
+                #[cfg(any(feature = "log", feature = "tracing"))]
                 error!(
                     "Failed to build input audio stream, input stream will not be started. {}",
                     e
@@ -942,6 +982,7 @@ fn start_input_stream(
         if config.fail_on_no_input {
             return Err(StartStreamError::PlayStreamError(e));
         } else {
+            #[cfg(any(feature = "log", feature = "tracing"))]
             error!(
                 "Failed to start input audio stream, input stream will not be started. {}",
                 e
@@ -1243,6 +1284,8 @@ fn err_callback(
             // Make sure the error gets logged even if the handle has been dropped.
             #[cfg(any(feature = "log", feature = "tracing"))]
             error!("Audio stream error occurred: {}", e.0);
+            #[cfg(not(any(feature = "log", feature = "tracing")))]
+            let _ = e;
         }
     }
 }
