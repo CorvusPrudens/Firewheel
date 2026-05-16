@@ -1422,7 +1422,7 @@ impl Drop for FirewheelContext {
 /// # }
 /// ```
 pub struct ContextQueue<'a> {
-    context: &'a mut FirewheelContext,
+    pub context: &'a mut FirewheelContext,
     id: NodeID,
     #[cfg(feature = "scheduled_events")]
     time: Option<EventInstant>,
