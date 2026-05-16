@@ -339,6 +339,8 @@ impl FirewheelContext {
             event_group_pool.push(Vec::with_capacity(initial_event_group_capacity));
         }
 
+        let graph = AudioGraph::new(&config);
+
         #[cfg(feature = "scheduled_events")]
         let (shared_clock_input, shared_clock_output) =
             triple_buffer::triple_buffer(&SharedClock::default());
@@ -351,13 +353,15 @@ impl FirewheelContext {
             },
             #[cfg(feature = "node_profiling")]
             config.buffer_out_of_space_mode,
+            #[cfg(feature = "node_profiling")]
+            graph.graph_out_node(),
         );
         let shared_flags = Arc::new(SharedFlags::default());
 
         let store = ProcStore::with_capacity(config.proc_store_capacity);
 
         Self {
-            graph: AudioGraph::new(&config),
+            graph,
             to_processor_tx,
             from_processor_rx,
             processor_drop_flag: None,

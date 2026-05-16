@@ -13,6 +13,7 @@ use firewheel_core::node::NodeID;
 pub(crate) fn profiler_channel(
     #[cfg(feature = "node_profiling")] node_capacity: usize,
     #[cfg(feature = "node_profiling")] buffer_out_of_space_mode: BufferOutOfSpaceMode,
+    #[cfg(feature = "node_profiling")] graph_out_node_id: NodeID,
 ) -> (ProfilerTx, ProfilerRx) {
     let (buffer_tx, buffer_rx) =
         triple_buffer::TripleBuffer::new(&ProfilingData::with_node_capacity(
@@ -22,6 +23,15 @@ pub(crate) fn profiler_channel(
         .split();
 
     let now = Instant::now();
+
+    #[cfg(feature = "node_profiling")]
+    let mut nodes = Vec::with_capacity(node_capacity);
+    #[cfg(feature = "node_profiling")]
+    // Initialize the list of nodes with the graph output node.
+    nodes.push(NodeProfileData {
+        node_id: graph_out_node_id,
+        cpu_usage: 0.0,
+    });
 
     (
         ProfilerTx {
@@ -35,7 +45,7 @@ pub(crate) fn profiler_channel(
             is_profiling_bookkeeping: false,
             bookkeeping_start_instant: now,
             #[cfg(feature = "node_profiling")]
-            nodes: Vec::with_capacity(node_capacity),
+            nodes,
             #[cfg(feature = "node_profiling")]
             node_cpu_sums: Vec::with_capacity(node_capacity),
             #[cfg(feature = "node_profiling")]
@@ -102,6 +112,8 @@ impl ProfilerTx {
             self.node_cpu_sums.clear();
 
             if self.node_capacity < num_nodes {
+                // TODO: A new Vec should just be sent via ScheduleHeapData instead of dealing
+                // with buffer out of space logic.
                 match self.buffer_out_of_space_mode {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
                         let _ = logger.try_error("Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity to avoid audio glitches.");
