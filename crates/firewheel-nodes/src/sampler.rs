@@ -12,7 +12,7 @@ use firewheel_core::clock::{DurationSamples, DurationSeconds};
 use firewheel_core::collector::{OwnedGc, OwnedGcUnsized};
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcStreamCtx};
 
-use bevy_platform::sync::{Arc, Mutex, MutexGuard};
+use bevy_platform::sync::{Arc, Mutex};
 use bevy_platform::time::Instant;
 use core::{
     num::{NonZeroU32, NonZeroUsize},
@@ -350,34 +350,33 @@ impl SamplerNode {
 
 #[derive(Clone)]
 pub struct SamplerState {
-    current_proc_state: Option<Arc<Mutex<Output<CurrentProcessorState>>>>,
+    channel: Arc<Mutex<SharedChannel>>,
 }
 
 impl SamplerState {
     fn new() -> Self {
         Self {
-            current_proc_state: None,
+            channel: Arc::new(Mutex::new(SharedChannel::new())),
         }
     }
 
     /// Get the current state of this sampler node's processor at this instant
     /// in time.
-    ///
-    /// Returns `None` if the node has not been activated yet.
-    pub fn current_processor_state(&self) -> Option<CurrentProcessorState> {
-        self.current_processor_state_ref().map(|mut s| *s.read())
-    }
-
-    fn current_processor_state_ref(&self) -> Option<MutexGuard<'_, Output<CurrentProcessorState>>> {
-        self.current_proc_state.as_ref().map(|s| s.lock().unwrap())
+    pub fn current_processor_state(&self) -> CurrentProcessorState {
+        *self.channel.lock().unwrap().proc_state_output.read()
     }
 
     /// Get the current position of the playhead in units of frames (samples of
     /// a single channel of audio).
     pub fn playhead_frames(&self) -> DurationSamples {
-        self.current_processor_state_ref()
-            .map(|mut s| DurationSamples(s.read().playhead_frames as i64))
-            .unwrap_or_default()
+        DurationSamples(
+            self.channel
+                .lock()
+                .unwrap()
+                .proc_state_output
+                .read()
+                .playhead_frames as i64,
+        )
     }
 
     /// Get the current position of the sample playhead in seconds.
@@ -389,9 +388,12 @@ impl SamplerState {
 
     /// Get the current playback state of the processor at this instant in time.
     pub fn playback_state(&self) -> PlaybackState {
-        self.current_processor_state_ref()
-            .map(|mut s| s.read().playback_state)
-            .unwrap_or(PlaybackState::Stopped)
+        self.channel
+            .lock()
+            .unwrap()
+            .proc_state_output
+            .read()
+            .playback_state
     }
 
     /// Returns `true` if the processor is currently playing a sample at this instant
@@ -415,12 +417,9 @@ impl SamplerState {
     /// playback ID (the ID of the `play` parameter that the processor currently
     /// has) at this instant in time.
     pub fn playback_state_and_id(&self) -> (PlaybackState, PlaybackID) {
-        self.current_processor_state_ref()
-            .map(|mut s| {
-                let s = s.read();
-                (s.playback_state, s.playback_id)
-            })
-            .unwrap_or((PlaybackState::Stopped, PlaybackID::DANGLING))
+        let mut channel = self.channel.lock().unwrap();
+        let s = channel.proc_state_output.read();
+        (s.playback_state, s.playback_id)
     }
 
     /// Get the current position of the playhead in units of frames (samples of
@@ -434,13 +433,11 @@ impl SamplerState {
         update_instant: Option<Instant>,
         sample_rate: NonZeroU32,
     ) -> DurationSamples {
-        let (playhead_frames, playback_state) = self
-            .current_processor_state_ref()
-            .map(|mut s| {
-                let s = s.read();
-                (s.playhead_frames, s.playback_state)
-            })
-            .unwrap_or((0, PlaybackState::Stopped));
+        let (playhead_frames, playback_state) = {
+            let mut channel = self.channel.lock().unwrap();
+            let s = channel.proc_state_output.read();
+            (s.playhead_frames, s.playback_state)
+        };
 
         let Some(update_instant) = update_instant else {
             return DurationSamples(playhead_frames as i64);
@@ -478,9 +475,12 @@ impl SamplerState {
     /// Returns the last playback ID (the ID of the [`SamplerNode::play`] parameter) that has
     /// finished/stopped.
     pub fn last_finished_playback_id(&self) -> PlaybackID {
-        self.current_processor_state_ref()
-            .map(|mut s| s.read().last_finished_playback_id)
-            .unwrap_or(PlaybackID::DANGLING)
+        self.channel
+            .lock()
+            .unwrap()
+            .proc_state_output
+            .read()
+            .last_finished_playback_id
     }
 
     /// Returns `true` if the given playback with the ID (the ID of the [`SamplerNode::play`]
@@ -492,9 +492,7 @@ impl SamplerState {
     /// A score of how suitable this node is to start new work (Play a new sample). The
     /// higher the score, the better the candidate.
     pub fn worker_score(&self, current_worker_params: &SamplerNode) -> u64 {
-        let Some(state) = self.current_processor_state_ref().map(|mut s| *s.read()) else {
-            return u64::MAX;
-        };
+        let state = self.current_processor_state();
 
         if current_worker_params.playback_id() <= state.last_finished_playback_id {
             // Sequence has finished playing.
@@ -520,6 +518,24 @@ impl SamplerState {
                 PlaybackState::Paused => u64::MAX - 2,
                 PlaybackState::Playing => u64::MAX - 3,
             }
+        }
+    }
+}
+
+struct SharedChannel {
+    proc_state_output: Output<CurrentProcessorState>,
+    proc_state_input: Option<Input<CurrentProcessorState>>,
+}
+
+impl SharedChannel {
+    fn new() -> Self {
+        let (proc_state_input, proc_state_output) = triple_buffer::triple_buffer::<
+            CurrentProcessorState,
+        >(&CurrentProcessorState::default());
+
+        Self {
+            proc_state_input: Some(proc_state_input),
+            proc_state_output,
         }
     }
 }
@@ -708,17 +724,22 @@ impl AudioNode for SamplerNode {
             ..Default::default()
         };
 
-        let (proc_state_input, proc_state_output) = triple_buffer::triple_buffer(&proc_state);
-
-        cx.custom_state_mut::<SamplerState>()
+        let mut shared_proc_state = cx
+            .custom_state_mut::<SamplerState>()
             .unwrap()
-            .current_proc_state = Some(Arc::new(Mutex::new(proc_state_output)));
+            .channel
+            .lock()
+            .unwrap()
+            .proc_state_input
+            .take()
+            .unwrap();
+        shared_proc_state.write(proc_state);
 
         Ok(SamplerProcessor {
             config: *config,
             params: *self,
             proc_state,
-            shared_proc_state: proc_state_input,
+            shared_proc_state,
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             stop_declicker_buffers,

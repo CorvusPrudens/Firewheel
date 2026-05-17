@@ -272,7 +272,8 @@ pub trait AudioNode {
 
     /// Get information about this node.
     ///
-    /// This method is only called once after the node is added to the audio graph.
+    /// This method is only called once per instance after the node is added to the
+    /// audio graph.
     fn info(&self, configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError>;
 
     /// Construct a realtime processor for this node.
@@ -280,6 +281,8 @@ pub trait AudioNode {
     /// * `configuration` - The custom configuration of this node.
     /// * `cx` - A context for interacting with the Firewheel context. This context
     ///   also includes information about the audio stream.
+    ///
+    /// This is only ever called once per node instance.
     fn construct_processor(
         &self,
         configuration: &Self::Configuration,
