@@ -704,6 +704,8 @@ impl AudioNode for SamplerNode {
             ))
         };
 
+        let max_block_frames = cx.stream_info.max_block_frames.get() as usize;
+
         let playing = *self.play;
         let paused = !*self.play && self.play_from == PlayFrom::Resume;
         let playback_state = if playing {
@@ -723,16 +725,19 @@ impl AudioNode for SamplerNode {
                 .unwrap_or_default(),
             ..Default::default()
         };
-
-        let mut shared_proc_state = cx
+        let mut channel = cx
             .custom_state_mut::<SamplerState>()
             .unwrap()
             .channel
             .lock()
-            .unwrap()
-            .proc_state_input
-            .take()
             .unwrap();
+        let mut shared_proc_state = if let Some(proc_state_input) = channel.proc_state_input.take()
+        {
+            proc_state_input
+        } else {
+            *channel = SharedChannel::new();
+            channel.proc_state_input.take().unwrap()
+        };
         shared_proc_state.write(proc_state);
 
         Ok(SamplerProcessor {
@@ -752,7 +757,7 @@ impl AudioNode for SamplerNode {
             #[cfg(feature = "scheduled_events")]
             queued_playback_instant: None,
             min_gain: self.min_gain.max(0.0),
-            max_block_frames: cx.stream_info.max_block_frames.get() as usize,
+            max_block_frames,
             num_out_channels: config.channels.get().get() as usize,
             is_first_process: true,
         })

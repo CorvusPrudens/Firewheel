@@ -257,11 +257,12 @@ pub struct AudioNodeInfoInner {
 ///    processor back to the audio thread for processing.
 ///
 ///    7c. If the Firewheel context is dropped before a new stream is started, then
-///    both the node and the processor counterpart are dropped.
+///    both the node and the processor counterpart are dropped on the main thread.
 /// 8. (Audio thread crashes or stops unexpectedly) - The node's processor counterpart
 ///    may or may not be dropped. The user may try to create a new audio stream, in which
 ///    case [`AudioNode::construct_processor`] might be called again. If a second processor
-///    instance is not able to be created, then the node may panic.
+///    instance is not able to be created, or if dropping the processor on the audio thread
+///    is unacceptable behavior, then the node may panic.
 pub trait AudioNode {
     /// A type representing this constructor's configuration.
     ///
@@ -281,8 +282,6 @@ pub trait AudioNode {
     /// * `configuration` - The custom configuration of this node.
     /// * `cx` - A context for interacting with the Firewheel context. This context
     ///   also includes information about the audio stream.
-    ///
-    /// This is only ever called once per node instance.
     fn construct_processor(
         &self,
         configuration: &Self::Configuration,
