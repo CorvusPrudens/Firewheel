@@ -396,6 +396,24 @@ impl SamplerState {
             .playback_state
     }
 
+    /// Get the current playback state as well as the current [`PlaybackID`] at this
+    /// instant in time.
+    ///
+    /// The [`PlaybackID`] is equal to the ID of the latest [`SamplerNode::play`]
+    /// parameter that was set to `true`.
+    pub fn playback_state_and_id(&self) -> (PlaybackState, PlaybackID) {
+        let mut ch_guard = self.channel.lock().unwrap();
+        let state = ch_guard.proc_state_output.read();
+        (state.playback_state, state.playback_id)
+    }
+
+    /// Returns `true` if the current [`PlaybackID`] is equal to the given playback ID
+    /// *and* the playback state is [`PlaybackState::Stopped`].
+    pub fn playback_finished(&self, playback_id: PlaybackID) -> bool {
+        let (playback_state, id) = self.playback_state_and_id();
+        id == playback_id && playback_state == PlaybackState::Stopped
+    }
+
     /// Returns `true` if the processor is currently playing a sample at this instant
     /// in time.
     pub fn currently_playing(&self) -> bool {
@@ -411,15 +429,6 @@ impl SamplerState {
     /// or it has finished playing its sample at this instant in time.
     pub fn currently_stopped(&self) -> bool {
         self.playback_state() == PlaybackState::Stopped
-    }
-
-    /// Get the current playback state of the processor along with the current
-    /// playback ID (the ID of the `play` parameter that the processor currently
-    /// has) at this instant in time.
-    pub fn playback_state_and_id(&self) -> (PlaybackState, PlaybackID) {
-        let mut channel = self.channel.lock().unwrap();
-        let s = channel.proc_state_output.read();
-        (s.playback_state, s.playback_id)
     }
 
     /// Get the current position of the playhead in units of frames (samples of
@@ -471,55 +480,6 @@ impl SamplerState {
                 / sample_rate.get() as f64,
         )
     }
-
-    /// Returns the last playback ID (the ID of the [`SamplerNode::play`] parameter) that has
-    /// finished/stopped.
-    pub fn last_finished_playback_id(&self) -> PlaybackID {
-        self.channel
-            .lock()
-            .unwrap()
-            .proc_state_output
-            .read()
-            .last_finished_playback_id
-    }
-
-    /// Returns `true` if the given playback with the ID (the ID of the [`SamplerNode::play`]
-    /// parameter) has finished/stopped.
-    pub fn playback_id_has_finished(&self, id: PlaybackID) -> bool {
-        id <= self.last_finished_playback_id()
-    }
-
-    /// A score of how suitable this node is to start new work (Play a new sample). The
-    /// higher the score, the better the candidate.
-    pub fn worker_score(&self, current_worker_params: &SamplerNode) -> u64 {
-        let state = self.current_processor_state();
-
-        if current_worker_params.playback_id() <= state.last_finished_playback_id {
-            // Sequence has finished playing.
-            return u64::MAX;
-        }
-
-        if *current_worker_params.play {
-            if current_worker_params.playback_id() == state.playback_id
-                && state.playback_state == PlaybackState::Stopped
-            {
-                // Sequence has not started playing yet
-                u64::MAX - 4
-            } else {
-                // The older the sample is, the better it is as a candidate to steal
-                // work from.
-                state.age_frames
-            }
-        } else if !state.has_sample_resource {
-            u64::MAX
-        } else {
-            match state.playback_state {
-                PlaybackState::Stopped => u64::MAX - 1,
-                PlaybackState::Paused => u64::MAX - 2,
-                PlaybackState::Playing => u64::MAX - 3,
-            }
-        }
-    }
 }
 
 struct SharedChannel {
@@ -543,20 +503,19 @@ impl SharedChannel {
 /// The current state of a [`SamplerNode`]'s processor.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CurrentProcessorState {
-    /// Whether or not the processor currently has a sample resource.
-    pub has_sample_resource: bool,
-    /// The current playback state.
-    pub playback_state: PlaybackState,
-    /// The current playback ID.
-    pub playback_id: PlaybackID,
-    /// The ID of the last playback that has finished/stopped.
-    pub last_finished_playback_id: PlaybackID,
     /// The current position of the playhead in frames (samples in a single
     /// channel of audio).
     pub playhead_frames: u64,
+    /// The current [`PlaybackID`]. This is equal to the ID of the latest
+    /// [`SamplerNode::play`] parameter that was set to `true`.
+    pub playback_id: PlaybackID,
+    /// The current playback state.
+    pub playback_state: PlaybackState,
     /// The age of the current playback in frames (samples in a single channel
     /// of audio).
-    pub age_frames: u64,
+    pub playback_age_frames: u64,
+    /// Whether or not the processor currently has a sample resource.
+    pub has_sample_resource: bool,
 }
 
 /// The current playback state of a [`SamplerNode`]'s processor.
@@ -715,9 +674,14 @@ impl AudioNode for SamplerNode {
         } else {
             PlaybackState::Stopped
         };
+        let playback_id = if playing {
+            self.play.id()
+        } else {
+            PlaybackID::DANGLING
+        };
 
         let proc_state = CurrentProcessorState {
-            playback_id: self.play.id(),
+            playback_id,
             playback_state,
             playhead_frames: self
                 .play_from
@@ -1057,6 +1021,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             let mut s = None;
             if event.downcast_swap::<Option<SamplerNodeResource>>(&mut s) {
                 new_sample = Some(s);
+                continue;
             }
 
             if let Some(patch) = SamplerNode::patch_event(&event) {
@@ -1065,6 +1030,11 @@ impl AudioNodeProcessor for SamplerProcessor {
                     SamplerNodePatch::Play(play) => {
                         playback_instant = timestamp;
                         new_playing = Some(*play);
+
+                        if *play {
+                            self.proc_state.playback_id = play.id();
+                            proc_state_changed = true;
+                        }
                     }
                     SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                     SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -1083,6 +1053,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             let mut s = None;
             if event.downcast_swap::<Option<SamplerNodeResource>>(&mut s) {
                 new_sample = Some(s);
+                continue;
             }
 
             if let Some(patch) = SamplerNode::patch_event(&event) {
@@ -1090,6 +1061,11 @@ impl AudioNodeProcessor for SamplerProcessor {
                     SamplerNodePatch::Volume(_) => volume_changed = true,
                     SamplerNodePatch::Play(play) => {
                         new_playing = Some(*play);
+
+                        if *play {
+                            self.proc_state.playback_id = play.id();
+                            proc_state_changed = true;
+                        }
                     }
                     SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                     SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -1146,9 +1122,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         if let Some(mut new_playing) = new_playing {
             self.paused = false;
-            self.proc_state.last_finished_playback_id = self.proc_state.playback_id;
-            self.proc_state.playback_id = self.params.play.id();
-            self.proc_state.age_frames = 0;
+            self.proc_state.playback_age_frames = 0;
             proc_state_changed = true;
 
             if new_playing {
@@ -1246,7 +1220,6 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.proc_state.playhead_frames = new_playhead_frames;
 
                         new_playing = false;
-                        self.proc_state.last_finished_playback_id = self.params.play.id();
                     } else if new_playhead_frames != 0
                         || (self.num_active_stop_declickers > 0 && self.params.crossfade_on_seek)
                     {
@@ -1268,7 +1241,6 @@ impl AudioNodeProcessor for SamplerProcessor {
             } else {
                 // Stop
                 self.stop(extra);
-                self.proc_state.last_finished_playback_id = self.params.play.id();
             }
 
             self.playing = new_playing;
@@ -1324,13 +1296,11 @@ impl AudioNodeProcessor for SamplerProcessor {
 
             if finished {
                 self.playing = false;
-
                 self.proc_state.playback_state = PlaybackState::Stopped;
-                self.proc_state.last_finished_playback_id = self.params.play.id();
             } else {
-                self.proc_state.age_frames = self
+                self.proc_state.playback_age_frames = self
                     .proc_state
-                    .age_frames
+                    .playback_age_frames
                     .saturating_add(info.frames as u64);
             }
 
@@ -1413,7 +1383,6 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.playing = false;
             self.paused = false;
             self.proc_state.playback_state = PlaybackState::Stopped;
-            self.proc_state.last_finished_playback_id = self.params.playback_id();
             self.sync_proc_state();
         }
     }

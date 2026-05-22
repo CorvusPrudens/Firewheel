@@ -87,7 +87,7 @@ fn main() {
         if cx
             .node_state::<SamplerState>(sampler_id)
             .unwrap()
-            .playback_id_has_finished(playback_id)
+            .playback_finished(playback_id)
         {
             // Sample has finished playing.
             break;
