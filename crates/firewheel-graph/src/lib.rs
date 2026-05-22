@@ -5,6 +5,7 @@ mod context;
 pub mod error;
 pub mod graph;
 pub mod processor;
+mod time;
 
 #[cfg(feature = "unsafe_flush_denormals_to_zero")]
 mod ftz;

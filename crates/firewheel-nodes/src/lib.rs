@@ -12,10 +12,6 @@ pub mod sampler;
 #[cfg(feature = "spatial_basic")]
 pub mod spatial_basic;
 
-// TODO: Rework stream nodes
-//#[cfg(feature = "stream")]
-//pub mod stream;
-
 #[cfg(feature = "noise_generators")]
 pub mod noise_generator;
 

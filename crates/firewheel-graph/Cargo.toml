@@ -61,6 +61,9 @@ node_profiling = []
 # For an explanation on why denormal numbers are a problem, see:
 # https://mu.krj.st/denormal/
 unsafe_flush_denormals_to_zero = []
+# Provides wasm-bindgen, allowing for non-panicking `Instant::now`
+# calls in audio worklet contexts.
+wasm-bindgen = ["dep:wasm-bindgen"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }
@@ -78,6 +81,7 @@ num-traits.workspace = true
 audioadapter.workspace = true
 serde = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
+wasm-bindgen = { version = "0.2", default-features = false, optional = true }
 
 [dev-dependencies]
 audioadapter-buffers = { workspace = true, features = ["alloc"] }
