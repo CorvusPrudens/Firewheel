@@ -67,8 +67,11 @@ fn main() {
     sampler_node.start_or_restart();
     cx.queue_event_for(sampler_id, sampler_node.sync_play_event());
 
-    // Get the playback ID after calling `start_or_restart()` to detect when the
-    // sample has finished playing.
+    // Get the playback ID after calling `start_or_restart()` to detect when
+    // this specific playback sequence has finished playing.
+    //
+    // Note, this ID becomes invalidated once the sampler node receives a
+    // new "play" event.
     let playback_id = sampler_node.playback_id();
 
     // --- Simulated update loop ---------------------------------------------------------
@@ -80,10 +83,10 @@ fn main() {
             tracing::error!("{:?}", &e);
         }
 
-        // Using `playback_id_has_finished()` is more reliable than using
-        // `SamplerState::stopped()` since it takes into account the delay
-        // between when the play event is created and when the sampler node
-        // receives the event.
+        // Using `playback_finished()` is more reliable than using
+        // `currently_stopped()` since it takes into account the delay
+        // between when the play event is created and when the sampler
+        // node receives the event.
         if cx
             .node_state::<SamplerState>(sampler_id)
             .unwrap()
