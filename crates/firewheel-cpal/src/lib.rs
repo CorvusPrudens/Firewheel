@@ -9,8 +9,11 @@ use audioadapter_buffers::direct::InterleavedSlice;
 pub use cpal;
 
 use bevy_platform::time::Instant;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-pub use cpal::{DeviceId, HostId, HostUnavailable, StreamError};
+pub use cpal::{DeviceId, HostId};
+use cpal::{
+    SampleFormat,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use firewheel_core::node::StreamStatus;
 use firewheel_graph::{
     ActivateInfo, FirewheelContext,
@@ -321,7 +324,7 @@ pub fn default_host_enumerator() -> HostEnumerator {
 
 /// Get a struct used to retrieve the list of available audio devices
 /// for the given system audio host (API).
-pub fn host_enumerator(api: HostId) -> Result<HostEnumerator, HostUnavailable> {
+pub fn host_enumerator(api: HostId) -> Result<HostEnumerator, cpal::Error> {
     cpal::host_from_id(api).map(|host| HostEnumerator { host })
 }
 
@@ -401,7 +404,9 @@ impl CpalStream {
             }
         };
 
-        let default_config = out_device.default_output_config()?;
+        let default_config = out_device
+            .default_output_config()
+            .map_err(StartStreamError::FailedToGetConfig)?;
 
         let default_sample_rate = default_config.sample_rate();
         // Try to use the common sample rates by default.
@@ -429,7 +434,10 @@ impl CpalStream {
         let mut supports_48000 = false;
 
         if config.output.desired_sample_rate.is_some() || try_common_sample_rates {
-            for cpal_config in out_device.supported_output_configs()? {
+            for cpal_config in out_device
+                .supported_output_configs()
+                .map_err(StartStreamError::FailedToGetConfig)?
+            {
                 if let Some(sr) = config.output.desired_sample_rate
                     && !supports_desired_sample_rate
                     && cpal_config.try_with_sample_rate(sr).is_some()
@@ -553,89 +561,77 @@ impl CpalStream {
             &out_device_id, &out_stream_config, out_sample_format,
         );
 
+        let scratch_cap = max_block_frames * num_out_channels;
+
+        macro_rules! build_output_streams {
+            ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
+                match $sample_format {
+                    $($format => {
+                        let mut scratch = scratch_vec(scratch_cap);
+
+                        out_device.build_output_stream(
+                            out_stream_config,
+                            move |output: &mut [$primitive_type], info: &cpal::OutputCallbackInfo| {
+                                if scratch.len() < output.len() {
+                                    scratch.resize(output.len(), 0.0);
+                                }
+                                let buf = &mut scratch[..output.len()];
+
+                                callback.callback(buf, info);
+
+                                for (o, &f) in output.iter_mut().zip(buf.iter()) {
+                                    // TODO: Add dithering option for better quality?
+                                    *o = <$primitive_type as cpal::FromSample<f32>>::from_sample_(f);
+                                }
+                            },
+                            err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
+                            Some(BUILD_STREAM_TIMEOUT),
+                        )
+                    },)*
+                    _ => unreachable!(),
+                }
+            }
+        }
+
         // The cpal ASIO backend requires the callback buffer type to match the
         // driver's native format (unlike WASAPI, which converts internally).
         // For non-f32 formats, render into an f32 scratch buffer and convert
         // on the way out. The f32 path stays a direct passthrough.
-        let scratch_cap = max_block_frames * num_out_channels;
-        let out_stream_handle = match out_sample_format {
-            cpal::SampleFormat::F32 => out_device.build_output_stream(
-                &out_stream_config,
+        let out_stream_handle = if let SampleFormat::F32 = out_sample_format {
+            out_device.build_output_stream(
+                out_stream_config,
                 move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
                     callback.callback(output, info);
                 },
                 err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
                 Some(BUILD_STREAM_TIMEOUT),
-            )?,
-            cpal::SampleFormat::I16 => {
-                let mut scratch = scratch_vec(scratch_cap);
-                out_device.build_output_stream(
-                    &out_stream_config,
-                    move |output: &mut [i16], info: &cpal::OutputCallbackInfo| {
-                        if scratch.len() < output.len() {
-                            scratch.resize(output.len(), 0.0);
-                        }
-                        let buf = &mut scratch[..output.len()];
-                        callback.callback(buf, info);
-                        for (o, &f) in output.iter_mut().zip(buf.iter()) {
-                            // TODO: Add dithering option for better quality
-                            *o = <i16 as cpal::FromSample<f32>>::from_sample_(f);
-                        }
-                    },
-                    err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
-                    Some(BUILD_STREAM_TIMEOUT),
-                )?
-            }
-            cpal::SampleFormat::I24 => {
-                let mut scratch = scratch_vec(scratch_cap);
-                out_device.build_output_stream(
-                    &out_stream_config,
-                    move |output: &mut [cpal::I24], info: &cpal::OutputCallbackInfo| {
-                        if scratch.len() < output.len() {
-                            scratch.resize(output.len(), 0.0);
-                        }
-                        let buf = &mut scratch[..output.len()];
-                        callback.callback(buf, info);
-                        for (o, &f) in output.iter_mut().zip(buf.iter()) {
-                            // TODO: Add dithering option for better quality
-                            *o = <cpal::I24 as cpal::FromSample<f32>>::from_sample_(f);
-                        }
-                    },
-                    err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
-                    Some(BUILD_STREAM_TIMEOUT),
-                )?
-            }
-            cpal::SampleFormat::I32 => {
-                let mut scratch = scratch_vec(scratch_cap);
-                out_device.build_output_stream(
-                    &out_stream_config,
-                    move |output: &mut [i32], info: &cpal::OutputCallbackInfo| {
-                        if scratch.len() < output.len() {
-                            scratch.resize(output.len(), 0.0);
-                        }
-                        let buf = &mut scratch[..output.len()];
-                        callback.callback(buf, info);
-                        for (o, &f) in output.iter_mut().zip(buf.iter()) {
-                            *o = <i32 as cpal::FromSample<f32>>::from_sample_(f);
-                        }
-                    },
-                    err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
-                    Some(BUILD_STREAM_TIMEOUT),
-                )?
-            }
-            fmt => {
+            )
+        } else {
+            build_output_streams!(
+                out_sample_format,
+                (SampleFormat::I8, i8),
+                (SampleFormat::I16, i16),
+                (SampleFormat::I32, i32),
+                (SampleFormat::I64, i64),
+                (SampleFormat::U8, u8),
+                (SampleFormat::U16, u16),
+                (SampleFormat::U32, u32),
+                (SampleFormat::U64, u64),
+                (SampleFormat::F64, f64)
+            )
+        }
+        .map_err(StartStreamError::BuildStreamError)?;
+
+        if let Err(e) = out_stream_handle.play() {
+            if let cpal::ErrorKind::RealtimeDenied = e.kind() {
                 #[cfg(any(feature = "log", feature = "tracing"))]
-                error!("Unsupported cpal output sample format: {:?}", fmt);
-
-                #[cfg(not(any(feature = "log", feature = "tracing")))]
-                let _ = fmt;
-                return Err(StartStreamError::BuildStreamError(
-                    cpal::BuildStreamError::StreamConfigNotSupported,
-                ));
+                warn!(
+                    "Failed to get realtime priority for output audio thread. This may increase latency and/or audio glitches"
+                );
+            } else {
+                return Err(StartStreamError::PlayStreamError(e));
             }
-        };
-
-        out_stream_handle.play()?;
+        }
 
         let stream_info = CpalStreamInfo {
             sample_rate: activate_info.sample_rate,
@@ -799,7 +795,9 @@ fn start_input_stream(
         }
     };
 
-    let default_config = in_device.default_input_config()?;
+    let default_config = in_device
+        .default_input_config()
+        .map_err(StartStreamError::FailedToGetConfig)?;
 
     #[cfg(not(target_os = "ios"))]
     let desired_block_frames =
@@ -815,7 +813,9 @@ fn start_input_stream(
     #[cfg(target_os = "ios")]
     let desired_block_frames: Option<u32> = None;
 
-    let supported_configs = in_device.supported_input_configs()?;
+    let supported_configs = in_device
+        .supported_input_configs()
+        .map_err(StartStreamError::FailedToGetConfig)?;
 
     let mut min_sample_rate = u32::MAX;
     let mut max_sample_rate = 0;
@@ -885,81 +885,61 @@ fn start_input_stream(
 
     let in_sample_format = default_config.sample_format();
 
+    let scratch_cap = max_block_frames * num_in_channels;
+
+    macro_rules! build_input_stream {
+        ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
+            match $sample_format {
+                $($format => {
+                    let mut scratch = scratch_vec(scratch_cap);
+
+                    in_device.build_input_stream(
+                        stream_config,
+                        move |input: &[$primitive_type], _info: &cpal::InputCallbackInfo| {
+                            if scratch.len() < input.len() {
+                                scratch.resize(input.len(), 0.0);
+                            }
+                            for (o, &i) in scratch.iter_mut().zip(input.iter()) {
+                                *o = <f32 as cpal::FromSample<$primitive_type>>::from_sample_(i);
+                            }
+
+                            callback.callback(&scratch[..input.len()]);
+                        },
+                        err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
+                        Some(BUILD_STREAM_TIMEOUT),
+                    )
+                },)*
+                _ => unreachable!(),
+            }
+        }
+    }
+
     // The cpal ASIO backend requires the callback buffer type to match the
     // driver's native format (unlike WASAPI, which converts internally).
     // For non-f32 formats, render into an f32 scratch buffer and convert
     // on the way out. The f32 path stays a direct passthrough.
-    let scratch_cap = max_block_frames * num_in_channels;
-    let stream_handle = match in_sample_format {
-        cpal::SampleFormat::F32 => in_device.build_input_stream(
-            &stream_config,
+    let stream_handle = if let SampleFormat::F32 = in_sample_format {
+        in_device.build_input_stream(
+            stream_config,
             move |input: &[f32], _info: &cpal::InputCallbackInfo| {
                 callback.callback(input);
             },
             err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
             Some(BUILD_STREAM_TIMEOUT),
-        ),
-        cpal::SampleFormat::I16 => {
-            let mut scratch = scratch_vec(scratch_cap);
-            in_device.build_input_stream(
-                &stream_config,
-                move |input: &[i16], _info: &cpal::InputCallbackInfo| {
-                    if scratch.len() < input.len() {
-                        scratch.resize(input.len(), 0.0);
-                    }
-                    for (o, &i) in scratch.iter_mut().zip(input.iter()) {
-                        *o = <f32 as cpal::FromSample<i16>>::from_sample_(i);
-                    }
-
-                    callback.callback(&scratch[..input.len()]);
-                },
-                err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
-                Some(BUILD_STREAM_TIMEOUT),
-            )
-        }
-        cpal::SampleFormat::I24 => {
-            let mut scratch = scratch_vec(scratch_cap);
-            in_device.build_input_stream(
-                &stream_config,
-                move |input: &[cpal::I24], _info: &cpal::InputCallbackInfo| {
-                    if scratch.len() < input.len() {
-                        scratch.resize(input.len(), 0.0);
-                    }
-                    for (o, &i) in scratch.iter_mut().zip(input.iter()) {
-                        *o = <f32 as cpal::FromSample<cpal::I24>>::from_sample_(i);
-                    }
-
-                    callback.callback(&scratch[..input.len()]);
-                },
-                err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
-                Some(BUILD_STREAM_TIMEOUT),
-            )
-        }
-        cpal::SampleFormat::I32 => {
-            let mut scratch = scratch_vec(scratch_cap);
-            in_device.build_input_stream(
-                &stream_config,
-                move |input: &[i32], _info: &cpal::InputCallbackInfo| {
-                    if scratch.len() < input.len() {
-                        scratch.resize(input.len(), 0.0);
-                    }
-                    for (o, &i) in scratch.iter_mut().zip(input.iter()) {
-                        *o = <f32 as cpal::FromSample<i32>>::from_sample_(i);
-                    }
-
-                    callback.callback(&scratch[..input.len()]);
-                },
-                err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
-                Some(BUILD_STREAM_TIMEOUT),
-            )
-        }
-        fmt => {
-            #[cfg(any(feature = "log", feature = "tracing"))]
-            error!("Unsupported cpal output sample format: {:?}", fmt);
-            #[cfg(not(any(feature = "log", feature = "tracing")))]
-            let _ = fmt;
-            Err(cpal::BuildStreamError::StreamConfigNotSupported)
-        }
+        )
+    } else {
+        build_input_stream!(
+            in_sample_format,
+            (SampleFormat::I8, i8),
+            (SampleFormat::I16, i16),
+            (SampleFormat::I32, i32),
+            (SampleFormat::I64, i64),
+            (SampleFormat::U8, u8),
+            (SampleFormat::U16, u16),
+            (SampleFormat::U32, u32),
+            (SampleFormat::U64, u64),
+            (SampleFormat::F64, f64)
+        )
     };
 
     let stream_handle = match stream_handle {
@@ -979,7 +959,12 @@ fn start_input_stream(
     };
 
     if let Err(e) = stream_handle.play() {
-        if config.fail_on_no_input {
+        if let cpal::ErrorKind::RealtimeDenied = e.kind() {
+            #[cfg(any(feature = "log", feature = "tracing"))]
+            warn!(
+                "Failed to get realtime priority for input audio thread. This may increase latency and/or audio glitches"
+            );
+        } else if config.fail_on_no_input {
             return Err(StartStreamError::PlayStreamError(e));
         } else {
             #[cfg(any(feature = "log", feature = "tracing"))]
@@ -1000,6 +985,7 @@ fn start_input_stream(
     })
 }
 
+#[allow(clippy::large_enum_variant)]
 enum StartInputStreamResult {
     NotStarted,
     Started {
@@ -1028,7 +1014,9 @@ impl Drop for InputCallback {
         self.input_stream_running.store(false, Ordering::Relaxed);
         let _ = self
             .err_to_cx_tx
-            .send(IoStreamError::Input(StreamError::DeviceNotAvailable));
+            .send(IoStreamError::Input(cpal::Error::new(
+                cpal::ErrorKind::StreamInvalidated,
+            )));
     }
 }
 
@@ -1216,7 +1204,7 @@ impl OutputCallback {
         }
 
         let timestamp = info.timestamp();
-        let process_to_playback_delay = timestamp.playback.duration_since(&timestamp.callback);
+        let process_to_playback_delay = timestamp.playback.duration_since(timestamp.callback);
 
         self.processor.process(
             &InterleavedSlice::new(
@@ -1233,7 +1221,7 @@ impl OutputCallback {
                 input_stream_status,
                 output_stream_status,
                 dropped_frames,
-                process_to_playback_delay,
+                process_to_playback_delay: Some(process_to_playback_delay),
             },
         );
     }
@@ -1244,7 +1232,9 @@ impl Drop for OutputCallback {
         self.output_stream_running.store(false, Ordering::Relaxed);
         let _ = self
             .err_to_cx_tx
-            .send(IoStreamError::Output(StreamError::DeviceNotAvailable));
+            .send(IoStreamError::Input(cpal::Error::new(
+                cpal::ErrorKind::StreamInvalidated,
+            )));
     }
 }
 
@@ -1252,26 +1242,35 @@ fn err_callback(
     is_input: bool,
     is_running: Arc<AtomicBool>,
     err_to_cx_tx: mpsc::Sender<IoStreamError>,
-) -> impl FnMut(cpal::StreamError) + Send + 'static {
+) -> impl FnMut(cpal::Error) + Send + 'static {
     let mut last_underrun_msg_instant: Option<Instant> = None;
 
     move |err| {
-        let do_send = if let StreamError::BufferUnderrun = err {
-            let mut do_send = true;
-            if let Some(instant) = last_underrun_msg_instant
-                && instant.elapsed() < UNDERRUN_LOG_COOLDOWN
-            {
-                do_send = false;
-            }
+        let do_send = match err.kind() {
+            cpal::ErrorKind::Xrun => {
+                let mut do_send = true;
+                if let Some(instant) = last_underrun_msg_instant
+                    && instant.elapsed() < UNDERRUN_LOG_COOLDOWN
+                {
+                    do_send = false;
+                }
 
-            if do_send {
-                last_underrun_msg_instant = Some(Instant::now());
-            }
+                if do_send {
+                    last_underrun_msg_instant = Some(Instant::now());
+                }
 
-            do_send
-        } else {
-            is_running.store(false, Ordering::Relaxed);
-            true
+                do_send
+            }
+            cpal::ErrorKind::DeviceNotAvailable
+            | cpal::ErrorKind::HostUnavailable
+            | cpal::ErrorKind::BackendError
+            | cpal::ErrorKind::Other
+            | cpal::ErrorKind::PermissionDenied
+            | cpal::ErrorKind::StreamInvalidated => {
+                is_running.store(false, Ordering::Relaxed);
+                true
+            }
+            _ => false,
         };
 
         if do_send
@@ -1309,20 +1308,16 @@ pub enum StartStreamError {
     InputDeviceNotFound(String),
     #[error("The requested audio output device was not found: {0}")]
     OutputDeviceNotFound(String),
-    #[error("Could not get audio devices: {0}")]
-    FailedToGetDevices(#[from] cpal::DevicesError),
     #[error("Failed to get default input output device")]
     DefaultInputDeviceNotFound,
     #[error("Failed to get default audio output device")]
     DefaultOutputDeviceNotFound,
-    #[error("Failed to get audio device configs: {0}")]
-    FailedToGetConfigs(#[from] cpal::SupportedStreamConfigsError),
     #[error("Failed to get audio device config: {0}")]
-    FailedToGetConfig(#[from] cpal::DefaultStreamConfigError),
+    FailedToGetConfig(cpal::Error),
     #[error("Failed to build audio stream: {0}")]
-    BuildStreamError(#[from] cpal::BuildStreamError),
+    BuildStreamError(cpal::Error),
     #[error("Failed to play audio stream: {0}")]
-    PlayStreamError(#[from] cpal::PlayStreamError),
+    PlayStreamError(cpal::Error),
 
     #[cfg(not(feature = "resample_inputs"))]
     #[error("Not able to use a sample rate of {0} for the input audio device")]
@@ -1342,10 +1337,10 @@ impl From<ActivateError> for StartStreamError {
 pub enum IoStreamError {
     /// An error on the input stream occurred.
     #[error("Input audio stream error: {0}")]
-    Input(cpal::StreamError),
+    Input(cpal::Error),
     /// An error on the output stream occurred.
     #[error("Output audio stream error: {0}")]
-    Output(cpal::StreamError),
+    Output(cpal::Error),
 }
 
 fn scratch_vec(len: usize) -> Vec<f32> {
