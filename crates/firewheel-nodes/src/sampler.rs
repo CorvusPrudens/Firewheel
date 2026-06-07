@@ -414,6 +414,16 @@ impl SamplerState {
         id == playback_id && playback_state == PlaybackState::Stopped
     }
 
+    /// Returns the last [`PlaybackID`] that has finished.
+    pub fn last_finished_playback_id(&self) -> PlaybackID {
+        self.channel
+            .lock()
+            .unwrap()
+            .proc_state_output
+            .read()
+            .last_finished_playback_id
+    }
+
     /// Returns `true` if the processor is currently playing a sample at this instant
     /// in time.
     pub fn currently_playing(&self) -> bool {
@@ -509,6 +519,8 @@ pub struct CurrentProcessorState {
     /// The current [`PlaybackID`]. This is equal to the ID of the latest
     /// [`SamplerNode::play`] parameter that was set to `true`.
     pub playback_id: PlaybackID,
+    /// The last [`PlaybackID`] which has finished.
+    pub last_finished_playback_id: PlaybackID,
     /// The current playback state.
     pub playback_state: PlaybackState,
     /// The age of the current playback in frames (samples in a single channel
@@ -1032,6 +1044,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         new_playing = Some(*play);
 
                         if *play {
+                            self.proc_state.last_finished_playback_id = self.proc_state.playback_id;
                             self.proc_state.playback_id = play.id();
                             proc_state_changed = true;
                         }
@@ -1063,6 +1076,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         new_playing = Some(*play);
 
                         if *play {
+                            self.proc_state.last_finished_playback_id = self.proc_state.playback_id;
                             self.proc_state.playback_id = play.id();
                             proc_state_changed = true;
                         }
@@ -1250,6 +1264,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             } else if self.paused {
                 PlaybackState::Paused
             } else {
+                self.proc_state.last_finished_playback_id = self.proc_state.playback_id;
                 PlaybackState::Stopped
             };
         }
@@ -1297,6 +1312,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             if finished {
                 self.playing = false;
                 self.proc_state.playback_state = PlaybackState::Stopped;
+                self.proc_state.last_finished_playback_id = self.proc_state.playback_id;
             } else {
                 self.proc_state.playback_age_frames = self
                     .proc_state
