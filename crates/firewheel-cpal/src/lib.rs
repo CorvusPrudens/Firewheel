@@ -31,7 +31,6 @@ use tracing::{error, info, warn};
 /// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
-const INPUT_ALLOC_BLOCK_FRAMES: usize = 4096;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 const UNDERRUN_LOG_COOLDOWN: Duration = Duration::from_secs(3);
 
@@ -545,8 +544,9 @@ impl CpalStream {
 
         let mut callback = OutputCallback::new(
             num_out_channels,
-            processor,
+            max_block_frames,
             out_stream_config.sample_rate,
+            processor,
             input_stream_cons,
             err_to_cx_tx.clone(),
             input_stream_running.as_ref().map(Arc::clone),
@@ -561,27 +561,26 @@ impl CpalStream {
             &out_device_id, &out_stream_config, out_sample_format,
         );
 
-        let scratch_cap = max_block_frames * num_out_channels;
+        let scratch_capacity = max_block_frames * num_out_channels;
 
         macro_rules! build_output_streams {
             ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
                 match $sample_format {
                     $($format => {
-                        let mut scratch = scratch_vec(scratch_cap);
+                        let mut scratch = scratch_vec(scratch_capacity);
 
                         out_device.build_output_stream(
                             out_stream_config,
                             move |output: &mut [$primitive_type], info: &cpal::OutputCallbackInfo| {
-                                if scratch.len() < output.len() {
-                                    scratch.resize(output.len(), 0.0);
-                                }
-                                let buf = &mut scratch[..output.len()];
+                                for out_chunk in output.chunks_mut(scratch_capacity) {
+                                    let buf = &mut scratch[..out_chunk.len()];
 
-                                callback.callback(buf, info);
+                                    callback.callback(buf, info);
 
-                                for (o, &f) in output.iter_mut().zip(buf.iter()) {
-                                    // TODO: Add dithering option for better quality?
-                                    *o = <$primitive_type as cpal::FromSample<f32>>::from_sample_(f);
+                                    for (o, &f) in out_chunk.iter_mut().zip(buf.iter()) {
+                                        // TODO: Add dithering option for better quality?
+                                        *o = <$primitive_type as cpal::FromSample<f32>>::from_sample_(f);
+                                    }
                                 }
                             },
                             err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
@@ -885,25 +884,24 @@ fn start_input_stream(
 
     let in_sample_format = default_config.sample_format();
 
-    let scratch_cap = max_block_frames * num_in_channels;
+    let scratch_capacity = max_block_frames * num_in_channels;
 
     macro_rules! build_input_stream {
         ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
             match $sample_format {
                 $($format => {
-                    let mut scratch = scratch_vec(scratch_cap);
+                    let mut scratch = scratch_vec(scratch_capacity);
 
                     in_device.build_input_stream(
                         stream_config,
                         move |input: &[$primitive_type], _info: &cpal::InputCallbackInfo| {
-                            if scratch.len() < input.len() {
-                                scratch.resize(input.len(), 0.0);
-                            }
-                            for (o, &i) in scratch.iter_mut().zip(input.iter()) {
-                                *o = <f32 as cpal::FromSample<$primitive_type>>::from_sample_(i);
-                            }
+                            for in_chunk in input.chunks(scratch_capacity) {
+                                for (o, &i) in scratch.iter_mut().zip(in_chunk.iter()) {
+                                    *o = <f32 as cpal::FromSample<$primitive_type>>::from_sample_(i);
+                                }
 
-                            callback.callback(&scratch[..input.len()]);
+                                callback.callback(&scratch[..in_chunk.len()]);
+                            }
                         },
                         err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
                         Some(BUILD_STREAM_TIMEOUT),
@@ -1036,10 +1034,12 @@ struct OutputCallback {
 }
 
 impl OutputCallback {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         num_out_channels: usize,
-        processor: FirewheelProcessor,
+        max_block_frames: usize,
         sample_rate: u32,
+        processor: FirewheelProcessor,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
         err_to_cx_tx: mpsc::Sender<IoStreamError>,
         input_stream_running: Option<Arc<AtomicBool>>,
@@ -1048,10 +1048,7 @@ impl OutputCallback {
         let stream_start_instant = Instant::now();
 
         let input_buffer = if let Some(cons) = &input_stream_cons {
-            let mut v = Vec::new();
-            v.reserve_exact(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels());
-            v.resize(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels(), 0.0);
-            v
+            scratch_vec(max_block_frames * cons.num_channels())
         } else {
             Vec::new()
         };
@@ -1161,13 +1158,6 @@ impl OutputCallback {
         {
             let num_in_channels = cons.num_channels();
             let num_input_samples = frames * num_in_channels;
-
-            // Some platforms like wasapi might occasionally send a really large number of frames
-            // to process. Since CPAL doesn't tell us the actual maximum block size of the stream,
-            // there is not much we can do about it except to allocate when that happens.
-            if num_input_samples > self.input_buffer.len() {
-                self.input_buffer.resize(num_input_samples, 0.0);
-            }
 
             if self
                 .input_stream_running
