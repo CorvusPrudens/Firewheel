@@ -466,7 +466,7 @@ mod reflect {
         }
 
         fn index_of_name(&self, name: &str) -> Option<usize> {
-            todo!("index_of_name is a new function");
+            (name == "value").then_some(0)
         }
     }
 
